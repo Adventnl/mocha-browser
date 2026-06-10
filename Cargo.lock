@@ -37,6 +37,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "mocha_nav"
+version = "0.1.0"
+dependencies = [
+ "mocha_error",
+ "mocha_net",
+ "mocha_url",
+]
+
+[[package]]
+name = "mocha_net"
+version = "0.1.0"
+dependencies = [
+ "mocha_error",
+ "mocha_url",
+]
+
+[[package]]
 name = "mocha_paint"
 version = "0.1.0"
 dependencies = [
@@ -52,6 +69,8 @@ dependencies = [
  "mocha_error",
  "mocha_html",
  "mocha_layout",
+ "mocha_nav",
+ "mocha_net",
  "mocha_paint",
  "mocha_style",
  "mocha_url",

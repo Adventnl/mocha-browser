@@ -1,0 +1,12 @@
+[package]
+name = "mocha_nav"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Navigation controller and history for Mocha Browser (navigate/back/forward/reload)."
+
+[dependencies]
+mocha_error.workspace = true
+mocha_url.workspace = true
+mocha_net.workspace = true

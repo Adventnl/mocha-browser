@@ -73,9 +73,9 @@ Every crate must have tests.
 
 Every milestone must produce a runnable result.
 
-The current milestone is Milestone 3: a real layout foundation — block and inline formatting with line boxes, word wrapping, and anonymous block boxes — consuming computed style, still terminal-only for local HTML. Text measurement is estimated, not real font metrics.
+The current milestone is Milestone 4: networking and navigation — document loading for local paths, `file://`, and `http://` (no TLS) via `mocha_net`, with redirects, content-type gating, a simple in-memory cache, and a `mocha_nav` back/forward/reload history. Rendering remains terminal-only.
 
-Do not add JavaScript, networking, external/linked CSS, dynamic DOM mutation, real font metrics, flexbox/grid, positioning, tabs, sandboxing, or desktop window rendering during Milestone 3.
+Do not add HTTPS/TLS by hand, cookies, auth, proxies, subresource loading (external CSS/images/scripts), JavaScript, dynamic DOM mutation, an origin/security model, tabs, sandboxing, or desktop window rendering during Milestone 4.
 
 ## Verification commands
 

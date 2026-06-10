@@ -1,8 +1,8 @@
 # Milestone Roadmap
 
-Mocha Browser is built one milestone at a time. **Milestones 1, 2, and 3 are
-implemented today**; everything after them is direction, not code. Each milestone
-lists its goal, what is explicitly not included, and how completion is verified.
+Mocha Browser is built one milestone at a time. **Milestones 1–4 are implemented
+today**; everything after them is direction, not code. Each milestone lists its
+goal, what is explicitly not included, and how completion is verified.
 
 ## Milestone 1: Engine laboratory — done
 
@@ -42,15 +42,19 @@ lists its goal, what is explicitly not included, and how completion is verified.
   offsets, inline line sharing, word wrapping, and anonymous blocks; paint tests;
   integration tests over `examples/layout/*`; and the `--dump-layout` output.
 
-## Milestone 4: Networking and navigation — next
+## Milestone 4: Networking and navigation — done (current)
 
-- **Goal:** load `file`, `http`, and `https` resources; handle redirects,
-  history, and reload.
-- **Not included:** caching policy depth, service workers, JavaScript.
-- **Verification:** tests against a local fixture server covering success,
-  redirect, and error responses.
+- **Goal:** load `file://` and `http://` resources through `mocha_net` with
+  redirect following, content-type handling, and a simple in-memory cache, plus a
+  `mocha_nav` history (navigate/back/forward/reload). `https://` is deferred.
+- **Not included:** HTTPS/TLS, cookies, auth, proxies, HTTP/2-3, real HTTP cache
+  semantics, charset decoding beyond UTF-8, subresource loading (external CSS,
+  images, scripts), origin/security policy, JavaScript.
+- **Verification:** `mocha_url`/`mocha_net`/`mocha_nav` unit tests plus shell
+  integration tests against a localhost `std::net` test server (success,
+  redirect, redirect loop, text/plain rejection, cache hit, back/forward).
 
-## Milestone 5: DOM events
+## Milestone 5: DOM events — next
 
 - **Goal:** an `EventTarget` model with capture/bubble phases and click,
   keyboard, and mouse events.

@@ -4,7 +4,7 @@ Mocha Browser is an experimental from-scratch browser engine and desktop browser
 
 Mocha is not based on Chromium, WebKit, Gecko, Servo, Electron, CEF, Tauri WebView, system WebView, V8, SpiderMonkey, JavaScriptCore, QuickJS, Deno, or Node.js.
 
-Current status: Milestone 3 (Real Layout Foundation) implemented.
+Current status: Milestone 4 (Networking and Navigation) implemented.
 
 Mocha is not safe for general web browsing yet.
 
@@ -18,15 +18,14 @@ with a clear error rather than being faked.
 
 ## Current milestone
 
-**Milestone 3: Real Layout Foundation.** Load a local HTML file, extract and
-parse its CSS, compute styles, lay it out with real block and inline formatting
-(line boxes and word wrapping), and print a display list to the terminal:
+**Milestone 4: Networking and Navigation.** Load a document from a local path,
+`file://`, or `http://` URL through a resource loader and navigation-history
+layer, then run the rendering engine and print a display list to the terminal:
 
 ```text
-bytes -> HTML tokenizer/tree builder -> DOM -> <style> extraction
-      -> CSS tokenizer/parser -> selector matching -> cascade -> inheritance
-      -> computed style tree -> block & inline layout (line boxes, wrapping)
-      -> display list -> terminal
+input URL/path -> mocha_url -> mocha_nav/mocha_net (load: file/http, redirects,
+content-type, cache) -> HTML tokenizer/tree builder -> DOM -> <style> extraction
+-> CSS parser -> computed style -> block & inline layout -> display list -> terminal
 ```
 
 ## What works
@@ -47,13 +46,21 @@ bytes -> HTML tokenizer/tree builder -> DOM -> <style> extraction
   runs out; long text wraps at word boundaries.
 - A display list of `DrawRect` / `DrawBorder` / `DrawText` commands carrying
   colors, plus a layout-tree dump (`--dump-layout`), printed via `mocha_shell`.
+- **Document loading** of local paths, `file://`, and `http://` URLs through
+  `mocha_net` (a std-only blocking HTTP/1.1 client), with redirect following (up
+  to 10), content-type gating (only HTML renders), a simple in-memory cache, and
+  a `mocha_nav` back/forward/reload history model.
 
 ## What does not work
 
-Not implemented (see [docs/architecture/limitations.md](docs/architecture/limitations.md)):
+Not implemented (see [docs/architecture/limitations.md](docs/architecture/limitations.md)
+and [networking-and-navigation.md](docs/architecture/networking-and-navigation.md)):
 
-- External / linked CSS (`<link>` is rejected with a clear error), networking,
-  JavaScript.
+- **`https://`** (no TLS — returns a clear error), cookies, authentication,
+  proxies, HTTP/2-3, real HTTP cache semantics, charset decoding beyond UTF-8.
+- Subresource loading: external / linked CSS (`<link>` is rejected), images,
+  scripts, fonts.
+- JavaScript.
 - The real HTML5 parsing algorithm and real CSS error recovery.
 - `!important`, media queries, pseudo-classes/elements, attribute selectors, the
   `>`/`+`/`~` combinators, `em`/`rem`/`%` units, `rgb()`/`calc()`/`var()`.
@@ -104,11 +111,15 @@ cargo run -p mocha_shell -- examples/layout/inline-wrap.html
 cargo run -p mocha_shell -- examples/layout/box-model.html
 ```
 
-Dump the layout tree instead of the display list:
+Load over `file://` or `http://`, dump the layout tree, or show response headers:
 
 ```bash
+cargo run -p mocha_shell -- "file://$(pwd)/examples/basic/index.html"
 cargo run -p mocha_shell -- --dump-layout examples/layout/inline-wrap.html
+cargo run -p mocha_shell -- --show-headers --no-cache http://127.0.0.1:8080/index.html
 ```
+
+`https://` is not implemented and exits with a clear error.
 
 ## Repository structure
 
@@ -123,12 +134,15 @@ mocha-browser/
     mocha_style/    selector matching, cascade, inheritance, computed style
     mocha_layout/   block + inline layout (geometry/block/inline/line/debug)
     mocha_paint/    display-list generation (colors, borders)
+    mocha_net/      resource loading (file/http), redirects, content-type, cache
+    mocha_nav/      navigation history (navigate/back/forward/reload)
     mocha_shell/    CLI that wires the pipeline together
-  docs/architecture/  overview, pipeline, milestones, boundaries, limitations
+  docs/architecture/  overview, pipeline, milestones, boundaries, limitations,
+                      networking-and-navigation
   examples/basic/     plain HTML example
   examples/styled/    HTML + CSS example
   examples/layout/    article / inline-wrap / box-model layout examples
-  tests/integration/  end-to-end pipeline tests
+  tests/integration/  rendering + navigation pipeline tests
   tests/visual/       future render targets (no image comparison yet)
 ```
 
@@ -141,8 +155,8 @@ The full roadmap lives in [docs/architecture/milestones.md](docs/architecture/mi
 
 1. Engine laboratory (done)
 2. Basic CSS engine (done)
-3. Real layout foundation (current)
-4. Networking and navigation
+3. Real layout foundation (done)
+4. Networking and navigation (current)
 5. DOM events
 6. Custom JavaScript interpreter
 7. JavaScript DOM bindings

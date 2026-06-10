@@ -1,9 +1,12 @@
 # Rendering Pipeline
 
-As of Milestone 2 the pipeline is:
+As of Milestone 4 the pipeline is:
 
 ```text
-bytes
+input URL/path
+  -> URL parse/normalize (mocha_url)
+  -> load: file/http, redirects, content-type, cache (mocha_net via mocha_nav)
+  -> content-type check + UTF-8 decode
   -> HTML tokenizer
   -> HTML tree builder
   -> DOM tree
@@ -12,7 +15,7 @@ bytes
   -> CSS parser
   -> selector matching + cascade + inheritance
   -> computed style tree
-  -> layout tree
+  -> block & inline layout tree
   -> display list
   -> terminal output
 ```
@@ -20,9 +23,23 @@ bytes
 Each stage is described below with its input, output, owning crate, current
 limitations, and intended future expansion.
 
+## 0. Input → bytes (load + navigation)
+
+- **Input:** a URL or local path string.
+- **Output:** a `ResourceResponse` (final URL, status, headers, content type,
+  body), then a UTF-8 `&str` body for HTML.
+- **Owning crates:** `mocha_url` (parse), `mocha_net` (`DefaultLoader`:
+  file/http, redirects, content-type, in-memory cache), `mocha_nav`
+  (history), orchestrated by `mocha_shell`.
+- **Current limitations:** `file://`/`http://` only — **no HTTPS/TLS**; only HTML
+  renders; UTF-8 only; no cookies/auth/proxy; the cache is not an HTTP cache. See
+  [networking-and-navigation.md](networking-and-navigation.md).
+- **Future expansion:** HTTPS via a vetted TLS library, subresource loading,
+  charset decoding, real cache semantics.
+
 ## 1. Bytes → tokens (HTML tokenizer)
 
-- **Input:** the file contents as a `&str` (read by `mocha_shell`).
+- **Input:** the decoded document body as a `&str`.
 - **Output:** `Vec<HtmlToken>` (doctype, start/end tags, text, comments).
 - **Owning crate:** `mocha_html` (`tokenizer.rs`).
 - **Current limitations:** recognises a tiny hand-written grammar. Internal

@@ -34,6 +34,10 @@ pub enum MochaError {
     Layout(String),
     /// A paint / display-list failure.
     Paint(String),
+    /// A network/resource-loading failure (connection, protocol, redirect).
+    Network(String),
+    /// A navigation/history failure (e.g. no previous entry to go back to).
+    Navigation(String),
     /// A failure in the command-line shell that wires the pipeline together.
     Shell(String),
 }
@@ -53,6 +57,8 @@ impl fmt::Display for MochaError {
             MochaError::Dom(message) => write!(f, "dom error: {message}"),
             MochaError::Layout(message) => write!(f, "layout error: {message}"),
             MochaError::Paint(message) => write!(f, "paint error: {message}"),
+            MochaError::Network(message) => write!(f, "network error: {message}"),
+            MochaError::Navigation(message) => write!(f, "navigation error: {message}"),
             MochaError::Shell(message) => write!(f, "shell error: {message}"),
         }
     }

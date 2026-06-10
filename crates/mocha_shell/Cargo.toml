@@ -20,6 +20,10 @@ path = "src/lib.rs"
 name = "rendering_pipeline"
 path = "../../tests/integration/rendering_pipeline.rs"
 
+[[test]]
+name = "navigation_pipeline"
+path = "../../tests/integration/navigation_pipeline.rs"
+
 [dependencies]
 mocha_error.workspace = true
 mocha_url.workspace = true
@@ -27,6 +31,9 @@ mocha_html.workspace = true
 mocha_style.workspace = true
 mocha_layout.workspace = true
 mocha_paint.workspace = true
+mocha_net.workspace = true
+mocha_nav.workspace = true
 
 [dev-dependencies]
 mocha_dom.workspace = true
+mocha_net = { workspace = true, features = ["test-util"] }

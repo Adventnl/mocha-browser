@@ -48,12 +48,22 @@ mocha_paint
 - no window rendering, no CSS parsing
 - depends on: mocha_error, mocha_layout
 
+mocha_net
+- resource loading: file + http (no TLS), redirects, content-type, memory cache
+- no navigation history, no HTML/CSS/layout/paint
+- depends on: mocha_error, mocha_url
+
+mocha_nav
+- navigation history (navigate/back/forward/reload) over a ResourceLoader
+- no protocol details, no rendering
+- depends on: mocha_error, mocha_url, mocha_net
+
 mocha_shell
 - command-line executable (library + binary)
-- wires the pipeline together
+- loads via mocha_nav/mocha_net, then renders through the engine
 - no browser UI yet
 - depends on: mocha_error, mocha_url, mocha_html, mocha_style,
-  mocha_layout, mocha_paint
+  mocha_layout, mocha_paint, mocha_net, mocha_nav
 ```
 
 ## Notes
@@ -72,9 +82,12 @@ mocha_shell
 - `Color` is defined in `mocha_css` and re-exported through `mocha_style` and
   `mocha_layout` so that `mocha_layout` and `mocha_paint` can name it without
   depending on `mocha_css` directly.
-- `mocha_shell` is the only crate that performs I/O against the real filesystem
-  and the terminal. It exposes `run_file` and `run_html` so the whole pipeline is
-  testable without a process boundary.
-- Future crates (`mocha_net`, `mocha_js`, `mocha_gpu`, `mocha_security`,
-  `mocha_browser`, …) are intentionally **not** created yet. They are described
-  in [milestones.md](milestones.md) as direction only.
+- `mocha_net` performs the actual network/file I/O; `mocha_shell` no longer reads
+  files or speaks HTTP directly — it loads through `mocha_nav`/`mocha_net` and
+  then renders. `mocha_net` depends on no rendering crate, and `mocha_nav` owns
+  only history (it does not render — that boundary keeps navigation reusable).
+- See [networking-and-navigation.md](networking-and-navigation.md) for the
+  loading/navigation design and its security limitations.
+- Future crates (`mocha_js`, `mocha_gpu`, `mocha_security`, `mocha_browser`, …)
+  are intentionally **not** created yet. They are described in
+  [milestones.md](milestones.md) as direction only.

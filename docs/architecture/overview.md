@@ -25,13 +25,14 @@ the modern web. It must never claim otherwise.
 
 ## Current milestone
 
-**Milestone 3: Real Layout Foundation.** Mocha loads a single local HTML file,
-extracts and parses its CSS (`<style>` blocks and inline `style` attributes),
-computes styles via selector matching, cascade, and inheritance, and lays the
-styled tree out with real block and inline formatting — line boxes, word
-wrapping, and anonymous block boxes for mixed content — before painting a colored
-display list to the terminal. Text measurement is still estimated, not real font
-metrics. No window is opened, and no external CSS or networking is involved. See
+**Milestone 4: Networking and Navigation.** Mocha loads a document from a local
+path, `file://`, or `http://` URL through a resource loader (`mocha_net`) and a
+back/forward history (`mocha_nav`) — following redirects, classifying content
+type, and caching in memory — then runs the existing engine (HTML → CSS →
+computed style → block/inline layout) and paints a display list to the terminal.
+`https://` is not implemented (no TLS) and fails clearly; only HTML documents are
+rendered; subresources (external CSS, images, scripts) are not loaded. No window
+is opened. See [networking-and-navigation.md](networking-and-navigation.md) and
 [rendering-pipeline.md](rendering-pipeline.md) for the stages and
 [limitations.md](limitations.md) for what is intentionally absent.
 

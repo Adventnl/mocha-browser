@@ -1,0 +1,15 @@
+[package]
+name = "mocha_net"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Minimal resource loading for Mocha Browser: file and HTTP (no TLS), redirects, content-type, and an in-memory cache."
+
+[features]
+# Exposes the localhost `test_server` helper for integration tests in other crates.
+test-util = []
+
+[dependencies]
+mocha_error.workspace = true
+mocha_url.workspace = true

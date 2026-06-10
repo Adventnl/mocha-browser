@@ -1,17 +1,17 @@
 # Limitations
 
-Mocha Browser is at **Milestone 3**. It is an engine laboratory, not a usable
+Mocha Browser is at **Milestone 4**. It is an engine laboratory, not a usable
 browser. This document is deliberately explicit about what does not exist so the
 project never overclaims.
 
 ## Not supported
 
 - **JavaScript** — no engine, no execution, no bindings.
-- **External / linked CSS** — `<link rel="stylesheet">` is rejected with a clear
-  `UnsupportedFeature` error; external CSS is never fetched or parsed.
-- **Networking** — no `file` fetching beyond a direct local read; no HTTP,
-  HTTPS, sockets, cookies, or caching. Non-`file` URLs return
-  `UnsupportedFeature`.
+- **External / linked CSS and other subresources** — `<link rel="stylesheet">`
+  is rejected with a clear `UnsupportedFeature` error; images, scripts, and fonts
+  are not loaded. Milestone 4 loads the top-level document only.
+- **HTTPS / TLS** — `https://` returns `UnsupportedFeature` (TLS is never
+  hand-rolled and no TLS library is bundled).
 - **Real HTML5 parsing algorithm** — the tokenizer and tree builder accept a
   tiny hand-written grammar and a fixed tag set; there is no spec-compliant
   tokenization, no insertion modes, and no error recovery.
@@ -67,6 +67,22 @@ Not supported (returns a clear error):
   default of `display: none`, so layout skips its subtree.
 - **`height` of the viewport** does not constrain layout; vertical content may
   exceed it. There is no scrolling or overflow handling.
+
+## Networking limitations (Milestone 4)
+
+See [networking-and-navigation.md](networking-and-navigation.md) for detail.
+
+- **`http://` only** — a hand-written blocking HTTP/1.1 `GET` over TCP; no
+  HTTPS/TLS, HTTP/2, or HTTP/3; no keep-alive, chunked-transfer decoding, or
+  compression.
+- **No cookies, authentication, credentials, or proxy support.**
+- **The in-memory cache is not an HTTP cache** — no `Cache-Control`, validation,
+  or expiration; only `200` responses are stored, for the process lifetime.
+- **Only HTML documents render**; other content types return a clear error.
+- **UTF-8 only** — no charset detection or decoding; invalid UTF-8 is rejected.
+- **No origin model**, same-origin checks, mixed-content handling, or CSP.
+- Redirects are followed (limit 10); redirects to `file://` and unsupported
+  schemes are rejected. Dot-segments in relative redirects are not normalized.
 
 ## Layout limitations (Milestone 3)
 

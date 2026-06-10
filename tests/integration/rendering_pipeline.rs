@@ -236,8 +236,9 @@ fn unsupported_css_unit_fails_clearly() {
 }
 
 #[test]
-fn http_url_still_unsupported() {
-    let error = run_file("http://example.com/index.html").unwrap_err();
+fn https_url_unsupported() {
+    // https is rejected before any network access (no external calls in tests).
+    let error = run_file("https://example.com/index.html").unwrap_err();
     assert!(matches!(
         error,
         mocha_error::MochaError::UnsupportedFeature(_)
