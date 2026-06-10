@@ -11,6 +11,7 @@ members = [
     "crates/mocha_paint",
     "crates/mocha_net",
     "crates/mocha_nav",
+    "crates/mocha_events",
     "crates/mocha_shell",
 ]
 
@@ -31,4 +32,5 @@ mocha_layout = { path = "crates/mocha_layout" }
 mocha_paint = { path = "crates/mocha_paint" }
 mocha_net = { path = "crates/mocha_net" }
 mocha_nav = { path = "crates/mocha_nav" }
+mocha_events = { path = "crates/mocha_events" }
 mocha_shell = { path = "crates/mocha_shell" }

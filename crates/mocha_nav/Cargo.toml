@@ -10,3 +10,5 @@ description = "Navigation controller and history for Mocha Browser (navigate/bac
 mocha_error.workspace = true
 mocha_url.workspace = true
 mocha_net.workspace = true
+mocha_dom.workspace = true
+mocha_events.workspace = true

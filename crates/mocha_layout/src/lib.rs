@@ -49,6 +49,29 @@ pub fn build_layout_tree(
     Ok(block::layout_block(styled_root, 0.0, 0.0, viewport.width))
 }
 
+/// Find the DOM node at viewport point `(x, y)`.
+///
+/// Returns the deepest box containing the point that has a `node_id` (so text
+/// runs map to their source text node). `display: none` nodes produce no box and
+/// are never hit. This is a minimal bridge: there is no z-index, transform,
+/// clipping, scrolling, or `pointer-events` handling.
+pub fn hit_test(root: &LayoutBox, x: f32, y: f32) -> Option<NodeId> {
+    // Recurse into children first (deepest match wins); fall back to this box.
+    for child in root.children.iter().rev() {
+        if let Some(hit) = hit_test(child, x, y) {
+            return Some(hit);
+        }
+    }
+    if root.node_id.is_some() && contains(&root.rect, x, y) {
+        return root.node_id;
+    }
+    None
+}
+
+fn contains(rect: &Rect, x: f32, y: f32) -> bool {
+    x >= rect.x && x < rect.right() && y >= rect.y && y < rect.bottom()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -485,6 +508,40 @@ mod tests {
     }
 
     // --- debug dump ---------------------------------------------------------
+
+    #[test]
+    fn hit_test_returns_deepest_node_and_misses_outside() {
+        // root -> p(block, id 1) -> text "abcde" (id 2)
+        let p = element(1, block_style(), vec![text(2, "abcde", 16.0, Color::BLACK)]);
+        let root = element(0, block_style(), vec![p]);
+        let layout = layout(&root, 800.0);
+
+        // Inside the text run -> the text node (deepest), not the paragraph.
+        assert_eq!(hit_test(&layout, 5.0, 5.0), Some(NodeId(2)));
+        // Far outside the document -> nothing.
+        assert_eq!(hit_test(&layout, 5000.0, 5000.0), None);
+    }
+
+    #[test]
+    fn hit_test_in_empty_block_returns_the_block() {
+        // A block with an explicit size but no text: the point hits the block.
+        let mut sized = block_style();
+        sized.height = Some(50.0);
+        let root = element(0, block_style(), vec![element(1, sized, Vec::new())]);
+        let layout = layout(&root, 800.0);
+        assert_eq!(hit_test(&layout, 10.0, 10.0), Some(NodeId(1)));
+    }
+
+    #[test]
+    fn hit_test_skips_display_none() {
+        let mut hidden = block_style();
+        hidden.display = Display::None;
+        hidden.height = Some(50.0);
+        let root = element(0, block_style(), vec![element(1, hidden, Vec::new())]);
+        let layout = layout(&root, 800.0);
+        // The hidden node produced no box, so it cannot be hit (root may match).
+        assert_ne!(hit_test(&layout, 10.0, 10.0), Some(NodeId(1)));
+    }
 
     #[test]
     fn debug_dump_includes_expected_kinds() {

@@ -130,3 +130,10 @@ limitations, and intended future expansion.
 - **Owning crate:** `mocha_shell`.
 - **Current limitations:** plain text, one command per line. No window.
 - **Future expansion:** a desktop window and compositor consuming the same list.
+
+## Interaction (after rendering)
+
+Separate from the render pipeline, the layout tree also supports **hit testing**
+(`mocha_layout::hit_test`) to map a point to a DOM node, which feeds the internal
+**event system** (`mocha_events`) and link **default actions** (`mocha_nav`). See
+[events.md](events.md). There is no JavaScript or real window input yet.

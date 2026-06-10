@@ -55,6 +55,7 @@ fn collect_words(node: &StyledNode, words: &mut Vec<Word>, pending_space: &mut b
                 font_size: node.style.font_size,
                 color: node.style.color,
                 space_before,
+                node_id: node.node_id,
             });
         }
         *pending_space = trailing;

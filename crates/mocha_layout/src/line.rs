@@ -5,7 +5,7 @@
 //! metrics. Words wrap at word boundaries; a single word wider than the line is
 //! placed alone and allowed to overflow (no hyphenation, no character wrapping).
 
-use mocha_style::Color;
+use mocha_style::{Color, NodeId};
 
 use crate::box_tree::{LayoutBox, LayoutBoxKind};
 use crate::geometry::Rect;
@@ -18,6 +18,8 @@ pub(crate) struct Word {
     pub font_size: f32,
     pub color: Color,
     pub space_before: bool,
+    /// The source text node, so hit testing can map a click to the DOM.
+    pub node_id: NodeId,
 }
 
 fn word_width(text: &str, font_size: f32) -> f32 {
@@ -73,7 +75,7 @@ pub(crate) fn layout_words(
 
         cursor_x += space;
         runs.push(LayoutBox {
-            node_id: None,
+            node_id: Some(word.node_id),
             kind: LayoutBoxKind::TextRun(word.text.clone()),
             rect: Rect {
                 x: content_x + cursor_x,

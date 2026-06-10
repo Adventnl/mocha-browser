@@ -53,15 +53,21 @@ mocha_net
 - no navigation history, no HTML/CSS/layout/paint
 - depends on: mocha_error, mocha_url
 
+mocha_events
+- internal DOM event model and dispatch (capture/target/bubble)
+- listeners are Rust callbacks; no JavaScript, no URL/navigation knowledge
+- depends on: mocha_error, mocha_dom
+
 mocha_nav
 - navigation history (navigate/back/forward/reload) over a ResourceLoader
+- link default-action interpretation (click on <a href> → Navigate)
 - no protocol details, no rendering
-- depends on: mocha_error, mocha_url, mocha_net
+- depends on: mocha_error, mocha_url, mocha_net, mocha_dom, mocha_events
 
 mocha_shell
 - command-line executable (library + binary)
 - loads via mocha_nav/mocha_net, then renders through the engine
-- no browser UI yet
+- exposes hit testing (--hit-test); no browser UI yet
 - depends on: mocha_error, mocha_url, mocha_html, mocha_style,
   mocha_layout, mocha_paint, mocha_net, mocha_nav
 ```
@@ -87,7 +93,11 @@ mocha_shell
   then renders. `mocha_net` depends on no rendering crate, and `mocha_nav` owns
   only history (it does not render — that boundary keeps navigation reusable).
 - See [networking-and-navigation.md](networking-and-navigation.md) for the
-  loading/navigation design and its security limitations.
+  loading/navigation design and [events.md](events.md) for the event system.
+- `mocha_events` is the event core and stays free of URL/navigation knowledge;
+  link default-action interpretation lives in `mocha_nav` (which may depend on
+  `mocha_events`). The point→node `hit_test` bridge lives in `mocha_layout`
+  (events don't depend on layout). This keeps each boundary one-directional.
 - Future crates (`mocha_js`, `mocha_gpu`, `mocha_security`, `mocha_browser`, …)
   are intentionally **not** created yet. They are described in
   [milestones.md](milestones.md) as direction only.

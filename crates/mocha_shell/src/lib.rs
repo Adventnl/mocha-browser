@@ -23,6 +23,7 @@ use mocha_nav::NavigationController;
 use mocha_net::{DefaultLoader, ResourceResponse, ResourceType};
 use mocha_url::Url;
 
+pub use mocha_layout::NodeId;
 pub use mocha_paint::{format_display_list, DisplayCommand};
 
 /// Options controlling a shell run.
@@ -66,6 +67,13 @@ pub fn run_file(input: &str) -> MochaResult<Vec<DisplayCommand>> {
 pub fn dump_layout_file(input: &str) -> MochaResult<String> {
     let response = load_document(input, RunOptions::default())?;
     Ok(format_layout_tree(&render_to_layout(&response)?))
+}
+
+/// Load a location and return the DOM node at viewport point `(x, y)`.
+pub fn hit_test_file(input: &str, x: f32, y: f32) -> MochaResult<Option<NodeId>> {
+    let response = load_document(input, RunOptions::default())?;
+    let layout = render_to_layout(&response)?;
+    Ok(mocha_layout::hit_test(&layout, x, y))
 }
 
 /// Render an in-memory HTML string to a display list (no loading).

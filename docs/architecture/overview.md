@@ -25,14 +25,15 @@ the modern web. It must never claim otherwise.
 
 ## Current milestone
 
-**Milestone 4: Networking and Navigation.** Mocha loads a document from a local
-path, `file://`, or `http://` URL through a resource loader (`mocha_net`) and a
-back/forward history (`mocha_nav`) — following redirects, classifying content
-type, and caching in memory — then runs the existing engine (HTML → CSS →
-computed style → block/inline layout) and paints a display list to the terminal.
-`https://` is not implemented (no TLS) and fails clearly; only HTML documents are
-rendered; subresources (external CSS, images, scripts) are not loaded. No window
-is opened. See [networking-and-navigation.md](networking-and-navigation.md) and
+**Milestone 5: DOM Events.** Building on document loading (Milestone 4), Mocha
+adds an internal DOM event system (`mocha_events`): capture/target/bubble
+dispatch, listener registration/removal, propagation control, and cancelation,
+with `click`/mouse/keyboard event data. A layout **hit-test** maps a point to a
+DOM node, minimal `<a href>` support is added, and a `click` on a link produces a
+navigation **default action** (interpreted in `mocha_nav`). This is
+engine-internal — **there is no JavaScript and no real window input**; events are
+dispatched programmatically. See [events.md](events.md),
+[networking-and-navigation.md](networking-and-navigation.md), and
 [rendering-pipeline.md](rendering-pipeline.md) for the stages and
 [limitations.md](limitations.md) for what is intentionally absent.
 

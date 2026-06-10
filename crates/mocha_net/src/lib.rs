@@ -287,6 +287,34 @@ mod tests {
     }
 
     #[test]
+    fn redirect_without_location_errors_clearly() {
+        let server = TestServer::start(vec![(
+            "/r".to_string(),
+            Reply::Raw(b"HTTP/1.1 302 Found\r\nContent-Length: 0\r\n\r\n".to_vec()),
+        )]);
+        let mut loader = DefaultLoader::new();
+        let error = load(&mut loader, &server.url("/r")).unwrap_err();
+        match error {
+            MochaError::Network(message) => assert!(message.contains("Location")),
+            other => panic!("expected Network error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn chunked_transfer_encoding_is_unsupported() {
+        let server = TestServer::start(vec![(
+            "/c".to_string(),
+            Reply::Raw(
+                b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n0\r\n\r\n"
+                    .to_vec(),
+            ),
+        )]);
+        let mut loader = DefaultLoader::new();
+        let error = load(&mut loader, &server.url("/c")).unwrap_err();
+        assert!(matches!(error, MochaError::UnsupportedFeature(_)));
+    }
+
+    #[test]
     fn redirect_to_file_is_rejected() {
         let server = TestServer::start(vec![(
             "/evil".to_string(),

@@ -33,6 +33,8 @@ pub enum Reply {
         /// The path to redirect to on this server.
         path: String,
     },
+    /// Send these exact bytes verbatim (for malformed/edge-case responses).
+    Raw(Vec<u8>),
 }
 
 /// A running test server. Drop it to leak the background thread (fine for tests;
@@ -122,6 +124,7 @@ fn render(reply: &Reply, authority: &str) -> Vec<u8> {
                 b"",
             )
         }
+        Reply::Raw(bytes) => bytes.clone(),
     }
 }
 

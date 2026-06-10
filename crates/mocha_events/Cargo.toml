@@ -1,0 +1,11 @@
+[package]
+name = "mocha_events"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Internal DOM event model and dispatch for Mocha Browser (capture/target/bubble; no JavaScript)."
+
+[dependencies]
+mocha_error.workspace = true
+mocha_dom.workspace = true

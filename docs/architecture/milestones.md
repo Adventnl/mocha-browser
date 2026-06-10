@@ -1,6 +1,6 @@
 # Milestone Roadmap
 
-Mocha Browser is built one milestone at a time. **Milestones 1–4 are implemented
+Mocha Browser is built one milestone at a time. **Milestones 1–5 are implemented
 today**; everything after them is direction, not code. Each milestone lists its
 goal, what is explicitly not included, and how completion is verified.
 
@@ -54,14 +54,20 @@ goal, what is explicitly not included, and how completion is verified.
   integration tests against a localhost `std::net` test server (success,
   redirect, redirect loop, text/plain rejection, cache hit, back/forward).
 
-## Milestone 5: DOM events — next
+## Milestone 5: DOM events — done (current)
 
-- **Goal:** an `EventTarget` model with capture/bubble phases and click,
-  keyboard, and mouse events.
-- **Not included:** JavaScript bindings (Milestone 7).
-- **Verification:** tests for dispatch order across capturing and bubbling.
+- **Goal:** an internal event model (`mocha_events`) with capture/target/bubble
+  dispatch, listener registration/removal, `once` listeners, propagation control
+  and cancelation, plus `click`/mouse/keyboard event data, a layout hit-test
+  bridge, minimal `<a href>` support, and a link navigation default action.
+- **Not included:** JavaScript listeners (Milestone 7), real window/OS input,
+  pointer/touch/wheel/focus events, `passive` listeners, accessibility events.
+- **Verification:** `mocha_events` dispatch/order/propagation tests, `mocha_dom`
+  helper tests, `mocha_layout` hit-test tests, `mocha_nav` default-action tests,
+  and an `events_pipeline` integration test (hit-test link → dispatch click →
+  resolve navigation; `preventDefault` suppresses it).
 
-## Milestone 6: Custom JavaScript interpreter
+## Milestone 6: Custom JavaScript interpreter — next
 
 - **Goal:** a from-scratch JS lexer, parser, AST, and tree-walking interpreter
   with values, functions, and closures. No third-party JS engine.

@@ -225,6 +225,43 @@ impl Document {
         Ok(order)
     }
 
+    /// Return the ancestors of `node`, nearest first: its parent, then
+    /// grandparent, up to (and including) the document root.
+    pub fn ancestors(&self, node: NodeId) -> MochaResult<Vec<NodeId>> {
+        self.check_id(node)?;
+        let mut chain = Vec::new();
+        let mut current = self.nodes[node.0].parent;
+        while let Some(parent) = current {
+            chain.push(parent);
+            current = self.nodes[parent.0].parent;
+        }
+        Ok(chain)
+    }
+
+    /// Whether `ancestor` is a (strict) ancestor of `descendant`.
+    pub fn is_ancestor_of(&self, ancestor: NodeId, descendant: NodeId) -> MochaResult<bool> {
+        Ok(self.ancestors(descendant)?.contains(&ancestor))
+    }
+
+    /// The value of an attribute on an element node, if present. Non-element
+    /// nodes have no attributes and return `Ok(None)`.
+    pub fn get_attribute(&self, node: NodeId, name: &str) -> MochaResult<Option<&str>> {
+        self.check_id(node)?;
+        Ok(match &self.nodes[node.0].kind {
+            NodeKind::Element(data) => data.attribute(name),
+            _ => None,
+        })
+    }
+
+    /// The tag name of an element node, or `Ok(None)` for non-element nodes.
+    pub fn tag_name(&self, node: NodeId) -> MochaResult<Option<&str>> {
+        self.check_id(node)?;
+        Ok(match &self.nodes[node.0].kind {
+            NodeKind::Element(data) => Some(data.tag_name.as_str()),
+            _ => None,
+        })
+    }
+
     fn push(&mut self, kind: NodeKind) -> NodeId {
         let id = NodeId(self.nodes.len());
         self.nodes.push(Node {
@@ -355,6 +392,52 @@ mod tests {
 
         let error = document.append_child(parent_b, child).unwrap_err();
         assert!(matches!(error, MochaError::Dom(_)));
+    }
+
+    #[test]
+    fn ancestors_returns_nearest_first_to_root() {
+        let mut document = Document::new();
+        let root = document.root_id();
+        let a = document.create_element("div", Vec::new());
+        let b = document.create_element("div", Vec::new());
+        let c = document.create_element("span", Vec::new());
+        document.append_child(root, a).unwrap();
+        document.append_child(a, b).unwrap();
+        document.append_child(b, c).unwrap();
+
+        assert_eq!(document.ancestors(c).unwrap(), vec![b, a, root]);
+        assert_eq!(document.ancestors(root).unwrap(), Vec::<NodeId>::new());
+        assert!(document.is_ancestor_of(a, c).unwrap());
+        assert!(!document.is_ancestor_of(c, a).unwrap());
+    }
+
+    #[test]
+    fn get_attribute_and_tag_name_work() {
+        let mut document = Document::new();
+        let root = document.root_id();
+        let a = document.create_element(
+            "a",
+            vec![Attribute {
+                name: "href".to_string(),
+                value: "/page".to_string(),
+            }],
+        );
+        let text = document.create_text("x");
+        document.append_child(root, a).unwrap();
+        document.append_child(a, text).unwrap();
+
+        assert_eq!(document.tag_name(a).unwrap(), Some("a"));
+        assert_eq!(document.get_attribute(a, "href").unwrap(), Some("/page"));
+        assert_eq!(document.get_attribute(a, "id").unwrap(), None);
+        // Non-element nodes have no tag/attributes.
+        assert_eq!(document.tag_name(text).unwrap(), None);
+        assert_eq!(document.get_attribute(text, "href").unwrap(), None);
+    }
+
+    #[test]
+    fn ancestors_of_invalid_node_errors() {
+        let document = Document::new();
+        assert!(document.ancestors(NodeId(999)).is_err());
     }
 
     #[test]

@@ -1,6 +1,6 @@
 # Limitations
 
-Mocha Browser is at **Milestone 4**. It is an engine laboratory, not a usable
+Mocha Browser is at **Milestone 5**. It is an engine laboratory, not a usable
 browser. This document is deliberately explicit about what does not exist so the
 project never overclaims.
 
@@ -67,6 +67,22 @@ Not supported (returns a clear error):
   default of `display: none`, so layout skips its subtree.
 - **`height` of the viewport** does not constrain layout; vertical content may
   exceed it. There is no scrolling or overflow handling.
+
+## Event limitations (Milestone 5)
+
+See [events.md](events.md) for detail.
+
+- **No JavaScript** — event listeners are Rust callbacks; there is no scripting.
+- **No real window/OS input or event loop** — events are dispatched
+  programmatically (e.g. in tests or via `--hit-test`).
+- **No pointer, touch, wheel, focus, input, composition, or drag/drop events**;
+  only `click`/`mousedown`/`mouseup`/`mousemove`/`keydown`/`keyup` data exist.
+- **No `passive` listeners** and no accessibility event model.
+- **Link navigation is a default-action result only**, not an interactive UI.
+- **Hit testing ignores z-index, transforms, scrolling, clipping, and
+  `pointer-events`**; it returns the deepest box containing the point.
+- `<a>` supports only `href` (inline, blue); `target`/`download`/`rel`/`ping`
+  are parsed but have no behavior.
 
 ## Networking limitations (Milestone 4)
 

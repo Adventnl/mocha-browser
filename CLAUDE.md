@@ -73,9 +73,9 @@ Every crate must have tests.
 
 Every milestone must produce a runnable result.
 
-The current milestone is Milestone 4: networking and navigation — document loading for local paths, `file://`, and `http://` (no TLS) via `mocha_net`, with redirects, content-type gating, a simple in-memory cache, and a `mocha_nav` back/forward/reload history. Rendering remains terminal-only.
+The current milestone is Milestone 5: an internal DOM event system (`mocha_events`) — capture/target/bubble dispatch, listener registration/removal, propagation control, cancelation, click/mouse/keyboard event data — plus a layout hit-test bridge, minimal `<a href>` support, and link navigation default actions in `mocha_nav`. Listeners are Rust callbacks; there is no JavaScript and no real window input.
 
-Do not add HTTPS/TLS by hand, cookies, auth, proxies, subresource loading (external CSS/images/scripts), JavaScript, dynamic DOM mutation, an origin/security model, tabs, sandboxing, or desktop window rendering during Milestone 4.
+Do not add JavaScript, real window/OS input or an event loop, pointer/touch/wheel/focus events, `passive` listeners, HTTPS/TLS, subresource loading, an origin/security model, tabs, sandboxing, or desktop window rendering during Milestone 5.
 
 ## Verification commands
 

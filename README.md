@@ -4,7 +4,7 @@ Mocha Browser is an experimental from-scratch browser engine and desktop browser
 
 Mocha is not based on Chromium, WebKit, Gecko, Servo, Electron, CEF, Tauri WebView, system WebView, V8, SpiderMonkey, JavaScriptCore, QuickJS, Deno, or Node.js.
 
-Current status: Milestone 4 (Networking and Navigation) implemented.
+Current status: Milestone 5 (DOM Events) implemented.
 
 Mocha is not safe for general web browsing yet.
 
@@ -50,6 +50,12 @@ content-type, cache) -> HTML tokenizer/tree builder -> DOM -> <style> extraction
   `mocha_net` (a std-only blocking HTTP/1.1 client), with redirect following (up
   to 10), content-type gating (only HTML renders), a simple in-memory cache, and
   a `mocha_nav` back/forward/reload history model.
+- **Internal DOM events** (`mocha_events`): capture/target/bubble dispatch,
+  listener registration/removal, `once` listeners, `stopPropagation` /
+  `stopImmediatePropagation` / `preventDefault`, and `click`/mouse/keyboard event
+  data — plus layout **hit testing** (`--hit-test X,Y`), minimal `<a href>`
+  support, and a link navigation **default action**. These are engine-internal;
+  there is no JavaScript and no real window input.
 
 ## What does not work
 
@@ -60,7 +66,9 @@ and [networking-and-navigation.md](docs/architecture/networking-and-navigation.m
   proxies, HTTP/2-3, real HTTP cache semantics, charset decoding beyond UTF-8.
 - Subresource loading: external / linked CSS (`<link>` is rejected), images,
   scripts, fonts.
-- JavaScript.
+- **JavaScript** (event listeners are Rust-only), real window/OS input or event
+  loop, pointer/touch/wheel/focus events; hit testing ignores
+  z-index/transforms/scrolling/clipping.
 - The real HTML5 parsing algorithm and real CSS error recovery.
 - `!important`, media queries, pseudo-classes/elements, attribute selectors, the
   `>`/`+`/`~` combinators, `em`/`rem`/`%` units, `rgb()`/`calc()`/`var()`.
@@ -117,6 +125,7 @@ Load over `file://` or `http://`, dump the layout tree, or show response headers
 cargo run -p mocha_shell -- "file://$(pwd)/examples/basic/index.html"
 cargo run -p mocha_shell -- --dump-layout examples/layout/inline-wrap.html
 cargo run -p mocha_shell -- --show-headers --no-cache http://127.0.0.1:8080/index.html
+cargo run -p mocha_shell -- --hit-test 20,40 examples/layout/inline-wrap.html
 ```
 
 `https://` is not implemented and exits with a clear error.
@@ -135,10 +144,11 @@ mocha-browser/
     mocha_layout/   block + inline layout (geometry/block/inline/line/debug)
     mocha_paint/    display-list generation (colors, borders)
     mocha_net/      resource loading (file/http), redirects, content-type, cache
-    mocha_nav/      navigation history (navigate/back/forward/reload)
+    mocha_nav/      navigation history (navigate/back/forward/reload) + default actions
+    mocha_events/   internal DOM event model and dispatch
     mocha_shell/    CLI that wires the pipeline together
   docs/architecture/  overview, pipeline, milestones, boundaries, limitations,
-                      networking-and-navigation
+                      networking-and-navigation, events
   examples/basic/     plain HTML example
   examples/styled/    HTML + CSS example
   examples/layout/    article / inline-wrap / box-model layout examples
@@ -156,8 +166,8 @@ The full roadmap lives in [docs/architecture/milestones.md](docs/architecture/mi
 1. Engine laboratory (done)
 2. Basic CSS engine (done)
 3. Real layout foundation (done)
-4. Networking and navigation (current)
-5. DOM events
+4. Networking and navigation (done)
+5. DOM events (current)
 6. Custom JavaScript interpreter
 7. JavaScript DOM bindings
 8. Multi-process architecture

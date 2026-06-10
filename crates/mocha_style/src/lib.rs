@@ -336,11 +336,16 @@ fn ua_defaults(tag: &str) -> Vec<(CssProperty, CssValue)> {
     let mut defaults = Vec::new();
 
     let display = match tag {
-        "span" => "inline",
+        "span" | "a" => "inline",
         "style" => "none",
         _ => "block",
     };
     defaults.push((CssProperty::Display, CssValue::Keyword(display.to_string())));
+
+    // Links are blue by default (color inherits to their inline text).
+    if tag == "a" {
+        defaults.push((CssProperty::Color, CssValue::Color(Color::rgb(0, 0, 238))));
+    }
 
     // Only headings carry a UA font-size; other elements inherit so author
     // `font-size` changes propagate to descendants.

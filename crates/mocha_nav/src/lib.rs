@@ -5,6 +5,10 @@
 //! protocol, HTML, CSS, layout, or painting — rendering a loaded response is the
 //! shell's job. History stores each entry's **final** URL (after redirects).
 
+mod default_action;
+
+pub use default_action::{default_action_for_event, DefaultAction};
+
 use mocha_error::{MochaError, MochaResult};
 use mocha_net::{LoadRequest, ResourceLoader, ResourceResponse};
 use mocha_url::Url;

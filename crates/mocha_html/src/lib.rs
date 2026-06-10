@@ -21,7 +21,7 @@ use mocha_error::{MochaError, MochaResult};
 /// `style` is accepted so its CSS text can be extracted later; its contents are
 /// not laid out or painted. Encountering any other tag (start or end) is an
 /// [`MochaError::UnsupportedFeature`] error, not a silent skip.
-pub const SUPPORTED_TAGS: &[&str] = &["html", "body", "h1", "h2", "p", "div", "span", "style"];
+pub const SUPPORTED_TAGS: &[&str] = &["html", "body", "h1", "h2", "p", "div", "span", "a", "style"];
 
 /// Parse an HTML source string into a [`Document`].
 ///
