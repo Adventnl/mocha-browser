@@ -1,6 +1,6 @@
 # Milestone Roadmap
 
-Mocha Browser is built one milestone at a time. **Milestones 1 and 2 are
+Mocha Browser is built one milestone at a time. **Milestones 1, 2, and 3 are
 implemented today**; everything after them is direction, not code. Each milestone
 lists its goal, what is explicitly not included, and how completion is verified.
 
@@ -30,16 +30,19 @@ lists its goal, what is explicitly not included, and how completion is verified.
   `cargo run -p mocha_shell -- examples/styled/index.html` prints a colored
   display list with `<style>` text not painted.
 
-## Milestone 3: Real layout foundation — next
+## Milestone 3: Real layout foundation — done (current)
 
-- **Goal:** a real box model with block and inline formatting contexts, text
-  measurement, and line wrapping (replacing today's vertical-stacking layout and
-  intentionally-fake inline boxes).
-- **Not included:** flexbox/grid, JavaScript, networking.
-- **Verification:** layout tests for wrapping, nested boxes, and margin/padding
-  geometry.
+- **Goal:** real block and inline formatting — line boxes, word wrapping, and
+  anonymous block boxes for mixed content — with a margin/border/padding box
+  model, replacing the old vertical-stacking layout and fake inline boxes.
+- **Not included:** real font metrics (text measurement stays estimated), margin
+  collapse, `text-align`/`white-space`, inline backgrounds/borders, flexbox/grid,
+  floats, positioning, JavaScript, networking.
+- **Verification:** `mocha_layout` unit tests for block stacking, box-model
+  offsets, inline line sharing, word wrapping, and anonymous blocks; paint tests;
+  integration tests over `examples/layout/*`; and the `--dump-layout` output.
 
-## Milestone 4: Networking and navigation
+## Milestone 4: Networking and navigation — next
 
 - **Goal:** load `file`, `http`, and `https` resources; handle redirects,
   history, and reload.

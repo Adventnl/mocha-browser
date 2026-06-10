@@ -4,7 +4,7 @@ Mocha Browser is an experimental from-scratch browser engine and desktop browser
 
 Mocha is not based on Chromium, WebKit, Gecko, Servo, Electron, CEF, Tauri WebView, system WebView, V8, SpiderMonkey, JavaScriptCore, QuickJS, Deno, or Node.js.
 
-Current status: Milestone 2 (Basic CSS Engine) implemented.
+Current status: Milestone 3 (Real Layout Foundation) implemented.
 
 Mocha is not safe for general web browsing yet.
 
@@ -18,14 +18,15 @@ with a clear error rather than being faked.
 
 ## Current milestone
 
-**Milestone 2: Basic CSS Engine.** Load a local HTML file, extract and parse its
-CSS, compute styles, and walk it through the rendering pipeline, printing a
-display list to the terminal:
+**Milestone 3: Real Layout Foundation.** Load a local HTML file, extract and
+parse its CSS, compute styles, lay it out with real block and inline formatting
+(line boxes and word wrapping), and print a display list to the terminal:
 
 ```text
 bytes -> HTML tokenizer/tree builder -> DOM -> <style> extraction
       -> CSS tokenizer/parser -> selector matching -> cascade -> inheritance
-      -> computed style tree -> layout tree -> display list -> terminal
+      -> computed style tree -> block & inline layout (line boxes, wrapping)
+      -> display list -> terminal
 ```
 
 ## What works
@@ -40,9 +41,12 @@ bytes -> HTML tokenizer/tree builder -> DOM -> <style> extraction
 - A small property set (`display`, `color`, `background-color`, `font-size`,
   `font-weight`, `width`, `height`, `margin*`, `padding*`, `border-width`,
   `border-color`) with `px` lengths and named / hex colors.
-- A simple box-model layout (margin / border / padding) consuming computed style.
+- **Block layout** with a simple margin/border/padding box model, and **inline
+  layout** with line boxes, word wrapping, and anonymous block boxes for mixed
+  block/inline content. Inline text and `<span>`s share a line until the width
+  runs out; long text wraps at word boundaries.
 - A display list of `DrawRect` / `DrawBorder` / `DrawText` commands carrying
-  colors, printed to the terminal via `mocha_shell`.
+  colors, plus a layout-tree dump (`--dump-layout`), printed via `mocha_shell`.
 
 ## What does not work
 
@@ -53,8 +57,12 @@ Not implemented (see [docs/architecture/limitations.md](docs/architecture/limita
 - The real HTML5 parsing algorithm and real CSS error recovery.
 - `!important`, media queries, pseudo-classes/elements, attribute selectors, the
   `>`/`+`/`~` combinators, `em`/`rem`/`%` units, `rgb()`/`calc()`/`var()`.
+- Real font metrics (text width is **estimated** from character count), margin
+  collapse, `text-align`, `white-space` modes, hyphenation; long words can
+  overflow. Inline backgrounds/borders are deferred (inline text color and font
+  size are honored).
 - Forms, images, fonts, canvas, SVG, accessibility.
-- Real inline formatting, line wrapping, flexbox/grid, positioning.
+- Flexbox/grid, floats, positioning.
 - Security sandboxing, multi-process architecture, tabs, and desktop windowing.
 
 Unsupported tags, unsupported CSS, and non-`file` URLs return clear errors; they
@@ -91,6 +99,15 @@ Run the examples:
 ```bash
 cargo run -p mocha_shell -- examples/basic/index.html
 cargo run -p mocha_shell -- examples/styled/index.html
+cargo run -p mocha_shell -- examples/layout/article.html
+cargo run -p mocha_shell -- examples/layout/inline-wrap.html
+cargo run -p mocha_shell -- examples/layout/box-model.html
+```
+
+Dump the layout tree instead of the display list:
+
+```bash
+cargo run -p mocha_shell -- --dump-layout examples/layout/inline-wrap.html
 ```
 
 ## Repository structure
@@ -104,13 +121,15 @@ mocha-browser/
     mocha_html/     tokenizer + stack-based tree builder
     mocha_css/      CSS tokenizer, parser, and value model
     mocha_style/    selector matching, cascade, inheritance, computed style
-    mocha_layout/   box-model layout consuming computed style
+    mocha_layout/   block + inline layout (geometry/block/inline/line/debug)
     mocha_paint/    display-list generation (colors, borders)
     mocha_shell/    CLI that wires the pipeline together
   docs/architecture/  overview, pipeline, milestones, boundaries, limitations
   examples/basic/     plain HTML example
   examples/styled/    HTML + CSS example
+  examples/layout/    article / inline-wrap / box-model layout examples
   tests/integration/  end-to-end pipeline tests
+  tests/visual/       future render targets (no image comparison yet)
 ```
 
 See [docs/architecture/crate-boundaries.md](docs/architecture/crate-boundaries.md) for
@@ -121,8 +140,8 @@ the responsibility of each crate.
 The full roadmap lives in [docs/architecture/milestones.md](docs/architecture/milestones.md).
 
 1. Engine laboratory (done)
-2. Basic CSS engine (current)
-3. Real layout foundation
+2. Basic CSS engine (done)
+3. Real layout foundation (current)
 4. Networking and navigation
 5. DOM events
 6. Custom JavaScript interpreter

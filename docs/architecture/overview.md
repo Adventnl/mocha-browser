@@ -25,11 +25,13 @@ the modern web. It must never claim otherwise.
 
 ## Current milestone
 
-**Milestone 2: Basic CSS Engine.** Mocha loads a single local HTML file, extracts
-and parses its CSS (`<style>` blocks and inline `style` attributes), computes
-styles via selector matching, cascade, and inheritance, and runs the styled tree
-through layout and paint, ending by printing a colored display list to the
-terminal. No window is opened, and no external CSS or networking is involved. See
+**Milestone 3: Real Layout Foundation.** Mocha loads a single local HTML file,
+extracts and parses its CSS (`<style>` blocks and inline `style` attributes),
+computes styles via selector matching, cascade, and inheritance, and lays the
+styled tree out with real block and inline formatting — line boxes, word
+wrapping, and anonymous block boxes for mixed content — before painting a colored
+display list to the terminal. Text measurement is still estimated, not real font
+metrics. No window is opened, and no external CSS or networking is involved. See
 [rendering-pipeline.md](rendering-pipeline.md) for the stages and
 [limitations.md](limitations.md) for what is intentionally absent.
 

@@ -106,7 +106,10 @@ pub fn build_display_list(layout_root: &LayoutBox) -> MochaResult<Vec<DisplayCom
 fn paint_box(layout_box: &LayoutBox, commands: &mut Vec<DisplayCommand>) {
     let rect = layout_box.rect;
     match &layout_box.kind {
-        LayoutBoxKind::Block | LayoutBoxKind::Inline => {
+        // Box-generating boxes paint their background, then border, before their
+        // children (so text draws on top). Anonymous blocks and line boxes carry
+        // no styling, so they emit nothing themselves and just recurse.
+        LayoutBoxKind::Block | LayoutBoxKind::Inline | LayoutBoxKind::AnonymousBlock => {
             // Transparent backgrounds emit no rectangle.
             if layout_box.background_color.a != 0 {
                 commands.push(DisplayCommand::DrawRect {
@@ -128,7 +131,9 @@ fn paint_box(layout_box: &LayoutBox, commands: &mut Vec<DisplayCommand>) {
                 });
             }
         }
-        LayoutBoxKind::Text(text) => {
+        // Line boxes are pure structure: they never paint directly.
+        LayoutBoxKind::LineBox => {}
+        LayoutBoxKind::TextRun(text) => {
             commands.push(DisplayCommand::DrawText {
                 text: text.clone(),
                 x: rect.x,
@@ -169,8 +174,8 @@ mod tests {
 
     fn text_box(text: &str, color: Color) -> LayoutBox {
         LayoutBox {
-            node_id: NodeId(1),
-            kind: LayoutBoxKind::Text(text.to_string()),
+            node_id: None,
+            kind: LayoutBoxKind::TextRun(text.to_string()),
             rect: rect(),
             font_size: 16.0,
             color,
@@ -187,7 +192,7 @@ mod tests {
         children: Vec<LayoutBox>,
     ) -> LayoutBox {
         LayoutBox {
-            node_id: NodeId(0),
+            node_id: Some(NodeId(0)),
             kind: LayoutBoxKind::Block,
             rect: rect(),
             font_size: 16.0,
@@ -195,6 +200,20 @@ mod tests {
             background_color,
             border_width,
             border_color: Color::rgb(0x6b, 0x3f, 0x2a),
+            children,
+        }
+    }
+
+    fn line_box(children: Vec<LayoutBox>) -> LayoutBox {
+        LayoutBox {
+            node_id: None,
+            kind: LayoutBoxKind::LineBox,
+            rect: rect(),
+            font_size: 16.0,
+            color: Color::BLACK,
+            background_color: Color::TRANSPARENT,
+            border_width: 0.0,
+            border_color: Color::BLACK,
             children,
         }
     }
@@ -262,6 +281,19 @@ mod tests {
         assert!(matches!(commands[0], DisplayCommand::DrawRect { .. }));
         assert!(matches!(&commands[1], DisplayCommand::DrawText { text, .. } if text == "first"));
         assert!(matches!(&commands[2], DisplayCommand::DrawText { text, .. } if text == "second"));
+    }
+
+    #[test]
+    fn line_box_emits_no_command_but_its_runs_do() {
+        let tree = block_box(
+            Color::TRANSPARENT,
+            0.0,
+            vec![line_box(vec![text_box("hi", Color::BLACK)])],
+        );
+        let commands = build_display_list(&tree).unwrap();
+        // No DrawRect for the transparent block or the line box; just the text.
+        assert_eq!(commands.len(), 1);
+        assert!(matches!(&commands[0], DisplayCommand::DrawText { text, .. } if text == "hi"));
     }
 
     #[test]

@@ -1,0 +1,54 @@
+<!doctype html>
+<html>
+  <body>
+    <style>
+      body {
+        color: #222222;
+        font-size: 16px;
+      }
+      h1 {
+        color: #6b3f2a;
+        font-size: 36px;
+        margin-bottom: 12px;
+      }
+      h2 {
+        color: #6b3f2a;
+        font-size: 24px;
+        margin-top: 16px;
+        margin-bottom: 8px;
+      }
+      .lead {
+        font-size: 20px;
+        color: #444444;
+      }
+      .note {
+        background-color: #f2e5d7;
+        padding: 12px;
+      }
+    </style>
+
+    <h1>The Mocha Engine Laboratory</h1>
+    <p class="lead">
+      This is a longer introductory paragraph that should wrap across several
+      line boxes when it is laid out at the default eight hundred pixel viewport
+      width, demonstrating real word wrapping rather than one box per text node.
+    </p>
+
+    <h2>Block and Inline Together</h2>
+    <p>
+      Mocha now lays out block level elements vertically while collecting inline
+      text into line boxes. Long paragraphs break at word boundaries, and short
+      paragraphs stay on a single line. None of this uses real font metrics yet,
+      so widths are estimated from the character count and the font size.
+    </p>
+
+    <div class="note">
+      <h2>A Nested Section</h2>
+      <p>
+        This paragraph lives inside a nested div with its own background and
+        padding, and it still wraps correctly within the reduced content width
+        created by the surrounding padding of its container box.
+      </p>
+    </div>
+  </body>
+</html>

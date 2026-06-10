@@ -25,8 +25,10 @@ limitations, and intended future expansion.
 - **Input:** the file contents as a `&str` (read by `mocha_shell`).
 - **Output:** `Vec<HtmlToken>` (doctype, start/end tags, text, comments).
 - **Owning crate:** `mocha_html` (`tokenizer.rs`).
-- **Current limitations:** recognises a tiny hand-written grammar. Whitespace is
-  collapsed and whitespace-only text is dropped. Malformed input is a `Parse`
+- **Current limitations:** recognises a tiny hand-written grammar. Internal
+  whitespace in text is collapsed to single spaces, a single leading/trailing
+  space is preserved on non-empty runs (so spaces around inline `<span>`s
+  survive), and whitespace-only runs are dropped. Malformed input is a `Parse`
   error. `<style>` uses a **minimal raw-text mode**: its body is captured verbatim
   until the literal `</style>` (so CSS with `<`/`>` survives), but this is not the
   full HTML raw-text/RCDATA algorithm. A missing `</style>` is a `Parse` error.
@@ -76,15 +78,22 @@ limitations, and intended future expansion.
 ## 6. Style → layout
 
 - **Input:** a `&StyledNode` and a `LayoutViewport`.
-- **Output:** a `LayoutBox` tree with computed border-box `Rect`s, carrying the
-  color/border fields paint needs.
-- **Owning crate:** `mocha_layout`.
-- **Current limitations:** vertical stacking with a simple box model
-  (margin/border/padding). `display: none` produces no box. Width/height
-  properties override the defaults. Text size is estimated, not measured. No real
-  inline formatting, wrapping, floats, or positioning.
-- **Future expansion:** a real block/inline formatting model with text
-  measurement and wrapping (Milestone 3).
+- **Output:** a `LayoutBox` tree (block / anonymous-block / line / text-run
+  boxes) with computed border-box `Rect`s, carrying the color/border fields paint
+  needs. Anonymous, line, and text-run boxes have `node_id == None`.
+- **Owning crate:** `mocha_layout` (split into `geometry`, `box_tree`, `context`,
+  `block`, `inline`, `line`, `debug`).
+- **Behaviour:** block-level children stack vertically with a margin/border/
+  padding box model; runs of inline content are broken into line boxes of text
+  runs with word wrapping; inline content among block siblings is wrapped in
+  anonymous block boxes. `display: none` produces no box.
+- **Current limitations:** text width is **estimated** (`chars * font * 0.6`),
+  not measured; line height is `max_font * 1.2`. No margin collapse, `text-align`,
+  `white-space` modes, hyphenation (long words overflow), floats, or positioning.
+  Inline-level elements are flattened into text runs (no inline boxes are
+  produced); inline backgrounds/borders are deferred.
+- **Future expansion:** real font metrics, richer inline boxes, and more of the
+  box model.
 
 ## 7. Layout → display list
 
@@ -92,9 +101,11 @@ limitations, and intended future expansion.
 - **Output:** `Vec<DisplayCommand>` (`DrawRect`, `DrawBorder`, `DrawText`), each
   carrying color.
 - **Owning crate:** `mocha_paint`.
-- **Current limitations:** a debug representation only. Non-transparent
-  backgrounds emit `DrawRect`; non-zero borders emit `DrawBorder`; text emits
-  `DrawText`. No images, gradients, stacking contexts, or compositing.
+- **Current limitations:** a debug representation only. Box-generating boxes
+  (block / inline / anonymous-block) emit `DrawRect` for a non-transparent
+  background and `DrawBorder` for a non-zero border; text runs emit `DrawText`;
+  line boxes paint nothing. No images, gradients, stacking contexts, or
+  compositing.
 - **Future expansion:** a richer command set fed to a real GPU compositor.
 
 ## 8. Display list → terminal output

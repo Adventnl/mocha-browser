@@ -1,205 +1,60 @@
-//! A deliberately tiny box-model layout engine for Mocha Browser.
+//! A small but real layout engine for Mocha Browser.
 //!
 //! Layout consumes a [`StyledNode`] tree (computed style lives in `mocha_style`;
-//! this crate does **no CSS parsing**). It is still vertical-stacking only: every
-//! box that produces output is placed on its own line, top to bottom. There is a
-//! simple box model — margin, border, and padding offset position and size — but
-//! no real inline formatting, no line wrapping, no floats, and no positioning.
+//! this crate does **no CSS parsing** and does not depend on `mocha_dom`). It
+//! implements:
 //!
-//! Text dimensions are estimated, not measured:
-//! - width  = `char_count * font_size * 0.6`
-//! - height = `font_size * 1.2`
+//! - **block formatting** — block-level children stack vertically with a simple
+//!   margin/border/padding box model (no margin collapse, floats, or positioning),
+//! - **inline formatting** — runs of inline content are broken into [line
+//!   boxes](LayoutBoxKind::LineBox) of [text runs](LayoutBoxKind::TextRun) with
+//!   word wrapping, so text and `<span>`s share a line until the width runs out,
+//! - **anonymous block boxes** — inline content sitting among block siblings is
+//!   wrapped in [`LayoutBoxKind::AnonymousBlock`].
+//!
+//! Text is measured by estimate (`chars * font_size * 0.6`), not real font
+//! metrics; line height is `max_font_size * 1.2`.
 
-pub use mocha_style::Color;
-pub use mocha_style::NodeId;
+mod block;
+mod box_tree;
+mod context;
+mod debug;
+mod geometry;
+mod inline;
+mod line;
+
+pub use box_tree::{LayoutBox, LayoutBoxKind};
+pub use context::{LayoutViewport, DEFAULT_VIEWPORT_HEIGHT, DEFAULT_VIEWPORT_WIDTH};
+pub use debug::format_layout_tree;
+pub use geometry::{EdgeSizes, Rect};
+pub use mocha_style::{Color, NodeId};
 
 use mocha_error::{MochaError, MochaResult};
 use mocha_style::{Display, StyledNode};
 
-/// Default viewport width used by the shell.
-pub const DEFAULT_VIEWPORT_WIDTH: f32 = 800.0;
-/// Default viewport height. Vertical content may exceed this in Milestone 2.
-pub const DEFAULT_VIEWPORT_HEIGHT: f32 = 600.0;
-
-/// The available drawing area. Only `width` influences layout today.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct LayoutViewport {
-    /// Viewport width in pixels.
-    pub width: f32,
-    /// Viewport height in pixels (currently informational only).
-    pub height: f32,
-}
-
-impl Default for LayoutViewport {
-    fn default() -> Self {
-        LayoutViewport {
-            width: DEFAULT_VIEWPORT_WIDTH,
-            height: DEFAULT_VIEWPORT_HEIGHT,
-        }
-    }
-}
-
-/// An axis-aligned rectangle in pixels with the origin at the top-left. For
-/// boxes this is the border box (content + padding + border).
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Rect {
-    /// Left edge.
-    pub x: f32,
-    /// Top edge.
-    pub y: f32,
-    /// Width.
-    pub width: f32,
-    /// Height.
-    pub height: f32,
-}
-
-/// What a [`LayoutBox`] represents.
-#[derive(Debug, Clone, PartialEq)]
-pub enum LayoutBoxKind {
-    /// A block-level box.
-    Block,
-    /// An inline-level box (still stacked vertically in this milestone).
-    Inline,
-    /// A text box carrying its rendered string.
-    Text(String),
-}
-
-/// A node in the layout tree with computed geometry and the style fields paint
-/// needs (so `mocha_paint` does not depend on `mocha_css`/`mocha_style`).
-#[derive(Debug, Clone, PartialEq)]
-pub struct LayoutBox {
-    /// The DOM node this box was generated from.
-    pub node_id: NodeId,
-    /// The kind of box.
-    pub kind: LayoutBoxKind,
-    /// The border-box geometry.
-    pub rect: Rect,
-    /// Font size in pixels.
-    pub font_size: f32,
-    /// Text/foreground color.
-    pub color: Color,
-    /// Background color (`a == 0` means transparent / no fill).
-    pub background_color: Color,
-    /// Border width in pixels (0 means no border).
-    pub border_width: f32,
-    /// Border color.
-    pub border_color: Color,
-    /// Child boxes in document order.
-    pub children: Vec<LayoutBox>,
-}
-
 /// Build a layout tree from a styled tree for the given `viewport`.
 ///
-/// `display: none` nodes (and their subtrees) produce no boxes.
+/// The styled root (the document node) is laid out as a block container filling
+/// the viewport width. `display: none` nodes (and their subtrees) produce no
+/// boxes.
 pub fn build_layout_tree(
     styled_root: &StyledNode,
     viewport: LayoutViewport,
 ) -> MochaResult<LayoutBox> {
-    match layout_node(styled_root, 0.0, 0.0, viewport.width) {
-        Some((layout_box, _)) => Ok(layout_box),
-        None => Err(MochaError::Layout(
+    if styled_root.style.display == Display::None {
+        return Err(MochaError::Layout(
             "the document root has display:none and produced no layout box".to_string(),
-        )),
+        ));
     }
-}
-
-/// Lay out one styled node at top-left `(x, y)` within `available_width` (the
-/// containing block's content width).
-///
-/// Returns the box and the vertical space it consumes in its parent's content
-/// box (its full margin-box height), or `None` for `display: none`.
-fn layout_node(
-    styled: &StyledNode,
-    x: f32,
-    y: f32,
-    available_width: f32,
-) -> Option<(LayoutBox, f32)> {
-    if let Some(text) = &styled.text {
-        return Some(layout_text(styled, text, x, y));
-    }
-
-    let style = &styled.style;
-    if style.display == Display::None {
-        return None;
-    }
-
-    let margin = style.margin;
-    let padding = style.padding;
-    let border = style.border_width;
-
-    let content_x = x + margin.left + border + padding.left;
-    let content_y = y + margin.top + border + padding.top;
-    let content_width = style.width.unwrap_or_else(|| {
-        (available_width - margin.left - margin.right - 2.0 * border - padding.left - padding.right)
-            .max(0.0)
-    });
-
-    let mut cursor_y = content_y;
-    let mut children = Vec::new();
-    for child in &styled.children {
-        if let Some((child_box, advance)) = layout_node(child, content_x, cursor_y, content_width) {
-            cursor_y += advance;
-            children.push(child_box);
-        }
-    }
-
-    let content_height = style.height.unwrap_or((cursor_y - content_y).max(0.0));
-    let border_box_width = content_width + padding.left + padding.right + 2.0 * border;
-    let border_box_height = content_height + padding.top + padding.bottom + 2.0 * border;
-
-    let kind = match style.display {
-        Display::Inline => LayoutBoxKind::Inline,
-        // Block and (unreachable) None both fall here as Block.
-        _ => LayoutBoxKind::Block,
-    };
-
-    let layout_box = LayoutBox {
-        node_id: styled.node_id,
-        kind,
-        rect: Rect {
-            x: x + margin.left,
-            y: y + margin.top,
-            width: border_box_width,
-            height: border_box_height,
-        },
-        font_size: style.font_size,
-        color: style.color,
-        background_color: style.background_color,
-        border_width: border,
-        border_color: style.border_color,
-        children,
-    };
-    let advance = margin.top + border_box_height + margin.bottom;
-    Some((layout_box, advance))
-}
-
-fn layout_text(styled: &StyledNode, text: &str, x: f32, y: f32) -> (LayoutBox, f32) {
-    let font_size = styled.style.font_size;
-    let width = (text.chars().count() as f32 * font_size * 0.6).round();
-    let height = (font_size * 1.2).round();
-    let layout_box = LayoutBox {
-        node_id: styled.node_id,
-        kind: LayoutBoxKind::Text(text.to_string()),
-        rect: Rect {
-            x,
-            y,
-            width,
-            height,
-        },
-        font_size,
-        color: styled.style.color,
-        background_color: Color::TRANSPARENT,
-        border_width: 0.0,
-        border_color: styled.style.color,
-        children: Vec::new(),
-    };
-    (layout_box, height)
+    Ok(block::layout_block(styled_root, 0.0, 0.0, viewport.width))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mocha_style::{ComputedStyle, Display, EdgeSizes, StyledNode};
+    use mocha_style::{ComputedStyle, Display, EdgeSizes as StyleEdges, StyledNode};
+
+    // --- builders -----------------------------------------------------------
 
     fn block_style() -> ComputedStyle {
         let mut style = ComputedStyle::initial();
@@ -216,10 +71,11 @@ mod tests {
         }
     }
 
-    fn text(node_id: usize, content: &str, font_size: f32) -> StyledNode {
+    fn text(node_id: usize, content: &str, font_size: f32, color: Color) -> StyledNode {
         let mut style = ComputedStyle::initial();
         style.display = Display::Inline;
         style.font_size = font_size;
+        style.color = color;
         StyledNode {
             node_id: NodeId(node_id),
             text: Some(content.to_string()),
@@ -228,129 +84,429 @@ mod tests {
         }
     }
 
-    fn find(root: &LayoutBox, id: usize) -> Option<&LayoutBox> {
-        if root.node_id == NodeId(id) {
-            return Some(root);
+    fn inline_span(
+        node_id: usize,
+        font_size: f32,
+        color: Color,
+        children: Vec<StyledNode>,
+    ) -> StyledNode {
+        let mut style = ComputedStyle::initial();
+        style.display = Display::Inline;
+        style.font_size = font_size;
+        style.color = color;
+        StyledNode {
+            node_id: NodeId(node_id),
+            text: None,
+            style,
+            children,
         }
-        root.children.iter().find_map(|child| find(child, id))
+    }
+
+    fn layout(root: &StyledNode, width: f32) -> LayoutBox {
+        build_layout_tree(
+            root,
+            LayoutViewport {
+                width,
+                height: 600.0,
+            },
+        )
+        .unwrap()
+    }
+
+    // --- tree walking helpers ----------------------------------------------
+
+    fn collect<'a>(node: &'a LayoutBox, out: &mut Vec<&'a LayoutBox>) {
+        out.push(node);
+        for child in &node.children {
+            collect(child, out);
+        }
+    }
+
+    fn all_boxes(root: &LayoutBox) -> Vec<&LayoutBox> {
+        let mut out = Vec::new();
+        collect(root, &mut out);
+        out
+    }
+
+    fn line_boxes(root: &LayoutBox) -> Vec<&LayoutBox> {
+        all_boxes(root)
+            .into_iter()
+            .filter(|b| b.kind == LayoutBoxKind::LineBox)
+            .collect()
+    }
+
+    fn text_runs(root: &LayoutBox) -> Vec<&LayoutBox> {
+        all_boxes(root)
+            .into_iter()
+            .filter(|b| matches!(b.kind, LayoutBoxKind::TextRun(_)))
+            .collect()
+    }
+
+    fn run_text(b: &LayoutBox) -> &str {
+        match &b.kind {
+            LayoutBoxKind::TextRun(text) => text,
+            _ => panic!("not a text run"),
+        }
+    }
+
+    fn find(root: &LayoutBox, id: usize) -> Option<&LayoutBox> {
+        all_boxes(root)
+            .into_iter()
+            .find(|b| b.node_id == Some(NodeId(id)))
+    }
+
+    // --- inline formatting --------------------------------------------------
+
+    #[test]
+    fn inline_text_and_span_share_a_line_when_width_allows() {
+        // <p>Hello <span>red</span> world</p>, wide viewport.
+        let p = element(
+            1,
+            block_style(),
+            vec![
+                text(2, "Hello ", 16.0, Color::BLACK),
+                inline_span(
+                    3,
+                    16.0,
+                    Color::rgb(255, 0, 0),
+                    vec![text(4, "red", 16.0, Color::rgb(255, 0, 0))],
+                ),
+                text(5, " world", 16.0, Color::BLACK),
+            ],
+        );
+        let root = element(0, block_style(), vec![p]);
+        let tree = layout(&root, 800.0);
+
+        assert_eq!(line_boxes(&tree).len(), 1, "all three runs fit on one line");
+        let runs = text_runs(&tree);
+        let texts: Vec<&str> = runs.iter().map(|r| run_text(r)).collect();
+        assert_eq!(texts, vec!["Hello", "red", "world"]);
+        // They share the same line top.
+        assert!(runs.iter().all(|r| r.rect.y == runs[0].rect.y));
+        // Runs are placed left to right in order.
+        assert!(runs[0].rect.right() <= runs[1].rect.x);
+        assert!(runs[1].rect.right() <= runs[2].rect.x);
     }
 
     #[test]
-    fn computed_font_size_affects_text_layout() {
-        let big = text(1, "ab", 40.0);
-        let root = element(0, block_style(), vec![big]);
-        let layout = build_layout_tree(&root, LayoutViewport::default()).unwrap();
-        let text_box = find(&layout, 1).unwrap();
-        // width = 2 chars * 40 * 0.6 = 48, height = round(40 * 1.2) = 48.
-        assert_eq!(text_box.rect.width, 48.0);
-        assert_eq!(text_box.rect.height, 48.0);
+    fn span_color_affects_only_span_text() {
+        let p = element(
+            1,
+            block_style(),
+            vec![
+                text(2, "Hello ", 16.0, Color::BLACK),
+                inline_span(
+                    3,
+                    16.0,
+                    Color::rgb(255, 0, 0),
+                    vec![text(4, "red", 16.0, Color::rgb(255, 0, 0))],
+                ),
+            ],
+        );
+        let root = element(0, block_style(), vec![p]);
+        let tree = layout(&root, 800.0);
+        let runs = text_runs(&tree);
+        assert_eq!(runs[0].color, Color::BLACK);
+        assert_eq!(runs[1].color, Color::rgb(255, 0, 0));
     }
 
     #[test]
-    fn width_property_overrides_block_width() {
-        let mut style = block_style();
-        style.width = Some(123.0);
-        let root = element(0, block_style(), vec![element(1, style, Vec::new())]);
-        let layout = build_layout_tree(&root, LayoutViewport::default()).unwrap();
-        let inner = find(&layout, 1).unwrap();
-        assert_eq!(inner.rect.width, 123.0);
+    fn nested_spans_inherit_and_override_color() {
+        // outer blue span containing text then an inner red span.
+        let inner = inline_span(
+            4,
+            16.0,
+            Color::rgb(255, 0, 0),
+            vec![text(5, "red", 16.0, Color::rgb(255, 0, 0))],
+        );
+        let outer = inline_span(
+            3,
+            16.0,
+            Color::rgb(0, 0, 255),
+            vec![text(6, "blue ", 16.0, Color::rgb(0, 0, 255)), inner],
+        );
+        let p = element(1, block_style(), vec![outer]);
+        let root = element(0, block_style(), vec![p]);
+        let tree = layout(&root, 800.0);
+        let runs = text_runs(&tree);
+        assert_eq!(run_text(runs[0]), "blue");
+        assert_eq!(runs[0].color, Color::rgb(0, 0, 255));
+        assert_eq!(run_text(runs[1]), "red");
+        assert_eq!(runs[1].color, Color::rgb(255, 0, 0));
     }
 
     #[test]
-    fn height_property_overrides_content_height() {
-        let mut style = block_style();
-        style.height = Some(200.0);
-        let root = element(0, block_style(), vec![element(1, style, Vec::new())]);
-        let layout = build_layout_tree(&root, LayoutViewport::default()).unwrap();
-        let inner = find(&layout, 1).unwrap();
-        assert_eq!(inner.rect.height, 200.0);
+    fn larger_inline_span_increases_line_height() {
+        let p = element(
+            1,
+            block_style(),
+            vec![
+                text(2, "Normal ", 16.0, Color::BLACK),
+                inline_span(
+                    3,
+                    32.0,
+                    Color::BLACK,
+                    vec![text(4, "large", 32.0, Color::BLACK)],
+                ),
+            ],
+        );
+        let root = element(0, block_style(), vec![p]);
+        let tree = layout(&root, 800.0);
+        let line = line_boxes(&tree)[0];
+        // Line height uses the max font (32 * 1.2 = 38.4 -> 38), not 16.
+        assert_eq!(line.rect.height, (32.0 * 1.2_f32).round());
+    }
+
+    // --- word wrapping ------------------------------------------------------
+
+    fn paragraph_of(words: usize) -> StyledNode {
+        let sentence = vec!["word"; words].join(" ");
+        let p = element(
+            1,
+            block_style(),
+            vec![text(2, &sentence, 16.0, Color::BLACK)],
+        );
+        element(0, block_style(), vec![p])
     }
 
     #[test]
-    fn margin_affects_y_position() {
-        let mut style = block_style();
-        style.margin = EdgeSizes {
-            top: 25.0,
-            ..EdgeSizes::default()
-        };
-        let root = element(0, block_style(), vec![element(1, style, Vec::new())]);
-        let layout = build_layout_tree(&root, LayoutViewport::default()).unwrap();
-        let inner = find(&layout, 1).unwrap();
-        assert_eq!(inner.rect.y, 25.0);
+    fn narrow_viewport_produces_more_lines_than_wide() {
+        let wide = layout(&paragraph_of(12), 800.0);
+        let narrow = layout(&paragraph_of(12), 120.0);
+        assert!(
+            line_boxes(&narrow).len() > line_boxes(&wide).len(),
+            "narrow={} wide={}",
+            line_boxes(&narrow).len(),
+            line_boxes(&wide).len()
+        );
     }
 
     #[test]
-    fn padding_and_border_affect_child_position() {
+    fn word_order_is_preserved_after_wrapping() {
+        let root = element(
+            0,
+            block_style(),
+            vec![element(
+                1,
+                block_style(),
+                vec![text(2, "alpha beta gamma delta", 16.0, Color::BLACK)],
+            )],
+        );
+        let tree = layout(&root, 80.0);
+        let texts: Vec<&str> = text_runs(&tree).iter().map(|r| run_text(r)).collect();
+        assert_eq!(texts, vec!["alpha", "beta", "gamma", "delta"]);
+        assert!(
+            line_boxes(&tree).len() > 1,
+            "should wrap onto several lines"
+        );
+    }
+
+    #[test]
+    fn long_word_overflows_without_crashing() {
+        let root = element(
+            0,
+            block_style(),
+            vec![element(
+                1,
+                block_style(),
+                vec![text(
+                    2,
+                    "supercalifragilisticexpialidocious",
+                    16.0,
+                    Color::BLACK,
+                )],
+            )],
+        );
+        let tree = layout(&root, 50.0);
+        let runs = text_runs(&tree);
+        assert_eq!(runs.len(), 1);
+        assert!(
+            runs[0].rect.width > 50.0,
+            "the long word overflows the line"
+        );
+    }
+
+    #[test]
+    fn line_boxes_stack_vertically() {
+        let tree = layout(&paragraph_of(20), 120.0);
+        let lines = line_boxes(&tree);
+        for pair in lines.windows(2) {
+            assert!(pair[1].rect.y >= pair[0].rect.bottom());
+        }
+    }
+
+    // --- block formatting ---------------------------------------------------
+
+    #[test]
+    fn block_children_stack_vertically() {
+        let a = element(1, block_style(), vec![text(3, "a", 16.0, Color::BLACK)]);
+        let b = element(2, block_style(), vec![text(4, "b", 16.0, Color::BLACK)]);
+        let root = element(0, block_style(), vec![a, b]);
+        let tree = layout(&root, 800.0);
+        let box_a = find(&tree, 1).unwrap();
+        let box_b = find(&tree, 2).unwrap();
+        assert!(box_b.rect.y >= box_a.rect.bottom());
+    }
+
+    #[test]
+    fn padding_and_border_offset_child_position() {
         let mut parent = block_style();
-        parent.padding = EdgeSizes {
+        parent.padding = StyleEdges {
             top: 10.0,
             left: 12.0,
-            ..EdgeSizes::default()
+            ..StyleEdges::default()
         };
         parent.border_width = 2.0;
-        let child = text(2, "x", 16.0);
+        let child = element(2, block_style(), vec![text(3, "x", 16.0, Color::BLACK)]);
         let root = element(0, block_style(), vec![element(1, parent, vec![child])]);
-        let layout = build_layout_tree(&root, LayoutViewport::default()).unwrap();
-        let text_box = find(&layout, 2).unwrap();
-        // child x = border(2) + padding.left(12); y = border(2) + padding.top(10).
-        assert_eq!(text_box.rect.x, 14.0);
-        assert_eq!(text_box.rect.y, 12.0);
+        let tree = layout(&root, 800.0);
+        let child_box = find(&tree, 2).unwrap();
+        assert_eq!(child_box.rect.x, 14.0); // border 2 + padding-left 12
+        assert_eq!(child_box.rect.y, 12.0); // border 2 + padding-top 10
     }
 
     #[test]
-    fn display_none_skips_layout() {
+    fn margin_affects_vertical_position() {
+        let mut style = block_style();
+        style.margin = StyleEdges {
+            top: 25.0,
+            ..StyleEdges::default()
+        };
+        let root = element(0, block_style(), vec![element(1, style, Vec::new())]);
+        let tree = layout(&root, 800.0);
+        assert_eq!(find(&tree, 1).unwrap().rect.y, 25.0);
+    }
+
+    #[test]
+    fn auto_height_expands_to_fit_children_and_explicit_height_overrides() {
+        let child = element(2, block_style(), vec![text(3, "x", 16.0, Color::BLACK)]);
+        let auto = element(1, block_style(), vec![child.clone()]);
+        let root = element(0, block_style(), vec![auto]);
+        let tree = layout(&root, 800.0);
+        let auto_box = find(&tree, 1).unwrap();
+        assert!(auto_box.rect.height > 0.0);
+
+        let mut fixed_style = block_style();
+        fixed_style.height = Some(500.0);
+        let fixed = element(1, fixed_style, vec![child]);
+        let root = element(0, block_style(), vec![fixed]);
+        let tree = layout(&root, 800.0);
+        assert_eq!(find(&tree, 1).unwrap().rect.height, 500.0);
+    }
+
+    #[test]
+    fn explicit_width_changes_wrapping_width() {
+        let mut narrow = block_style();
+        narrow.width = Some(80.0);
+        let p = element(
+            1,
+            narrow,
+            vec![text(2, "alpha beta gamma delta", 16.0, Color::BLACK)],
+        );
+        let root = element(0, block_style(), vec![p]);
+        let tree = layout(&root, 800.0); // wide viewport, but the block is 80px.
+        assert!(
+            line_boxes(&tree).len() > 1,
+            "explicit width should force wrapping"
+        );
+    }
+
+    // --- mixed inline/block content ----------------------------------------
+
+    #[test]
+    fn mixed_inline_and_block_uses_anonymous_blocks_in_order() {
+        // <div> Intro <p>Block</p> Outro </div>
+        let div = element(
+            1,
+            block_style(),
+            vec![
+                text(2, "Intro", 16.0, Color::BLACK),
+                element(3, block_style(), vec![text(4, "Block", 16.0, Color::BLACK)]),
+                text(5, "Outro", 16.0, Color::BLACK),
+            ],
+        );
+        let root = element(0, block_style(), vec![div]);
+        let tree = layout(&root, 800.0);
+
+        let div_box = find(&tree, 1).unwrap();
+        assert_eq!(div_box.children.len(), 3);
+        assert_eq!(div_box.children[0].kind, LayoutBoxKind::AnonymousBlock);
+        assert_eq!(div_box.children[1].kind, LayoutBoxKind::Block);
+        assert_eq!(div_box.children[2].kind, LayoutBoxKind::AnonymousBlock);
+        // Vertical order: intro above block above outro.
+        assert!(div_box.children[0].rect.y < div_box.children[1].rect.y);
+        assert!(div_box.children[1].rect.y < div_box.children[2].rect.y);
+        // The block does not overlap the inline content above it.
+        assert!(div_box.children[1].rect.y >= div_box.children[0].rect.bottom());
+    }
+
+    // --- display:none -------------------------------------------------------
+
+    #[test]
+    fn display_none_block_produces_no_box() {
         let mut hidden = block_style();
         hidden.display = Display::None;
         let root = element(
             0,
             block_style(),
-            vec![element(1, hidden, vec![text(2, "hidden", 16.0)])],
+            vec![element(
+                1,
+                hidden,
+                vec![text(2, "hidden", 16.0, Color::BLACK)],
+            )],
         );
-        let layout = build_layout_tree(&root, LayoutViewport::default()).unwrap();
-        assert!(find(&layout, 1).is_none());
-        assert!(find(&layout, 2).is_none());
-        assert!(layout.children.is_empty());
+        let tree = layout(&root, 800.0);
+        assert!(find(&tree, 1).is_none());
+        assert!(find(&tree, 2).is_none());
     }
 
     #[test]
-    fn inline_box_is_currently_stacked_not_inline_formatted() {
-        // MILESTONE 3 NOTE: inline layout is intentionally fake today — an inline
-        // element produces its own stacked box rather than participating in a line
-        // box. This test pins the current behavior so the Milestone 3 rewrite is a
-        // deliberate, visible change.
-        let mut inline = ComputedStyle::initial();
-        inline.display = Display::Inline;
-        let a = element(1, inline.clone(), vec![text(3, "a", 16.0)]);
-        let b = element(2, inline, vec![text(4, "b", 16.0)]);
-        let root = element(0, block_style(), vec![a, b]);
-        let layout = build_layout_tree(&root, LayoutViewport::default()).unwrap();
-
-        let box_a = find(&layout, 1).unwrap();
-        let box_b = find(&layout, 2).unwrap();
-        assert_eq!(box_a.kind, LayoutBoxKind::Inline);
-        // Two inline siblings stack on separate lines (b below a), which real
-        // inline formatting would not do.
-        assert!(box_b.rect.y >= box_a.rect.y + box_a.rect.height);
+    fn display_none_span_does_not_affect_wrapping() {
+        let mut hidden = ComputedStyle::initial();
+        hidden.display = Display::None;
+        let p = element(
+            1,
+            block_style(),
+            vec![
+                text(2, "Hello ", 16.0, Color::BLACK),
+                StyledNode {
+                    node_id: NodeId(3),
+                    text: None,
+                    style: hidden,
+                    children: vec![text(4, "INVISIBLE", 16.0, Color::BLACK)],
+                },
+                text(5, "world", 16.0, Color::BLACK),
+            ],
+        );
+        let root = element(0, block_style(), vec![p]);
+        let tree = layout(&root, 800.0);
+        let texts: Vec<&str> = text_runs(&tree).iter().map(|r| run_text(r)).collect();
+        assert_eq!(texts, vec!["Hello", "world"]);
     }
 
-    #[test]
-    fn text_width_is_estimated_from_char_count() {
-        // MILESTONE 3 NOTE: width is char_count * font_size * 0.6, not measured
-        // from a font. This will change when real text measurement lands.
-        let root = element(0, block_style(), vec![text(1, "abcde", 16.0)]);
-        let layout = build_layout_tree(&root, LayoutViewport::default()).unwrap();
-        let text_box = find(&layout, 1).unwrap();
-        assert_eq!(text_box.rect.width, (5.0 * 16.0 * 0.6_f32).round());
-    }
+    // --- debug dump ---------------------------------------------------------
 
     #[test]
-    fn blocks_stack_vertically() {
-        let first = element(1, block_style(), vec![text(3, "first", 16.0)]);
-        let second = element(2, block_style(), vec![text(4, "second", 16.0)]);
-        let root = element(0, block_style(), vec![first, second]);
-        let layout = build_layout_tree(&root, LayoutViewport::default()).unwrap();
-        let a = find(&layout, 1).unwrap();
-        let b = find(&layout, 2).unwrap();
-        assert!(b.rect.y >= a.rect.y + a.rect.height);
+    fn debug_dump_includes_expected_kinds() {
+        let div = element(
+            1,
+            block_style(),
+            vec![
+                text(2, "Intro", 16.0, Color::BLACK),
+                element(
+                    3,
+                    block_style(),
+                    vec![text(4, "Hello world", 16.0, Color::BLACK)],
+                ),
+            ],
+        );
+        let root = element(0, block_style(), vec![div]);
+        let tree = layout(&root, 800.0);
+        let dump = format_layout_tree(&tree);
+        assert!(dump.contains("Block"));
+        assert!(dump.contains("AnonymousBlock"));
+        assert!(dump.contains("LineBox"));
+        assert!(dump.contains("TextRun \"Hello\""));
+        assert!(dump.contains("node=#"));
     }
 }

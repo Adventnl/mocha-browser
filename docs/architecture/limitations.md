@@ -1,6 +1,6 @@
 # Limitations
 
-Mocha Browser is at **Milestone 2**. It is an engine laboratory, not a usable
+Mocha Browser is at **Milestone 3**. It is an engine laboratory, not a usable
 browser. This document is deliberately explicit about what does not exist so the
 project never overclaims.
 
@@ -67,8 +67,23 @@ Not supported (returns a clear error):
   default of `display: none`, so layout skips its subtree.
 - **`height` of the viewport** does not constrain layout; vertical content may
   exceed it. There is no scrolling or overflow handling.
-- **Inline boxes** (e.g. `<span>`) are still laid out on their own line; there is
-  no real inline formatting yet.
+
+## Layout limitations (Milestone 3)
+
+Block and inline formatting are real but small:
+
+- **Text measurement is estimated**, not from real font metrics: word width is
+  `char_count * font_size * 0.6` and line height is `max_font_size * 1.2`.
+- **No real fonts** — no font loading, shaping, kerning, or per-glyph metrics.
+- **No hyphenation or character wrapping**; a single word wider than the line is
+  placed alone and **overflows** the content box.
+- **No margin collapse** — adjacent vertical margins add rather than collapse.
+- **No `text-align`, `white-space` modes, `line-height` property, vertical-align,
+  or baseline alignment** — text runs are top-aligned within a line box.
+- **Inline-level elements are flattened into text runs**: no inline boxes are
+  produced, and **inline backgrounds/borders are deferred** (inline text color
+  and font size are honored).
+- **No floats, positioning, flexbox, grid, tables, or overflow/scrolling.**
 
 ## Supported HTML tags
 

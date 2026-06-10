@@ -123,7 +123,11 @@ impl Tokenizer {
 
     /// Read a run of text up to the next `<` and normalise its whitespace.
     ///
-    /// Returns `None` when the run is whitespace-only.
+    /// Returns `None` when the run is whitespace-only (so block-level whitespace
+    /// between tags disappears). For runs with content, internal whitespace is
+    /// collapsed to single spaces and a single leading/trailing space is
+    /// preserved when present — this keeps the spaces around inline elements
+    /// (e.g. `Hello <span>red</span> world`) intact for inline layout.
     fn read_text(&mut self) -> Option<String> {
         let start = self.pos;
         while let Some(&c) = self.chars.get(self.pos) {
@@ -133,12 +137,7 @@ impl Tokenizer {
             self.pos += 1;
         }
         let raw: String = self.chars[start..self.pos].iter().collect();
-        let normalised = collapse_whitespace(&raw);
-        if normalised.is_empty() {
-            None
-        } else {
-            Some(normalised)
-        }
+        normalize_text(&raw)
     }
 
     /// Read a markup construct that begins at the current `<`.
@@ -372,9 +371,23 @@ impl Tokenizer {
     }
 }
 
-/// Collapse all runs of ASCII/Unicode whitespace to a single space and trim ends.
-fn collapse_whitespace(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
+/// Normalise an HTML text run: collapse internal whitespace to single spaces,
+/// and preserve a single leading/trailing space when the run has content.
+/// Returns `None` for a whitespace-only run.
+fn normalize_text(text: &str) -> Option<String> {
+    let core = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if core.is_empty() {
+        return None;
+    }
+    let mut normalised = String::new();
+    if text.starts_with(char::is_whitespace) {
+        normalised.push(' ');
+    }
+    normalised.push_str(&core);
+    if text.ends_with(char::is_whitespace) {
+        normalised.push(' ');
+    }
+    Some(normalised)
 }
 
 #[cfg(test)]
@@ -415,6 +428,19 @@ mod tests {
     fn tokenize_text() {
         let tokens = tokenize("Hello   Mocha").unwrap();
         assert_eq!(tokens, vec![HtmlToken::Text("Hello Mocha".to_string())]);
+    }
+
+    #[test]
+    fn leading_and_trailing_spaces_are_preserved_around_content() {
+        // Spaces adjacent to inline elements must survive (collapsed to one).
+        assert_eq!(
+            tokenize("Hello \n  world ").unwrap(),
+            vec![HtmlToken::Text("Hello world ".into())]
+        );
+        assert_eq!(
+            tokenize(" world").unwrap(),
+            vec![HtmlToken::Text(" world".into())]
+        );
     }
 
     #[test]

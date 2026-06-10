@@ -73,9 +73,9 @@ Every crate must have tests.
 
 Every milestone must produce a runnable result.
 
-The current milestone is Milestone 2: a basic CSS engine (`<style>` blocks and inline `style` attributes) feeding computed style into layout and paint, still terminal-only for local HTML.
+The current milestone is Milestone 3: a real layout foundation — block and inline formatting with line boxes, word wrapping, and anonymous block boxes — consuming computed style, still terminal-only for local HTML. Text measurement is estimated, not real font metrics.
 
-Do not add JavaScript, networking, external/linked CSS, dynamic DOM mutation, tabs, sandboxing, or desktop window rendering during Milestone 2.
+Do not add JavaScript, networking, external/linked CSS, dynamic DOM mutation, real font metrics, flexbox/grid, positioning, tabs, sandboxing, or desktop window rendering during Milestone 3.
 
 ## Verification commands
 

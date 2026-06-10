@@ -37,9 +37,11 @@ mocha_style
 - depends on: mocha_error, mocha_dom, mocha_css
 
 mocha_layout
-- box-model layout consuming computed style
-- no CSS parsing
-- depends on: mocha_error, mocha_dom, mocha_style
+- block + inline layout consuming computed style
+- modules: geometry, box_tree, context, block, inline, line, debug
+- produces block / anonymous-block / line / text-run boxes
+- no CSS parsing, no DOM dependency
+- depends on: mocha_error, mocha_style
 
 mocha_paint
 - display list generation (colors, borders)
