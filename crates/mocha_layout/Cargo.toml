@@ -1,0 +1,12 @@
+[package]
+name = "mocha_layout"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Simple box-model layout for Mocha Browser, consuming computed style (no CSS parsing)."
+
+[dependencies]
+mocha_error.workspace = true
+mocha_dom.workspace = true
+mocha_style.workspace = true

@@ -1,0 +1,10 @@
+[package]
+name = "mocha_dom"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Minimal DOM tree representation for Mocha Browser (no parsing, no layout)."
+
+[dependencies]
+mocha_error.workspace = true

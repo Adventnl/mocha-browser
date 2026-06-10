@@ -1,0 +1,30 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/mocha_error",
+    "crates/mocha_url",
+    "crates/mocha_dom",
+    "crates/mocha_html",
+    "crates/mocha_css",
+    "crates/mocha_style",
+    "crates/mocha_layout",
+    "crates/mocha_paint",
+    "crates/mocha_shell",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/mocha-browser/mocha-browser"
+
+[workspace.dependencies]
+mocha_error = { path = "crates/mocha_error" }
+mocha_url = { path = "crates/mocha_url" }
+mocha_dom = { path = "crates/mocha_dom" }
+mocha_html = { path = "crates/mocha_html" }
+mocha_css = { path = "crates/mocha_css" }
+mocha_style = { path = "crates/mocha_style" }
+mocha_layout = { path = "crates/mocha_layout" }
+mocha_paint = { path = "crates/mocha_paint" }
+mocha_shell = { path = "crates/mocha_shell" }

@@ -1,0 +1,11 @@
+[package]
+name = "mocha_html"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Minimal HTML tokenizer and tree builder for Mocha Browser (not HTML5-compliant)."
+
+[dependencies]
+mocha_error.workspace = true
+mocha_dom.workspace = true

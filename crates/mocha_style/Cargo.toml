@@ -1,0 +1,12 @@
+[package]
+name = "mocha_style"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Selector matching, cascade, inheritance, and computed style for Mocha Browser."
+
+[dependencies]
+mocha_error.workspace = true
+mocha_dom.workspace = true
+mocha_css.workspace = true

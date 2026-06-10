@@ -1,0 +1,10 @@
+[package]
+name = "mocha_css"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Minimal CSS tokenizer, parser, and value model for Mocha Browser (not CSS-spec compliant)."
+
+[dependencies]
+mocha_error.workspace = true

@@ -1,0 +1,10 @@
+[package]
+name = "mocha_url"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Minimal URL and local-path parsing for Mocha Browser (not a full WHATWG URL parser)."
+
+[dependencies]
+mocha_error.workspace = true
