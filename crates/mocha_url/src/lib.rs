@@ -145,16 +145,17 @@ impl Url {
         }
     }
 
-    /// Resolve a redirect `Location` value against this URL.
+    /// Resolve a relative reference (a redirect `Location` or a subresource
+    /// `href`/`src`) against this URL.
     ///
     /// Handles absolute URLs, scheme-relative (`//host/path`), absolute-path
-    /// (`/path`), and simple relative paths (resolved against this URL's
-    /// directory). Dot-segments (`.`/`..`) are not resolved.
+    /// (`/path`), and relative paths (resolved against this URL's directory).
+    /// Dot-segments (`.`/`..`) in the resulting `/`-separated path are normalized.
     pub fn join(&self, location: &str) -> MochaResult<Url> {
         let location = location.trim();
         if location.is_empty() {
             return Err(MochaError::InvalidUrl(
-                "redirect location is empty".to_string(),
+                "relative reference is empty".to_string(),
             ));
         }
         if location.contains("://") {
@@ -165,15 +166,18 @@ impl Url {
         }
 
         let (raw_path, query, fragment) = split_path_query_fragment(location);
-        let path = if raw_path.starts_with('/') {
+        let merged = if raw_path.starts_with('/') {
             raw_path.to_string()
         } else {
-            let directory = match self.path.rfind('/') {
+            // Resolve against this URL's directory. Accept either separator so
+            // Windows file paths (backslashes) resolve too.
+            let directory = match self.path.rfind(['/', '\\']) {
                 Some(index) => &self.path[..=index],
                 None => "/",
             };
             format!("{directory}{raw_path}")
         };
+        let path = normalize_dot_segments(&merged);
 
         Ok(Url {
             scheme: self.scheme,
@@ -186,26 +190,82 @@ impl Url {
     }
 }
 
+/// Resolve `.` and `..` segments in a `/`-separated path, preserving a leading
+/// slash. URL paths and POSIX file paths are normalized here. Windows paths
+/// (which contain backslashes) are left untouched so the OS resolves their
+/// dot-segments at filesystem-access time — normalizing the backslash-prefixed
+/// drive segment would mangle the path.
+fn normalize_dot_segments(path: &str) -> String {
+    if !path.contains('/') || path.contains('\\') {
+        return path.to_string();
+    }
+    let leading_slash = path.starts_with('/');
+    let mut segments: Vec<&str> = Vec::new();
+    for segment in path.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                segments.pop();
+            }
+            other => segments.push(other),
+        }
+    }
+    let mut result = String::new();
+    if leading_slash {
+        result.push('/');
+    }
+    result.push_str(&segments.join("/"));
+    result
+}
+
 /// Parse the portion of a `file:` URL that follows `file://`.
+///
+/// Supports POSIX absolute paths (`file:///etc/hosts` → `/etc/hosts`) and Windows
+/// drive paths in both the canonical (`file:///C:/dir/x` → `C:/dir/x`) and the
+/// lenient two-slash (`file://C:\dir\x` → `C:\dir\x`) spellings. A `file:` URL
+/// with a real (non-drive) host is still unsupported.
 fn parse_file_url(rest: &str) -> MochaResult<Url> {
     if rest.is_empty() {
         return Err(MochaError::InvalidUrl(
             "file url is missing a path".to_string(),
         ));
     }
-    if !rest.starts_with('/') {
+
+    let path = if let Some(after_slash) = rest.strip_prefix('/') {
+        if starts_with_drive(after_slash) {
+            // Canonical `file:///C:/...`: drop the leading slash before the drive
+            // so the result is a real Windows path.
+            after_slash.to_string()
+        } else {
+            // POSIX absolute path: keep the leading slash.
+            rest.to_string()
+        }
+    } else if starts_with_drive(rest) {
+        // Lenient `file://C:\...`, where the host position holds a drive letter.
+        rest.to_string()
+    } else {
         return Err(MochaError::InvalidUrl(
             "file url with a non-empty host is not supported (use file:///path)".to_string(),
         ));
-    }
+    };
+
     Ok(Url {
         scheme: Scheme::File,
         host: None,
         port: None,
-        path: rest.to_string(),
+        path,
         query: None,
         fragment: None,
     })
+}
+
+/// Whether `s` begins with a Windows drive prefix such as `C:/` or `C:\`.
+fn starts_with_drive(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && (bytes[2] == b'/' || bytes[2] == b'\\')
 }
 
 /// Parse the portion of an HTTP(S) URL that follows `http://` / `https://`.
@@ -302,6 +362,28 @@ mod tests {
         let url = Url::parse("file:///path/to/file.html").unwrap();
         assert_eq!(url.scheme, Scheme::File);
         assert_eq!(url.path, "/path/to/file.html");
+    }
+
+    #[test]
+    fn parse_windows_drive_file_url_canonical() {
+        // `file:///C:/dir/x` drops the leading slash before the drive letter.
+        let url = Url::parse("file:///C:/Users/x.html").unwrap();
+        assert_eq!(url.scheme, Scheme::File);
+        assert_eq!(url.path, "C:/Users/x.html");
+    }
+
+    #[test]
+    fn parse_windows_drive_file_url_two_slash() {
+        // Lenient `file://C:\dir\x`: the drive letter sits in the host position.
+        let url = Url::parse(r"file://C:\Users\x.html").unwrap();
+        assert_eq!(url.scheme, Scheme::File);
+        assert_eq!(url.path, r"C:\Users\x.html");
+    }
+
+    #[test]
+    fn parse_file_url_with_real_host_is_rejected() {
+        let error = Url::parse("file://server/share/x.html").unwrap_err();
+        assert!(matches!(error, MochaError::InvalidUrl(_)));
     }
 
     #[test]
@@ -420,6 +502,29 @@ mod tests {
         let base = Url::parse("http://example.com/a/b.html").unwrap();
         let joined = base.join("c.html").unwrap();
         assert_eq!(joined.path, "/a/c.html");
+    }
+
+    #[test]
+    fn join_resolves_dot_and_dotdot_segments() {
+        let base = Url::parse("http://example.com/a/b/page.html").unwrap();
+        assert_eq!(base.join("../style.css").unwrap().path, "/a/style.css");
+        assert_eq!(base.join("./style.css").unwrap().path, "/a/b/style.css");
+        assert_eq!(base.join("../../x.css").unwrap().path, "/x.css");
+        // An absolute-path reference ignores the base directory.
+        assert_eq!(base.join("/style.css").unwrap().path, "/style.css");
+    }
+
+    #[test]
+    fn join_resolves_relative_against_file_base() {
+        let base = Url::parse("examples/resources/page.html").unwrap();
+        assert_eq!(
+            base.join("style.css").unwrap().path,
+            "examples/resources/style.css"
+        );
+        assert_eq!(
+            base.join("../style.css").unwrap().path,
+            "examples/style.css"
+        );
     }
 
     #[test]

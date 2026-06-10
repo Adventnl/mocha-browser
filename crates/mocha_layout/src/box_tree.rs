@@ -23,6 +23,9 @@ pub enum LayoutBoxKind {
     LineBox,
     /// A run of text on a line, carrying its rendered string.
     TextRun(String),
+    /// A replaced element (`<img>`), carrying the id of its decoded image. The
+    /// box's `rect` is where the image is drawn.
+    Image(usize),
 }
 
 /// A node in the layout tree with computed geometry and the style fields paint

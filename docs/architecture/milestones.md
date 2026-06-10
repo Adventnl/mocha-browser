@@ -1,6 +1,6 @@
 # Milestone Roadmap
 
-Mocha Browser is built one milestone at a time. **Milestones 1–6 are implemented
+Mocha Browser is built one milestone at a time. **Milestones 1–9 are implemented
 today**; everything after them is direction, not code. Each milestone lists its
 goal, what is explicitly not included, and how completion is verified.
 
@@ -80,45 +80,68 @@ goal, what is explicitly not included, and how completion is verified.
   control flow, functions, closures, objects/arrays, built-ins, error paths,
   step limit) plus shell `--eval-js` tests.
 
-## Milestone 7: JavaScript DOM bindings — next
+## Milestone 7: JavaScript DOM bindings — done (current)
 
-- **Goal:** expose `window`, `document`, `querySelector`, events, timers, and
-  DOM mutation to the interpreter.
-- **Not included:** full Web IDL surface.
-- **Verification:** tests where scripts query and mutate the DOM and receive
-  events.
+- **Goal:** a real host-object mechanism in `mocha_js` plus a `mocha_js_dom`
+  bridge that installs `window`/`document`/`console` globals, exposes DOM
+  read/mutate/query APIs (`getElementById`, `querySelector(All)`,
+  `createElement`/`createTextNode`, `appendChild`/`removeChild`, `textContent`,
+  `innerHTML`, `getAttribute`/`setAttribute`, `id`/`className`), JS event
+  listeners, and a deterministic `setTimeout`/`clearTimeout` queue. Inline
+  `<script>` runs in document order, then style/layout/paint run once (coarse
+  invalidation).
+- **Not included:** full Web IDL surface, live `NodeList`, MutationObserver, real
+  event loop/microtasks, promises/modules/classes, external `<script src>`,
+  incremental relayout, security model. See
+  [dom-bindings.md](dom-bindings.md).
+- **Verification:** `mocha_js` host tests, `mocha_dom` mutation/query tests,
+  `mocha_style` query-selector tests, `mocha_js_dom` tests, and a
+  `js_dom_pipeline` integration test (script mutates DOM and the display list
+  changes; created element renders; style/class mutation changes the final paint;
+  JS click listener + `preventDefault`; timers).
 
-## Milestone 8: Multi-process architecture
+## Milestone 8: Subresource loading — done (current)
 
-- **Goal:** split into a browser process and renderer process(es) with typed IPC
-  and crash recovery.
-- **Not included:** GPU process split, full sandbox (Milestone 10).
-- **Verification:** tests for IPC round-trips and renderer crash isolation.
+- **Goal:** discover and load external `<link rel="stylesheet">` stylesheets
+  (`mocha_resources`), resolve them against the document base URL (with
+  dot-segment normalization in `mocha_url`), validate content type, and integrate
+  them into the document-order cascade. `<link>` becomes a void element.
+- **Not included:** external `<script src>`, CSS `url(...)` resources, web fonts,
+  a `<base>` element, dynamic/incremental subresource loading. See
+  [subresources.md](subresources.md).
+- **Verification:** `mocha_resources` unit tests and a `subresource_pipeline`
+  integration test (external CSS over local file and HTTP, content-type
+  validation, cascade order, inline-style precedence, clear errors).
 
-## Milestone 9: Storage and profile system
+## Milestone 9: Images and replaced elements — done (current)
 
-- **Goal:** history, bookmarks, settings, session restore, and a private
-  profile.
-- **Not included:** cloud sync, accounts.
-- **Verification:** tests for persistence and session restore.
+- **Goal:** `<img>` support — void-element parsing, base-URL resolution, loading
+  through `mocha_net`, PNG/JPEG decoding (`mocha_image`, built on the `image`
+  crate), intrinsic/attribute/CSS sizing, inline and block replaced-element
+  layout, and a `DrawImage` display command.
+- **Not included:** rasterization to a window, responsive images
+  (`srcset`/`<picture>`), SVG, animation, canvas, baseline/`vertical-align`,
+  image backgrounds/borders. See
+  [images-and-replaced-elements.md](images-and-replaced-elements.md).
+- **Verification:** `mocha_image` decode tests, `mocha_resources` image tests, and
+  an `image_pipeline` integration test (intrinsic/attribute/CSS sizing, inline
+  image in document order, block stacking, `DrawImage` emission, content-type
+  rejection, missing/corrupt image failing clearly).
 
-## Milestone 10: Security foundation
+## Milestone 10: Forms and basic input controls — next
 
-- **Goal:** an origin model with same-origin checks, mixed-content handling, and
-  a permissions model.
-- **Not included:** a complete sandbox hardening pass.
-- **Verification:** tests for origin comparisons and same-origin enforcement.
+- **Goal:** parse basic form controls and wire input/change/submit behaviour into
+  the event and (eventually) navigation layers.
+- **Not included:** a full forms/validation model.
+- **Verification:** tests for control parsing and form event/submit behaviour.
 
-## Milestone 11: Desktop product shell
+## Beyond Milestone 10 (direction, not code)
 
-- **Goal:** tabs, an address bar, navigation buttons, and browser chrome.
-- **Not included:** extensions, devtools.
-- **Verification:** UI/integration tests for tab and navigation behaviour.
-
-## Milestone 12: Web compatibility hardening
-
-- **Goal:** run standards test suites, fuzzing, and visual regression; improve
-  compatibility.
-- **Not included:** a promise of full web compatibility.
-- **Verification:** tracked pass rates on chosen test suites plus a fuzzing
-  harness in CI.
+- **Multi-process architecture:** a browser process and renderer process(es) with
+  typed IPC and crash recovery.
+- **Storage and profile system:** history, bookmarks, settings, session restore.
+- **Security foundation:** an origin model, same-origin checks, mixed content.
+- **Desktop product shell:** tabs, address bar, navigation chrome, and a real
+  raster/window surface to actually draw the display list (including images).
+- **Web compatibility hardening:** standards test suites, fuzzing, visual
+  regression — without promising full web compatibility.

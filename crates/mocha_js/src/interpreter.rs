@@ -60,6 +60,31 @@ impl Interpreter {
         std::mem::take(&mut self.console)
     }
 
+    /// Define (or replace) a mutable binding in the global scope. Host crates use
+    /// this to install globals such as `window`/`document` before running scripts.
+    pub fn define_global(&mut self, name: &str, value: JsValue) {
+        self.global
+            .borrow_mut()
+            .define(name.to_string(), value, true);
+    }
+
+    /// Read a global binding by name (e.g. to expose `console` as `window.console`).
+    pub fn global_get(&self, name: &str) -> Option<JsValue> {
+        self.global.borrow().get(name)
+    }
+
+    /// Call a callable [`JsValue`] (user or native function) with `args`. Host
+    /// objects use this to invoke JavaScript callbacks (event listeners, timers).
+    pub fn call_function(&mut self, callee: JsValue, args: Vec<JsValue>) -> MochaResult<JsValue> {
+        self.call_value(callee, args)
+    }
+
+    /// Append a line to the captured console output (as `console.log` does). Host
+    /// objects use this to surface diagnostics through the same channel.
+    pub fn record_console(&mut self, line: String) {
+        self.console.push(line);
+    }
+
     /// Run a program, returning the value of its last expression statement (or
     /// `undefined`).
     pub fn run(&mut self, program: &Program) -> MochaResult<JsValue> {
@@ -286,6 +311,7 @@ impl Interpreter {
             Expr::Member { object, property } => {
                 let object = self.eval(object, env)?;
                 match object {
+                    JsValue::Host(host) => host.set(self, property, value),
                     JsValue::Object(map) => {
                         map.borrow_mut().insert(property.clone(), value);
                         Ok(())
@@ -369,6 +395,11 @@ impl Interpreter {
         property: &str,
         args: Vec<JsValue>,
     ) -> MochaResult<JsValue> {
+        // Host objects route method calls to their `call` implementation.
+        if let JsValue::Host(host) = &object {
+            let host = host.clone();
+            return host.call(self, property, args);
+        }
         // A few built-in array methods that need the receiving array.
         if let JsValue::Array(array) = &object {
             match property {
@@ -398,6 +429,7 @@ impl Interpreter {
         };
         match &*function {
             Function::Native { func, .. } => func(self, &args),
+            Function::NativeClosure { func, .. } => func(self, &args),
             Function::User {
                 params,
                 body,
@@ -417,8 +449,12 @@ impl Interpreter {
         }
     }
 
-    fn get_member(&self, object: &JsValue, property: &str) -> MochaResult<JsValue> {
+    fn get_member(&mut self, object: &JsValue, property: &str) -> MochaResult<JsValue> {
         match object {
+            JsValue::Host(host) => {
+                let host = host.clone();
+                host.get(self, property)
+            }
             JsValue::Object(map) => Ok(map
                 .borrow()
                 .get(property)
@@ -446,8 +482,12 @@ impl Interpreter {
         }
     }
 
-    fn get_index(&self, object: &JsValue, index: &JsValue) -> MochaResult<JsValue> {
+    fn get_index(&mut self, object: &JsValue, index: &JsValue) -> MochaResult<JsValue> {
         match object {
+            JsValue::Host(host) => {
+                let host = host.clone();
+                host.get(self, &index.stringify())
+            }
             JsValue::Array(array) => {
                 let i = index.to_number();
                 if i >= 0.0 && i.fract() == 0.0 {
@@ -473,8 +513,12 @@ impl Interpreter {
         }
     }
 
-    fn set_index(&self, object: &JsValue, index: &JsValue, value: JsValue) -> MochaResult<()> {
+    fn set_index(&mut self, object: &JsValue, index: &JsValue, value: JsValue) -> MochaResult<()> {
         match object {
+            JsValue::Host(host) => {
+                let host = host.clone();
+                host.set(self, &index.stringify(), value)
+            }
             JsValue::Array(array) => {
                 let i = index.to_number();
                 if i < 0.0 || i.fract() != 0.0 {

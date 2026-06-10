@@ -18,6 +18,29 @@ pub(crate) fn layout_block(styled: &StyledNode, x: f32, y: f32, available_width:
     let padding = edges(&style.padding);
     let border = style.border_width;
 
+    // A block-level replaced element (`<img style="display:block">`): its content
+    // box is the resolved image size; it has no flow children.
+    if let Some(replaced) = &styled.replaced {
+        let border_box_width = replaced.width + padding.horizontal() + 2.0 * border;
+        let border_box_height = replaced.height + padding.vertical() + 2.0 * border;
+        return LayoutBox {
+            node_id: Some(styled.node_id),
+            kind: LayoutBoxKind::Image(replaced.image_id),
+            rect: Rect {
+                x: x + margin.left,
+                y: y + margin.top,
+                width: border_box_width,
+                height: border_box_height,
+            },
+            font_size: 0.0,
+            color: style.color,
+            background_color: style.background_color,
+            border_width: border,
+            border_color: style.border_color,
+            children: Vec::new(),
+        };
+    }
+
     let content_width = style.width.unwrap_or_else(|| {
         (available_width - margin.horizontal() - padding.horizontal() - 2.0 * border).max(0.0)
     });

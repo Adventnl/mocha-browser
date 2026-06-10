@@ -10,6 +10,7 @@
 mod ast;
 mod builtins;
 mod environment;
+mod host;
 mod interpreter;
 mod lexer;
 mod parser;
@@ -17,6 +18,7 @@ mod token;
 mod value;
 
 pub use ast::Program;
+pub use host::HostObject;
 pub use interpreter::{Interpreter, DEFAULT_STEP_LIMIT};
 pub use lexer::lex;
 pub use parser::parse;
@@ -225,5 +227,111 @@ mod tests {
     fn program_returns_last_expression_value() {
         assert_eq!(num("let a = 1; let b = 2; a + b;"), 3.0);
         assert!(matches!(eval("let a = 1;"), JsValue::Undefined));
+    }
+
+    // --- host objects -------------------------------------------------------
+
+    use crate::Interpreter;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    /// A tiny host object backing a single shared counter, exercising get/set/call
+    /// and proving host state survives across property access and method calls.
+    struct Counter {
+        value: RefCell<f64>,
+    }
+
+    impl crate::HostObject for Counter {
+        fn class_name(&self) -> &str {
+            "Counter"
+        }
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+        fn get(&self, _: &mut Interpreter, name: &str) -> MochaResult<JsValue> {
+            match name {
+                "value" => Ok(JsValue::Number(*self.value.borrow())),
+                _ => Ok(JsValue::Undefined),
+            }
+        }
+        fn set(&self, _: &mut Interpreter, name: &str, value: JsValue) -> MochaResult<()> {
+            if name == "value" {
+                *self.value.borrow_mut() = value.to_number();
+                Ok(())
+            } else {
+                Err(MochaError::JavaScript(format!("no such property: {name}")))
+            }
+        }
+        fn call(
+            &self,
+            _: &mut Interpreter,
+            name: &str,
+            args: Vec<JsValue>,
+        ) -> MochaResult<JsValue> {
+            match name {
+                "add" => {
+                    let delta = args.first().map(JsValue::to_number).unwrap_or(0.0);
+                    *self.value.borrow_mut() += delta;
+                    Ok(JsValue::Number(*self.value.borrow()))
+                }
+                other => Err(MochaError::JavaScript(format!("no such method: {other}"))),
+            }
+        }
+    }
+
+    fn host_value() -> JsValue {
+        JsValue::Host(Rc::new(Counter {
+            value: RefCell::new(10.0),
+        }))
+    }
+
+    fn run_with_counter(source: &str) -> JsValue {
+        let mut interpreter = Interpreter::new();
+        interpreter.define_global("counter", host_value());
+        interpreter.run(&parse(source).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn host_object_get_set_and_method_call() {
+        assert!(matches!(run_with_counter("counter.value;"), JsValue::Number(n) if n == 10.0));
+        assert!(matches!(run_with_counter("counter.add(5);"), JsValue::Number(n) if n == 15.0));
+        // A set is observable through a later get on the same host.
+        assert!(
+            matches!(run_with_counter("counter.value = 3; counter.add(2); counter.value;"),
+                JsValue::Number(n) if n == 5.0)
+        );
+        // String indexing routes to the same host get.
+        assert!(matches!(run_with_counter("counter[\"value\"];"), JsValue::Number(n) if n == 10.0));
+    }
+
+    #[test]
+    fn host_object_identity_is_pointer_equality() {
+        let mut interpreter = Interpreter::new();
+        let host = host_value();
+        interpreter.define_global("a", host.clone());
+        interpreter.define_global("b", host);
+        interpreter.define_global("c", host_value());
+        assert!(matches!(
+            interpreter.run(&parse("a === b;").unwrap()).unwrap(),
+            JsValue::Bool(true)
+        ));
+        assert!(matches!(
+            interpreter.run(&parse("a === c;").unwrap()).unwrap(),
+            JsValue::Bool(false)
+        ));
+    }
+
+    #[test]
+    fn host_unknown_property_is_undefined_and_bad_method_errors() {
+        assert!(matches!(
+            run_with_counter("counter.missing;"),
+            JsValue::Undefined
+        ));
+        let mut interpreter = Interpreter::new();
+        interpreter.define_global("counter", host_value());
+        let error = interpreter
+            .run(&parse("counter.nope();").unwrap())
+            .unwrap_err();
+        assert!(matches!(error, MochaError::JavaScript(_)));
     }
 }

@@ -28,6 +28,18 @@ path = "../../tests/integration/navigation_pipeline.rs"
 name = "events_pipeline"
 path = "../../tests/integration/events_pipeline.rs"
 
+[[test]]
+name = "js_dom_pipeline"
+path = "../../tests/integration/js_dom_pipeline.rs"
+
+[[test]]
+name = "subresource_pipeline"
+path = "../../tests/integration/subresource_pipeline.rs"
+
+[[test]]
+name = "image_pipeline"
+path = "../../tests/integration/image_pipeline.rs"
+
 [dependencies]
 mocha_error.workspace = true
 mocha_url.workspace = true
@@ -38,8 +50,11 @@ mocha_paint.workspace = true
 mocha_net.workspace = true
 mocha_nav.workspace = true
 mocha_js.workspace = true
+mocha_dom.workspace = true
+mocha_js_dom.workspace = true
+mocha_resources.workspace = true
+mocha_image.workspace = true
 
 [dev-dependencies]
-mocha_dom.workspace = true
 mocha_events.workspace = true
 mocha_net = { workspace = true, features = ["test-util"] }

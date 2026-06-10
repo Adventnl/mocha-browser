@@ -262,6 +262,86 @@ impl Document {
         })
     }
 
+    /// The concatenated text of `node` and all its descendants, in document order
+    /// (the DOM `textContent` getter).
+    pub fn text_content(&self, node: NodeId) -> MochaResult<String> {
+        let mut text = String::new();
+        for id in self.traverse_depth_first(node)? {
+            if let NodeKind::Text(data) = &self.nodes[id.0].kind {
+                text.push_str(&data.text);
+            }
+        }
+        Ok(text)
+    }
+
+    /// Set the `textContent` of `node`.
+    ///
+    /// On an element, all existing children are detached and replaced by a single
+    /// text node. On a text node, its text is replaced. Comment, doctype, and the
+    /// document root are unsupported and return a [`MochaError::Dom`] error.
+    pub fn set_text_content(&mut self, node: NodeId, text: impl Into<String>) -> MochaResult<()> {
+        self.check_id(node)?;
+        match &self.nodes[node.0].kind {
+            NodeKind::Element(_) => {
+                let children = std::mem::take(&mut self.nodes[node.0].children);
+                for child in children {
+                    self.nodes[child.0].parent = None;
+                }
+                let text_node = self.create_text(text);
+                self.append_child(node, text_node)
+            }
+            NodeKind::Text(_) => {
+                self.nodes[node.0].kind = NodeKind::Text(TextData { text: text.into() });
+                Ok(())
+            }
+            _ => Err(MochaError::Dom(
+                "set_text_content is only supported on element and text nodes".to_string(),
+            )),
+        }
+    }
+
+    /// Set attribute `name` to `value` on an element node, replacing any existing
+    /// value. Non-element nodes return a [`MochaError::Dom`] error.
+    pub fn set_attribute(
+        &mut self,
+        node: NodeId,
+        name: impl Into<String>,
+        value: impl Into<String>,
+    ) -> MochaResult<()> {
+        self.check_id(node)?;
+        let name = name.into();
+        let value = value.into();
+        match &mut self.nodes[node.0].kind {
+            NodeKind::Element(data) => {
+                match data.attributes.iter_mut().find(|a| a.name == name) {
+                    Some(existing) => existing.value = value,
+                    None => data.attributes.push(Attribute { name, value }),
+                }
+                Ok(())
+            }
+            _ => Err(MochaError::Dom(
+                "set_attribute is only supported on element nodes".to_string(),
+            )),
+        }
+    }
+
+    /// An owned copy of an element attribute value, if present.
+    pub fn get_attribute_owned(&self, node: NodeId, name: &str) -> MochaResult<Option<String>> {
+        Ok(self.get_attribute(node, name)?.map(str::to_string))
+    }
+
+    /// The first element (in document order) whose `id` attribute equals `id`.
+    pub fn get_element_by_id(&self, id: &str) -> MochaResult<Option<NodeId>> {
+        for node_id in self.traverse_depth_first(self.root_id)? {
+            if let NodeKind::Element(data) = &self.nodes[node_id.0].kind {
+                if data.attribute("id") == Some(id) {
+                    return Ok(Some(node_id));
+                }
+            }
+        }
+        Ok(None)
+    }
+
     fn push(&mut self, kind: NodeKind) -> NodeId {
         let id = NodeId(self.nodes.len());
         self.nodes.push(Node {
@@ -447,5 +527,103 @@ mod tests {
         let stranger = document.create_text("x");
         let error = document.remove_child(root, stranger).unwrap_err();
         assert!(matches!(error, MochaError::Dom(_)));
+    }
+
+    #[test]
+    fn text_content_concatenates_descendant_text() {
+        let mut document = Document::new();
+        let root = document.root_id();
+        let p = document.create_element("p", Vec::new());
+        let t1 = document.create_text("Hello ");
+        let span = document.create_element("span", Vec::new());
+        let t2 = document.create_text("world");
+        document.append_child(root, p).unwrap();
+        document.append_child(p, t1).unwrap();
+        document.append_child(p, span).unwrap();
+        document.append_child(span, t2).unwrap();
+        assert_eq!(document.text_content(p).unwrap(), "Hello world");
+    }
+
+    #[test]
+    fn set_text_content_on_element_replaces_children_with_one_text_node() {
+        let mut document = Document::new();
+        let root = document.root_id();
+        let p = document.create_element("p", Vec::new());
+        let old = document.create_element("span", Vec::new());
+        document.append_child(root, p).unwrap();
+        document.append_child(p, old).unwrap();
+
+        document.set_text_content(p, "Changed").unwrap();
+        let children = document.children(p).unwrap();
+        assert_eq!(children.len(), 1);
+        assert!(matches!(&document.node(children[0]).unwrap().kind,
+            NodeKind::Text(t) if t.text == "Changed"));
+        // The old child is detached.
+        assert_eq!(document.parent(old).unwrap(), None);
+    }
+
+    #[test]
+    fn set_text_content_on_text_node_replaces_text() {
+        let mut document = Document::new();
+        let id = document.create_text("before");
+        document.set_text_content(id, "after").unwrap();
+        assert!(matches!(&document.node(id).unwrap().kind,
+            NodeKind::Text(t) if t.text == "after"));
+    }
+
+    #[test]
+    fn set_text_content_on_comment_errors() {
+        let mut document = Document::new();
+        let id = document.create_comment("note");
+        assert!(matches!(
+            document.set_text_content(id, "x").unwrap_err(),
+            MochaError::Dom(_)
+        ));
+    }
+
+    #[test]
+    fn set_attribute_adds_and_replaces_on_elements_only() {
+        let mut document = Document::new();
+        let p = document.create_element("p", Vec::new());
+        document.set_attribute(p, "id", "first").unwrap();
+        assert_eq!(
+            document.get_attribute_owned(p, "id").unwrap().as_deref(),
+            Some("first")
+        );
+        document.set_attribute(p, "id", "second").unwrap();
+        assert_eq!(
+            document.get_attribute_owned(p, "id").unwrap().as_deref(),
+            Some("second")
+        );
+
+        let text = document.create_text("x");
+        assert!(matches!(
+            document.set_attribute(text, "id", "x").unwrap_err(),
+            MochaError::Dom(_)
+        ));
+    }
+
+    #[test]
+    fn get_element_by_id_finds_first_match_in_document_order() {
+        let mut document = Document::new();
+        let root = document.root_id();
+        let a = document.create_element(
+            "div",
+            vec![Attribute {
+                name: "id".into(),
+                value: "x".into(),
+            }],
+        );
+        let b = document.create_element(
+            "p",
+            vec![Attribute {
+                name: "id".into(),
+                value: "y".into(),
+            }],
+        );
+        document.append_child(root, a).unwrap();
+        document.append_child(root, b).unwrap();
+        assert_eq!(document.get_element_by_id("y").unwrap(), Some(b));
+        assert_eq!(document.get_element_by_id("missing").unwrap(), None);
     }
 }

@@ -59,7 +59,8 @@ vetted TLS library is future work.
 
 - Follows `301`, `302`, `303`, `307`, `308` using the `Location` header.
 - Resolves absolute, scheme-relative (`//host/…`), absolute-path (`/…`), and
-  simple relative locations via `Url::join` (no dot-segment normalization).
+  relative locations via `Url::join`, which normalizes dot-segments (`.`/`..`) in
+  URL/POSIX paths (also used for subresource resolution).
 - Limited to 10 redirects; exceeding the limit is a clear `Network` error.
 - A missing `Location` on a redirect is a clear error.
 - **Redirects to `file://` are rejected** (a `Network` error); unsupported-scheme
@@ -100,10 +101,13 @@ Networking adds risk; Mocha is **not** safe for general browsing.
   scoping, `Secure`/`HttpOnly`, and expiry, which are out of scope here.
 - No authentication, credentials, or proxy support.
 - No origin model, same-origin checks, mixed-content handling, or CSP.
-- No subresource loading (external CSS, images, scripts, fonts). `<link
-  rel="stylesheet">` remains rejected — subresources need base-URL resolution,
-  MIME checks, cascade ordering, and an error policy, so they are a later
-  milestone.
+- Subresource loading (Milestones 8–9) is layered on top of `mocha_net` by
+  `mocha_resources`/`mocha_image`, not by `mocha_net` itself: external
+  `<link rel="stylesheet">` CSS and `<img>` images are loaded against the document
+  base URL with MIME checks and an error policy (see
+  [subresources.md](subresources.md) and
+  [images-and-replaced-elements.md](images-and-replaced-elements.md)). External
+  `<script src>`, CSS `url(...)`, and web fonts are still not loaded.
 - **HTTP caching is not standards-compliant** and must not be relied on for
   correctness.
 - Downloaded data is never written to disk.

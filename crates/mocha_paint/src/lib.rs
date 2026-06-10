@@ -54,6 +54,20 @@ pub enum DisplayCommand {
         /// Text color.
         color: Color,
     },
+    /// Draw a decoded image (a replaced element). Mocha emits this command but does
+    /// **not** rasterize pixels to a window — there is no graphics surface yet.
+    DrawImage {
+        /// Index into the document's image store.
+        image_id: usize,
+        /// Left edge.
+        x: f32,
+        /// Top edge.
+        y: f32,
+        /// Draw width.
+        width: f32,
+        /// Draw height.
+        height: f32,
+    },
 }
 
 impl DisplayCommand {
@@ -84,6 +98,13 @@ impl DisplayCommand {
                 font_size,
                 color,
             } => format!("DrawText {text:?} x={x} y={y} font_size={font_size} color={color}"),
+            DisplayCommand::DrawImage {
+                image_id,
+                x,
+                y,
+                width,
+                height,
+            } => format!("DrawImage image_id={image_id} x={x} y={y} width={width} height={height}"),
         }
     }
 }
@@ -140,6 +161,26 @@ fn paint_box(layout_box: &LayoutBox, commands: &mut Vec<DisplayCommand>) {
                 y: rect.y,
                 font_size: layout_box.font_size,
                 color: layout_box.color,
+            });
+        }
+        LayoutBoxKind::Image(image_id) => {
+            // A replaced element draws its (optional) background/border, then the
+            // image fills the box.
+            if layout_box.background_color.a != 0 {
+                commands.push(DisplayCommand::DrawRect {
+                    x: rect.x,
+                    y: rect.y,
+                    width: rect.width,
+                    height: rect.height,
+                    color: layout_box.background_color,
+                });
+            }
+            commands.push(DisplayCommand::DrawImage {
+                image_id: *image_id,
+                x: rect.x,
+                y: rect.y,
+                width: rect.width,
+                height: rect.height,
             });
         }
     }

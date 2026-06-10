@@ -16,6 +16,15 @@ pub enum Reply {
     Html(String),
     /// `200 text/plain`.
     Text(String),
+    /// `200 text/css`.
+    Css(String),
+    /// `200` with the given content type and raw bytes (e.g. an image).
+    Bytes {
+        /// The `Content-Type` header value.
+        content_type: String,
+        /// The response body bytes.
+        body: Vec<u8>,
+    },
     /// `200` with a body but **no** `Content-Type` header.
     NoContentType(String),
     /// A redirect with the given status and (possibly relative) `Location`.
@@ -106,6 +115,10 @@ fn render(reply: &Reply, authority: &str) -> Vec<u8> {
             body.as_bytes(),
         ),
         Reply::Text(body) => http_response(200, "OK", Some("text/plain"), &[], body.as_bytes()),
+        Reply::Css(body) => http_response(200, "OK", Some("text/css"), &[], body.as_bytes()),
+        Reply::Bytes { content_type, body } => {
+            http_response(200, "OK", Some(content_type), &[], body)
+        }
         Reply::NoContentType(body) => http_response(200, "OK", None, &[], body.as_bytes()),
         Reply::Redirect { status, location } => http_response(
             *status,

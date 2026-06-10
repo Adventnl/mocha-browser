@@ -1,6 +1,6 @@
 # Rendering Pipeline
 
-As of Milestone 4 the pipeline is:
+As of Milestone 9 the pipeline is:
 
 ```text
 input URL/path
@@ -10,15 +10,19 @@ input URL/path
   -> HTML tokenizer
   -> HTML tree builder
   -> DOM tree
-  -> <style> / inline style extraction
-  -> CSS tokenizer
-  -> CSS parser
+  -> inline <script> execution + DOM mutation (mocha_js + mocha_js_dom)
+  -> subresources: external <link> CSS (mocha_resources) + <img> images (mocha_image)
+  -> <style> / <link> / inline style extraction
+  -> CSS tokenizer + parser
   -> selector matching + cascade + inheritance
-  -> computed style tree
-  -> block & inline layout tree
-  -> display list
+  -> computed style tree (+ replaced-element image boxes)
+  -> block & inline layout tree (text runs + image boxes)
+  -> display list (DrawRect / DrawBorder / DrawText / DrawImage)
   -> terminal output
 ```
+
+Inline scripts run **once** before style/layout (coarse invalidation), then
+subresources are collected from the final DOM and style/layout/paint run once.
 
 Each stage is described below with its input, output, owning crate, current
 limitations, and intended future expansion.
@@ -58,10 +62,24 @@ limitations, and intended future expansion.
 - **Output:** a `mocha_dom::Document`.
 - **Owning crate:** `mocha_html` (`lib.rs`).
 - **Current limitations:** a simple explicit stack. Only the supported tag set is
-  allowed (now including `style`); `<script>` and `<link>` are rejected (the
-  latter with a clear "external stylesheets not supported" error). Mismatched and
-  unclosed tags are `Parse` errors.
+  allowed, now including `style`, `script` (both raw-text), and the void elements
+  `link` and `img`. Mismatched and unclosed tags are `Parse` errors.
 - **Future expansion:** the HTML5 tree construction algorithm.
+
+## 2.5. Inline script execution (mocha_js + mocha_js_dom)
+
+- **Input:** the parsed `Document` and its inline `<script>` sources (in document
+  order). External `<script src>` is `UnsupportedFeature`.
+- **Output:** the mutated `Document`.
+- **Owning crates:** `mocha_js` (interpreter + host-object mechanism), `mocha_js_dom`
+  (window/document/console globals, DOM read/mutate/query, JS event listeners, a
+  deterministic timer queue), orchestrated by `mocha_shell`.
+- **Behaviour:** scripts run on one shared interpreter and can mutate the DOM
+  (text, attributes, class/id, append/remove nodes). After all scripts and pending
+  timers run, the pipeline re-runs style/layout/paint once (coarse invalidation).
+- **Current limitations:** see [dom-bindings.md](dom-bindings.md) — a tiny DOM API,
+  no incremental relayout, no live `NodeList`/event loop/promises, no security
+  model. A script error aborts the render with a clear error.
 
 ## 3. DOM tree
 
@@ -74,11 +92,16 @@ limitations, and intended future expansion.
 
 - **Input:** the `Document` (for `<style>` text) and elements' `style` attributes.
 - **Output:** `Vec<Stylesheet>` plus per-element inline `Vec<Declaration>`.
-- **Owning crates:** extraction in `mocha_style` (`collect_stylesheets`); parsing
-  in `mocha_css` (`parse_stylesheet`, `parse_inline_style`).
+- **Owning crates:** discovery/loading in `mocha_resources`
+  (`collect_document_stylesheets`: inline `<style>` plus external `<link
+  rel="stylesheet">` loaded through `mocha_net` and validated as `text/css`),
+  parsing in `mocha_css` (`parse_stylesheet`, `parse_inline_style`). Stylesheets
+  are collected in document order so the cascade's "later wins" tie-break holds.
 - **Current limitations:** a small selector and property subset; `px` lengths and
   named/hex colors only. Unknown properties, unsupported units, `!important`, and
-  unsupported selectors are errors. No external/linked CSS.
+  unsupported selectors are errors. External CSS is supported; CSS `url(...)`
+  resources, web fonts, and `<base>` are not. See
+  [subresources.md](subresources.md).
 - **Future expansion:** more of the CSS grammar, more value types, `@media`, etc.
 
 ## 5. Computed style tree
@@ -102,28 +125,35 @@ limitations, and intended future expansion.
   `block`, `inline`, `line`, `debug`).
 - **Behaviour:** block-level children stack vertically with a margin/border/
   padding box model; runs of inline content are broken into line boxes of text
-  runs with word wrapping; inline content among block siblings is wrapped in
-  anonymous block boxes. `display: none` produces no box.
+  runs and image atoms with word/item wrapping; inline content among block
+  siblings is wrapped in anonymous block boxes. A loaded `<img>` is a **replaced
+  element**: an `Image(image_id)` box sized from CSS → attributes → intrinsic
+  dimensions, laid out inline (default, sharing a line with text and raising line
+  height) or block. `display: none` produces no box. See
+  [images-and-replaced-elements.md](images-and-replaced-elements.md).
 - **Current limitations:** text width is **estimated** (`chars * font * 0.6`),
-  not measured; line height is `max_font * 1.2`. No margin collapse, `text-align`,
-  `white-space` modes, hyphenation (long words overflow), floats, or positioning.
-  Inline-level elements are flattened into text runs (no inline boxes are
-  produced); inline backgrounds/borders are deferred.
-- **Future expansion:** real font metrics, richer inline boxes, and more of the
-  box model.
+  not measured; line height is the tallest item on the line. No margin collapse,
+  `text-align`, `white-space` modes, hyphenation (long items overflow), floats, or
+  positioning. No baseline/`vertical-align` (inline items are top-aligned).
+  Inline-level elements are flattened into text runs/atoms; inline
+  backgrounds/borders are deferred.
+- **Future expansion:** real font metrics, richer inline boxes, baseline
+  alignment, and more of the box model.
 
 ## 7. Layout → display list
 
 - **Input:** a `&LayoutBox`.
-- **Output:** `Vec<DisplayCommand>` (`DrawRect`, `DrawBorder`, `DrawText`), each
-  carrying color.
+- **Output:** `Vec<DisplayCommand>` (`DrawRect`, `DrawBorder`, `DrawText`,
+  `DrawImage`).
 - **Owning crate:** `mocha_paint`.
 - **Current limitations:** a debug representation only. Box-generating boxes
   (block / inline / anonymous-block) emit `DrawRect` for a non-transparent
   background and `DrawBorder` for a non-zero border; text runs emit `DrawText`;
-  line boxes paint nothing. No images, gradients, stacking contexts, or
-  compositing.
-- **Future expansion:** a richer command set fed to a real GPU compositor.
+  image boxes emit `DrawImage` (referencing a decoded-image id); line boxes paint
+  nothing. **`DrawImage` is emitted but no pixels are rasterized** — there is no
+  graphics surface. No gradients, stacking contexts, or compositing.
+- **Future expansion:** a richer command set fed to a real GPU compositor that
+  actually rasterizes images.
 
 ## 8. Display list → terminal output
 
@@ -139,6 +169,7 @@ Separate from the render pipeline, the layout tree also supports **hit testing**
 [events.md](events.md). There is no real window input yet.
 
 The JavaScript interpreter (`mocha_js`, see
-[javascript-interpreter.md](javascript-interpreter.md)) is **not** part of the
-render pipeline in Milestone 6: it evaluates standalone snippets via `--eval-js`
-and is not connected to the DOM or `<script>` tags.
+[javascript-interpreter.md](javascript-interpreter.md)) is now part of the render
+pipeline: inline `<script>` runs against the DOM via the `mocha_js_dom` bindings
+(see [dom-bindings.md](dom-bindings.md)) before style/layout. It can still be run
+standalone via `--eval-js`.

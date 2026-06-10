@@ -1,27 +1,33 @@
 # Limitations
 
-Mocha Browser is at **Milestone 6**. It is an engine laboratory, not a usable
+Mocha Browser is at **Milestone 9**. It is an engine laboratory, not a usable
 browser. This document is deliberately explicit about what does not exist so the
 project never overclaims.
 
 ## Not supported
 
-- **JavaScript in pages** — `mocha_js` evaluates *standalone* snippets only; it
-  has no DOM bindings, does not execute `<script>` tags, and is not
-  ECMAScript-compliant (see the JavaScript section below).
-- **External / linked CSS and other subresources** — `<link rel="stylesheet">`
-  is rejected with a clear `UnsupportedFeature` error; images, scripts, and fonts
-  are not loaded. Milestone 4 loads the top-level document only.
+- **Browser-grade JavaScript** — `mocha_js` is a small custom subset (not
+  ECMAScript). Inline `<script>` now runs against the DOM through the
+  `mocha_js_dom` bindings, but the DOM surface is tiny and there is no security
+  model (see the JavaScript section below and
+  [dom-bindings.md](dom-bindings.md)).
+- **External scripts and CSS `url(...)`** — `<script src>`, CSS `url(...)`
+  resources, web fonts, and a `<base>` element are unsupported. External
+  `<link rel="stylesheet">` CSS and `<img>` images *are* loaded (Milestones 8–9).
+- **Image rasterization** — `<img>` is decoded (PNG/JPEG) and laid out, and a
+  `DrawImage` command is emitted, but **no pixels are drawn** (there is no
+  graphics surface). `srcset`/`<picture>`, SVG, and animation are unsupported.
 - **HTTPS / TLS** — `https://` returns `UnsupportedFeature` (TLS is never
-  hand-rolled and no TLS library is bundled).
+  hand-rolled and no TLS library is bundled). This includes HTTPS subresources.
 - **Real HTML5 parsing algorithm** — the tokenizer and tree builder accept a
   tiny hand-written grammar and a fixed tag set; there is no spec-compliant
   tokenization, no insertion modes, and no error recovery.
-- **Dynamic DOM mutation** — the tree is built once and never changes.
+- **Incremental invalidation** — scripts mutate the DOM, but style/layout/paint
+  re-run **once** over the final DOM (coarse invalidation); there is no
+  incremental relayout.
 - **Forms** — no form elements, controls, or submission.
-- **Images** — no `<img>`, decoding, or raster pipeline.
 - **Fonts** — no font loading or shaping; text size is estimated, not measured.
-- **Canvas / SVG / accessibility** — not parsed or rendered.
+- **Canvas / accessibility** — not parsed or rendered.
 - **Security sandbox** — no process sandbox, origin model, or permissions.
 - **Multi-process architecture** — single process only.
 - **Modern web compatibility** — Mocha cannot browse real websites.
@@ -70,17 +76,21 @@ Not supported (returns a clear error):
 - **`height` of the viewport** does not constrain layout; vertical content may
   exceed it. There is no scrolling or overflow handling.
 
-## JavaScript limitations (Milestone 6)
+## JavaScript limitations (Milestones 6–7)
 
-See [javascript-interpreter.md](javascript-interpreter.md) for detail.
+See [javascript-interpreter.md](javascript-interpreter.md) and
+[dom-bindings.md](dom-bindings.md) for detail.
 
 - **Not ECMAScript-compliant** and a small subset only.
-- **No DOM bindings** (`window`/`document`/`querySelector`), **no `<script>`
-  execution**, no external scripts, no `addEventListener` from JS.
-- No timers, promises, `async`/`await`, modules, classes, `new`, prototype
-  chains, full `this` semantics, regex, `Date`, `JSON`, template literals, arrow
-  functions, destructuring, spread, generators, `break`/`continue`, or
-  exceptions/`try`-`catch`.
+- **DOM bindings are a tiny hand-picked surface** (`window`/`document`, query,
+  mutate, `addEventListener`, `setTimeout`); inline `<script>` runs but external
+  `<script src>` does not. No live `NodeList`, MutationObserver, real event
+  loop/microtasks, or security model. Timers are a deterministic queue (no real
+  clock). Invalidation is coarse.
+- No promises, `async`/`await`, modules, classes, `new`, prototype chains, full
+  `this` semantics, regex, `Date`, `JSON`, template literals, arrow functions,
+  destructuring, spread, generators, ternary `?:`, `switch`, `break`/`continue`,
+  or exceptions/`try`-`catch`.
 - `==`/`!=` behave like `===`/`!==` (so `null == undefined` is **false** here);
   coercion is a small documented subset.
 - No garbage collector beyond Rust ownership + `Rc`; an execution **step limit**
@@ -116,7 +126,9 @@ See [networking-and-navigation.md](networking-and-navigation.md) for detail.
 - **UTF-8 only** — no charset detection or decoding; invalid UTF-8 is rejected.
 - **No origin model**, same-origin checks, mixed-content handling, or CSP.
 - Redirects are followed (limit 10); redirects to `file://` and unsupported
-  schemes are rejected. Dot-segments in relative redirects are not normalized.
+  schemes are rejected. Dot-segments (`.`/`..`) in relative references *are*
+  normalized for URL/POSIX paths (used for subresource resolution); Windows file
+  paths are resolved by the OS at access time.
 
 ## Layout limitations (Milestone 3)
 
@@ -129,23 +141,29 @@ Block and inline formatting are real but small:
   placed alone and **overflows** the content box.
 - **No margin collapse** — adjacent vertical margins add rather than collapse.
 - **No `text-align`, `white-space` modes, `line-height` property, vertical-align,
-  or baseline alignment** — text runs are top-aligned within a line box.
+  or baseline alignment** — text runs and inline images are top-aligned within a
+  line box (a line's height is its tallest item).
 - **Inline-level elements are flattened into text runs**: no inline boxes are
   produced, and **inline backgrounds/borders are deferred** (inline text color
   and font size are honored).
+- **Replaced elements (`<img>`)** lay out with resolved CSS/attribute/intrinsic
+  dimensions (inline by default, or block) but have no `object-fit`, no
+  backgrounds/borders, and no baseline alignment. See
+  [images-and-replaced-elements.md](images-and-replaced-elements.md).
 - **No floats, positioning, flexbox, grid, tables, or overflow/scrolling.**
 
 ## Supported HTML tags
 
 Only these element names are accepted. Any other tag is an `UnsupportedFeature`
-error (it is **not** silently skipped); `<link>` and `<script>` are rejected
-explicitly:
+error (it is **not** silently skipped):
 
 ```text
-html  body  h1  h2  p  div  span  style
+html  body  h1  h2  p  div  span  a  style  script  link  img
 ```
 
-Plus doctype declarations and comments.
+`style` and `script` are raw-text elements; `link` and `img` are void elements.
+Plus doctype declarations and comments. (`<link>` participates only as
+`rel="stylesheet"`; `<script src>` is parsed but not executed.)
 
 ## Honesty rule
 

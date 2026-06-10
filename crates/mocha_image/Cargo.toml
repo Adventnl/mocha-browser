@@ -1,0 +1,11 @@
+[package]
+name = "mocha_image"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Image format detection and decoding for Mocha Browser (PNG and JPEG), built on the `image` crate."
+
+[dependencies]
+mocha_error.workspace = true
+image.workspace = true

@@ -64,17 +64,23 @@ impl Tokenizer {
         while let Some(&c) = self.chars.get(self.pos) {
             if c == '<' {
                 let token = self.read_markup()?;
-                // `<style>` switches to a minimal raw-text mode: its body is read
-                // verbatim until the literal `</style>`, so CSS containing `<`,
-                // `>`, or significant whitespace is preserved rather than being
-                // tokenized as HTML. The `</style>` is then read by the main loop.
-                let raw_style = matches!(
-                    &token,
-                    HtmlToken::StartTag { name, self_closing: false, .. } if name == "style"
-                );
+                // `<style>` and `<script>` switch to a minimal raw-text mode: the
+                // body is read verbatim until the matching close tag, so CSS or JS
+                // containing `<`, `>`, or significant whitespace is preserved
+                // rather than being tokenized as HTML. The close tag is then read
+                // by the main loop. This is not the full HTML raw-text/RCDATA
+                // algorithm (no `</style` / `</script` escaping subtleties).
+                let raw_tag = match &token {
+                    HtmlToken::StartTag {
+                        name,
+                        self_closing: false,
+                        ..
+                    } if is_raw_text_tag(name) => Some(name.clone()),
+                    _ => None,
+                };
                 tokens.push(token);
-                if raw_style {
-                    let raw = self.read_raw_text_until_close("style")?;
+                if let Some(tag) = raw_tag {
+                    let raw = self.read_raw_text_until_close(&tag)?;
                     if !raw.is_empty() {
                         tokens.push(HtmlToken::Text(raw));
                     }
@@ -369,6 +375,11 @@ impl Tokenizer {
             .enumerate()
             .all(|(offset, c)| self.chars.get(self.pos + offset) == Some(&c))
     }
+}
+
+/// Whether a tag's body is parsed as raw text (its contents are not HTML).
+fn is_raw_text_tag(name: &str) -> bool {
+    matches!(name, "style" | "script")
 }
 
 /// Normalise an HTML text run: collapse internal whitespace to single spaces,

@@ -13,6 +13,9 @@ members = [
     "crates/mocha_nav",
     "crates/mocha_events",
     "crates/mocha_js",
+    "crates/mocha_js_dom",
+    "crates/mocha_resources",
+    "crates/mocha_image",
     "crates/mocha_shell",
 ]
 
@@ -35,4 +38,12 @@ mocha_net = { path = "crates/mocha_net" }
 mocha_nav = { path = "crates/mocha_nav" }
 mocha_events = { path = "crates/mocha_events" }
 mocha_js = { path = "crates/mocha_js" }
+mocha_js_dom = { path = "crates/mocha_js_dom" }
+mocha_resources = { path = "crates/mocha_resources" }
+mocha_image = { path = "crates/mocha_image" }
 mocha_shell = { path = "crates/mocha_shell" }
+
+# The only third-party dependency in the workspace: a safe image decoder for
+# Milestone 9. `default-features = false` keeps the dependency tree minimal — only
+# the PNG and JPEG codecs are pulled in (no GIF/WebP/TIFF/etc., no rayon).
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }

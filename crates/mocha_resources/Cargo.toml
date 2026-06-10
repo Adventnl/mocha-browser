@@ -1,0 +1,20 @@
+[package]
+name = "mocha_resources"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Subresource discovery and loading for Mocha Browser (external stylesheets and images), resolved against a document base URL."
+
+[dependencies]
+mocha_error.workspace = true
+mocha_url.workspace = true
+mocha_dom.workspace = true
+mocha_css.workspace = true
+mocha_net.workspace = true
+mocha_image.workspace = true
+
+[dev-dependencies]
+mocha_html.workspace = true
+mocha_net = { workspace = true, features = ["test-util"] }
+image.workspace = true

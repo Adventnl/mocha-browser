@@ -73,9 +73,12 @@ Every crate must have tests.
 
 Every milestone must produce a runnable result.
 
-The current milestone is Milestone 6: a from-scratch JavaScript-subset interpreter (`mocha_js`) — lexer, parser, AST, tree-walking evaluator with values/scopes/closures/objects/arrays, small built-ins (`console.log`, `Math`), and an execution step limit. It evaluates standalone snippets (shell `--eval-js`) and uses no existing JS engine or parser. It is NOT wired to the DOM, `window`, `document`, events, or `<script>` tags.
+The current milestone is Milestone 9: images and replaced elements. Milestones 1–9 are implemented. Recent additions:
+- Milestone 7 (JS DOM bindings): `mocha_js` gained a host-object mechanism (`JsValue::Host` + `HostObject`); the `mocha_js_dom` crate wires `window`/`document`/`console`, DOM read/mutate/query, JS event listeners, and a deterministic timer queue, and runs inline `<script>` in document order (coarse invalidation — style/layout/paint run once after scripts).
+- Milestone 8 (subresources): the `mocha_resources` crate loads external `<link rel="stylesheet">` CSS against the document base URL (dot-segment normalization in `mocha_url`); document-order cascade.
+- Milestone 9 (images): the `mocha_image` crate decodes PNG/JPEG via the `image` crate (the workspace's only third-party dependency); `<img>` lays out as a replaced element (inline/block) and paints `DrawImage`. Pixels are not rasterized.
 
-Do not add DOM bindings, `<script>` execution, timers, promises, async/await, modules, classes, prototypes/full `this`, an existing JS engine/parser, real window input, HTTPS/TLS, or desktop window rendering during Milestone 6. DOM↔JS bindings (and the DOM mutation APIs they require) are Milestone 7.
+The next milestone is Milestone 10: forms and basic input controls. Still out of scope and must return clear errors: HTTPS/TLS, external `<script src>`, CSS `url(...)`, promises/async/await/modules/classes, a real event loop, incremental relayout, image rasterization to a window, responsive images/SVG/canvas, and desktop window rendering. Do not add an existing JS engine/parser or browser engine.
 
 ## Verification commands
 

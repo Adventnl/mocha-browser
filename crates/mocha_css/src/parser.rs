@@ -28,6 +28,26 @@ pub fn parse_stylesheet(input: &str) -> MochaResult<Stylesheet> {
     Ok(Stylesheet { rules })
 }
 
+/// Parse a standalone selector list such as `p.intro, div span` — the grammar
+/// behind `querySelector`/`querySelectorAll`. The whole input must be a selector
+/// list (no declaration block); trailing tokens are a [`MochaError::Parse`].
+pub fn parse_selector_list(input: &str) -> MochaResult<Vec<Selector>> {
+    let mut parser = Parser::new(tokenize(input)?);
+    parser.skip_whitespace();
+    if parser.at_end() {
+        return Err(MochaError::Parse("expected a selector".to_string()));
+    }
+    let selectors = parser.parse_selector_list()?;
+    parser.skip_whitespace();
+    if !parser.at_end() {
+        return Err(MochaError::Parse(format!(
+            "unexpected tokens after selector list: {:?}",
+            parser.peek()
+        )));
+    }
+    Ok(selectors)
+}
+
 /// Parse the body of a `style="…"` attribute into declarations.
 pub fn parse_inline_style(input: &str) -> MochaResult<Vec<Declaration>> {
     let mut parser = Parser::new(tokenize(input)?);
@@ -510,6 +530,18 @@ mod tests {
     fn parse_selector_list() {
         let rule = only_rule("h1, h2 { color: red; }");
         assert_eq!(rule.selectors.len(), 2);
+    }
+
+    #[test]
+    fn parse_standalone_selector_list_for_query() {
+        let selectors = super::parse_selector_list("p.intro, div span").unwrap();
+        assert_eq!(selectors.len(), 2);
+        assert_eq!(selectors[1].parts.len(), 2); // descendant: div span
+                                                 // A declaration block is not a selector list.
+        assert!(super::parse_selector_list("p { color: red; }").is_err());
+        // Unsupported selector grammar still surfaces clearly.
+        assert!(super::parse_selector_list("p:hover").is_err());
+        assert!(super::parse_selector_list("").is_err());
     }
 
     #[test]

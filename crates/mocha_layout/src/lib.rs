@@ -90,6 +90,7 @@ mod tests {
             node_id: NodeId(node_id),
             text: None,
             style,
+            replaced: None,
             children,
         }
     }
@@ -103,6 +104,7 @@ mod tests {
             node_id: NodeId(node_id),
             text: Some(content.to_string()),
             style,
+            replaced: None,
             children: Vec::new(),
         }
     }
@@ -121,6 +123,7 @@ mod tests {
             node_id: NodeId(node_id),
             text: None,
             style,
+            replaced: None,
             children,
         }
     }
@@ -496,6 +499,7 @@ mod tests {
                     node_id: NodeId(3),
                     text: None,
                     style: hidden,
+                    replaced: None,
                     children: vec![text(4, "INVISIBLE", 16.0, Color::BLACK)],
                 },
                 text(5, "world", 16.0, Color::BLACK),

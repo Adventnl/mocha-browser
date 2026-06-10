@@ -13,7 +13,7 @@
 mod parser;
 pub mod tokenizer;
 
-pub use parser::{parse_inline_style, parse_stylesheet};
+pub use parser::{parse_inline_style, parse_selector_list, parse_stylesheet};
 pub use tokenizer::{tokenize, CssToken};
 
 use std::fmt;

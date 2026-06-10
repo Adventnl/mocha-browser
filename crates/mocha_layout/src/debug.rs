@@ -26,6 +26,7 @@ fn write_box(layout_box: &LayoutBox, depth: usize, output: &mut String) {
         LayoutBoxKind::AnonymousBlock => "AnonymousBlock".to_string(),
         LayoutBoxKind::LineBox => "LineBox".to_string(),
         LayoutBoxKind::TextRun(text) => format!("TextRun {text:?}"),
+        LayoutBoxKind::Image(image_id) => format!("Image #{image_id}"),
     };
 
     let _ = write!(output, "{kind}");

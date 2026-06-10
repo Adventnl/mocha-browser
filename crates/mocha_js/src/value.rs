@@ -7,11 +7,15 @@ use std::rc::Rc;
 
 use crate::ast::Stmt;
 use crate::environment::Environment;
+use crate::host::HostObject;
 use crate::interpreter::Interpreter;
 use mocha_error::MochaResult;
 
 /// A native (Rust-implemented) built-in function.
 pub type NativeFn = fn(&mut Interpreter, &[JsValue]) -> MochaResult<JsValue>;
+
+/// A native built-in function backed by a state-capturing closure.
+pub type NativeClosureFn = Rc<dyn Fn(&mut Interpreter, &[JsValue]) -> MochaResult<JsValue>>;
 
 /// A callable function value.
 pub enum Function {
@@ -32,6 +36,14 @@ pub enum Function {
         name: String,
         /// The implementation.
         func: NativeFn,
+    },
+    /// A built-in function backed by a closure that can capture host state (used
+    /// by DOM bindings for globals like `setTimeout` that need shared state).
+    NativeClosure {
+        /// Display name.
+        name: String,
+        /// The implementation.
+        func: NativeClosureFn,
     },
 }
 
@@ -54,6 +66,8 @@ pub enum JsValue {
     Array(Rc<RefCell<Vec<JsValue>>>),
     /// A function.
     Function(Rc<Function>),
+    /// A native host object (see [`HostObject`]). Used to back DOM bindings.
+    Host(Rc<dyn HostObject>),
 }
 
 impl JsValue {
@@ -67,6 +81,18 @@ impl JsValue {
         JsValue::Array(Rc::new(RefCell::new(items)))
     }
 
+    /// A native function backed by a state-capturing closure. Host crates use this
+    /// to install global functions (e.g. `setTimeout`) that need shared state.
+    pub fn native_closure<F>(name: impl Into<String>, func: F) -> JsValue
+    where
+        F: Fn(&mut Interpreter, &[JsValue]) -> MochaResult<JsValue> + 'static,
+    {
+        JsValue::Function(Rc::new(Function::NativeClosure {
+            name: name.into(),
+            func: Rc::new(func),
+        }))
+    }
+
     /// JavaScript truthiness: `false`, `null`, `undefined`, `0`, `NaN`, and `""`
     /// are falsy; everything else is truthy.
     pub fn is_truthy(&self) -> bool {
@@ -75,7 +101,9 @@ impl JsValue {
             JsValue::Number(n) => *n != 0.0 && !n.is_nan(),
             JsValue::Str(s) => !s.is_empty(),
             JsValue::Null | JsValue::Undefined => false,
-            JsValue::Object(_) | JsValue::Array(_) | JsValue::Function(_) => true,
+            JsValue::Object(_) | JsValue::Array(_) | JsValue::Function(_) | JsValue::Host(_) => {
+                true
+            }
         }
     }
 
@@ -90,6 +118,7 @@ impl JsValue {
             JsValue::Object(_) => "object",
             JsValue::Array(_) => "array",
             JsValue::Function(_) => "function",
+            JsValue::Host(_) => "object",
         }
     }
 
@@ -122,6 +151,7 @@ impl JsValue {
                 .join(","),
             JsValue::Object(_) => "[object Object]".to_string(),
             JsValue::Function(_) => "function".to_string(),
+            JsValue::Host(host) => format!("[object {}]", host.class_name()),
         }
     }
 
@@ -136,6 +166,7 @@ impl JsValue {
             (JsValue::Object(a), JsValue::Object(b)) => Rc::ptr_eq(a, b),
             (JsValue::Array(a), JsValue::Array(b)) => Rc::ptr_eq(a, b),
             (JsValue::Function(a), JsValue::Function(b)) => Rc::ptr_eq(a, b),
+            (JsValue::Host(a), JsValue::Host(b)) => Rc::ptr_eq(a, b),
             _ => false,
         }
     }

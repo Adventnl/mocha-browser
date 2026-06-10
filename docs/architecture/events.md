@@ -1,8 +1,11 @@
 # DOM Events (Milestone 5)
 
 Milestone 5 adds Mocha's **internal** DOM event system in `mocha_events`. It is
-**not JavaScript** — listeners are Rust callbacks. A later milestone will bridge
-JavaScript listeners onto this same dispatch.
+**not JavaScript** — listeners are Rust callbacks. Milestone 7 added JavaScript
+event listeners separately, in `mocha_js_dom`: because a JS callback must re-enter
+the live interpreter, `mocha_js_dom` dispatches JS listeners itself (mirroring the
+capture/target/bubble semantics here) rather than registering them as
+`mocha_events` `FnMut` callbacks. See [dom-bindings.md](dom-bindings.md).
 
 ## Event model
 

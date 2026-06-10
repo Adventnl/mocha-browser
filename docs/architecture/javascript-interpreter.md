@@ -1,8 +1,12 @@
 # JavaScript Interpreter (Milestone 6)
 
 Milestone 6 adds `mocha_js`, a small **from-scratch** JavaScript-subset
-interpreter. It evaluates standalone snippets — it is **not** wired to the DOM,
-`window`, `document`, events, or `<script>` tags (that is Milestone 7).
+interpreter. The interpreter core remains DOM-agnostic and is usable standalone
+(via `--eval-js`). Since Milestone 7 it also provides a **host-object mechanism**
+(`JsValue::Host` + the `HostObject` trait) that the separate `mocha_js_dom` crate
+uses to wire it to `window`/`document`/the DOM and run inline `<script>` — see
+[dom-bindings.md](dom-bindings.md). `mocha_js` itself still knows nothing about
+the DOM.
 
 ## Why Mocha has its own interpreter
 
@@ -46,7 +50,10 @@ Public API: `lex`, `parse`, `Interpreter`, and the convenience `JsRuntime`
 
 `JsValue` (see `value.rs`). Objects and arrays are `Rc<RefCell<…>>` so they have
 reference semantics; functions are `Rc<Function>` (user functions capture their
-defining environment; native functions are Rust `fn`s).
+defining environment; native functions are Rust `fn`s, or state-capturing
+`NativeClosure`s used by host crates for globals like `setTimeout`). A
+`JsValue::Host(Rc<dyn HostObject>)` variant lets an embedder back a value with
+native state; `===` on host values compares by pointer identity.
 
 ## Scope / environment model
 
@@ -79,21 +86,26 @@ because named declarations are bound before they are called.
 
 Every statement and expression evaluation consumes one step; exceeding
 `DEFAULT_STEP_LIMIT` (100,000) aborts with a clear `JavaScript("execution step
-limit exceeded")` error, so infinite loops cannot hang the host.
+limit exceeded")` error, so infinite loops cannot hang the host. **Known caveat:**
+the step budget counts *logical* steps, not native stack depth, so very deep
+recursion or deeply nested expressions can still overflow the Rust call stack
+before the budget trips. This is an accepted limitation.
 
 ## Known non-compliance / not implemented
 
-Not ECMAScript-compliant. No DOM bindings, `window`/`document`, `<script>`
-execution, external scripts, timers, promises, `async`/`await`, modules, classes,
-`new`, prototype chains, full `this` semantics, regular expressions, `Date`,
-`JSON`, template literals, arrow functions, destructuring, spread, generators,
-`break`/`continue`, exceptions/`try`-`catch`, or a garbage collector beyond Rust
-ownership + `Rc`. `==`/`!=` are strict (see above).
+Not ECMAScript-compliant. No promises, `async`/`await`, modules, classes, `new`,
+prototype chains, full `this` semantics, regular expressions, `Date`, `JSON`,
+template literals, arrow functions, destructuring, spread, generators, ternary
+`?:`, `switch`, `break`/`continue`, exceptions/`try`-`catch`, or a garbage
+collector beyond Rust ownership + `Rc`. `==`/`!=` are strict (see above). The DOM
+binding surface (Milestone 7) is a tiny hand-picked subset, not the Web IDL DOM —
+see [dom-bindings.md](dom-bindings.md).
 
-## What Milestone 7 will add
+## DOM bindings (Milestone 7, done)
 
-Milestone 7 will bridge this interpreter to the DOM: exposing `document`/`window`,
-`querySelector`, DOM mutation, and `addEventListener` (wrapping JS callbacks as
-the `mocha_events` listeners), and executing `<script>` tags. That requires
-deliberate **DOM mutation APIs** in `mocha_dom`, which are intentionally absent
-today.
+The interpreter is bridged to the DOM by the `mocha_js_dom` crate: it installs
+`window`/`document`/`console` globals as host objects, exposes a small DOM
+read/mutate/query API, dispatches JS event listeners, runs deterministic timers,
+and executes inline `<script>` against a shared `Document` (which gained the
+deliberate mutation APIs `set_text_content`/`set_attribute`/`get_element_by_id`/…).
+See [dom-bindings.md](dom-bindings.md).

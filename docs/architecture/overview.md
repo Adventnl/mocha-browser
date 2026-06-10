@@ -25,18 +25,29 @@ the modern web. It must never claim otherwise.
 
 ## Current milestone
 
-**Milestone 6: Custom JavaScript Interpreter v1.** Mocha adds `mocha_js`, a
-from-scratch JavaScript-subset interpreter (lexer → parser → AST → tree-walking
-evaluator) with numbers/strings/booleans/null/undefined, objects, arrays,
-functions and **closures**, `if`/`while`/`for`, operators, `console.log`
-capture, small `Math`/array/string built-ins, and an execution step limit. It
-evaluates **standalone** snippets (run via `--eval-js`) and uses **no existing JS
-engine or parser**. It is **not** wired to the DOM, `window`, `document`,
-events, or `<script>` tags — that is Milestone 7. This builds on the internal DOM
-event system from Milestone 5 (`mocha_events`, hit testing, link default
-actions). See [javascript-interpreter.md](javascript-interpreter.md),
-[events.md](events.md), and [rendering-pipeline.md](rendering-pipeline.md), and
-[limitations.md](limitations.md) for what is intentionally absent.
+**Milestone 9: Images and replaced elements.** The pipeline now loads a document,
+runs its inline `<script>`s against the DOM, loads its external stylesheets and
+images, and renders text and images to a display list. Building on the
+from-scratch interpreter (`mocha_js`, Milestone 6):
+
+- **Milestone 7 — JavaScript DOM bindings** (`mocha_js_dom`): a real host-object
+  mechanism wires the interpreter to the DOM. Inline `<script>` runs in document
+  order and can use `window`/`document`/`console`, query and mutate the DOM,
+  register event listeners, and schedule deterministic timers. DOM mutations are
+  reflected in a single post-script style/layout/paint pass (coarse invalidation).
+- **Milestone 8 — Subresource loading** (`mocha_resources`): external
+  `<link rel="stylesheet">` CSS is resolved against the document base URL, loaded,
+  content-type validated, and folded into the document-order cascade.
+- **Milestone 9 — Images** (`mocha_image`, the workspace's only third-party
+  dependency): `<img>` is parsed, loaded, and decoded (PNG/JPEG) for its intrinsic
+  size, laid out as a replaced element (inline or block), and painted as a
+  `DrawImage` command. **Pixels are not rasterized to a window.**
+
+It uses **no existing browser or JavaScript engine**. See
+[dom-bindings.md](dom-bindings.md), [subresources.md](subresources.md),
+[images-and-replaced-elements.md](images-and-replaced-elements.md),
+[rendering-pipeline.md](rendering-pipeline.md), and
+[limitations.md](limitations.md) for detail and what is intentionally absent.
 
 ## Long-term architecture direction
 

@@ -64,6 +64,10 @@ pub(crate) fn content_type_for_path(path: &str) -> &'static str {
         "text/css"
     } else if lower.ends_with(".txt") {
         "text/plain"
+    } else if lower.ends_with(".png") {
+        "image/png"
+    } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+        "image/jpeg"
     } else {
         "application/octet-stream"
     }

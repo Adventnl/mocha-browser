@@ -60,9 +60,30 @@ mocha_events
 
 mocha_js
 - from-scratch JavaScript-subset interpreter (lexer/parser/AST/interpreter)
-- standalone evaluation only; no DOM/HTML/CSS/events/network knowledge
+- a host-object mechanism (JsValue::Host + the HostObject trait) lets embedders
+  back JS values with native state, but mocha_js itself has no DOM/HTML/CSS/
+  events/network knowledge
 - no existing JS engine or parser is used
 - depends on: mocha_error
+
+mocha_image
+- image format detection + PNG/JPEG decoding (intrinsic dimensions only)
+- the ONLY crate with a third-party dependency: the `image` crate (png+jpeg)
+- no network/HTML/layout/DOM knowledge
+- depends on: mocha_error, image (external)
+
+mocha_js_dom
+- bridges mocha_js to mocha_dom: window/document/console globals, DOM
+  read/mutate/query, JS event listeners, a deterministic timer queue, inline
+  script execution against a shared Document
+- no layout/paint/network knowledge
+- depends on: mocha_error, mocha_js, mocha_dom, mocha_html, mocha_style
+
+mocha_resources
+- subresource discovery + loading (external <link> CSS, <img> images) resolved
+  against a base URL, with content-type validation; preserves document order
+- no raw HTTP, no layout/paint/JS
+- depends on: mocha_error, mocha_url, mocha_dom, mocha_css, mocha_net, mocha_image
 
 mocha_nav
 - navigation history (navigate/back/forward/reload) over a ResourceLoader
@@ -72,10 +93,12 @@ mocha_nav
 
 mocha_shell
 - command-line executable (library + binary)
-- loads via mocha_nav/mocha_net, then renders through the engine
-- exposes hit testing (--hit-test); no browser UI yet
-- depends on: mocha_error, mocha_url, mocha_html, mocha_style,
-  mocha_layout, mocha_paint, mocha_net, mocha_nav, mocha_js
+- loads via mocha_nav/mocha_net, runs inline scripts (mocha_js_dom), loads
+  subresources (mocha_resources/mocha_image), then renders through the engine
+- exposes hit testing (--hit-test) and standalone JS (--eval-js); no browser UI yet
+- depends on: mocha_error, mocha_url, mocha_html, mocha_dom, mocha_style,
+  mocha_layout, mocha_paint, mocha_net, mocha_nav, mocha_js, mocha_js_dom,
+  mocha_resources, mocha_image
 ```
 
 ## Notes
@@ -101,13 +124,21 @@ mocha_shell
 - See [networking-and-navigation.md](networking-and-navigation.md) for the
   loading/navigation design, [events.md](events.md) for the event system, and
   [javascript-interpreter.md](javascript-interpreter.md) for the JS interpreter.
-- `mocha_js` is deliberately isolated: it knows nothing about the DOM or the rest
-  of the engine and is reached only through the shell's `--eval-js`. Milestone 7
-  will introduce the DOM↔JS bridge as a separate concern.
+- `mocha_js` stays DOM-agnostic: it provides only a generic host-object mechanism
+  (`JsValue::Host`), and the DOM↔JS bridge lives in the separate `mocha_js_dom`
+  crate (Milestone 7). See [dom-bindings.md](dom-bindings.md). The interpreter is
+  still usable standalone via `--eval-js`.
+- `mocha_image` is the single boundary where a third-party dependency lives. Mocha
+  does not write an image decoder from scratch; `mocha_image` wraps the `image`
+  crate behind a tiny `MochaResult`-returning API so no other crate sees it.
+- `mocha_resources` owns subresource policy (discovery, base-URL resolution,
+  content-type checks) and depends on `mocha_net` for I/O but not on
+  layout/paint/JS — keeping subresource loading reusable.
 - `mocha_events` is the event core and stays free of URL/navigation knowledge;
   link default-action interpretation lives in `mocha_nav` (which may depend on
-  `mocha_events`). The point→node `hit_test` bridge lives in `mocha_layout`
-  (events don't depend on layout). This keeps each boundary one-directional.
-- Future crates (`mocha_js`, `mocha_gpu`, `mocha_security`, `mocha_browser`, …)
-  are intentionally **not** created yet. They are described in
+  `mocha_events`). JS event listeners are dispatched by `mocha_js_dom` (which has
+  the live interpreter), mirroring `mocha_events`' semantics. The point→node
+  `hit_test` bridge lives in `mocha_layout`. This keeps each boundary one-directional.
+- Future crates (`mocha_gpu`, `mocha_security`, `mocha_browser`, …) are
+  intentionally **not** created yet. They are described in
   [milestones.md](milestones.md) as direction only.

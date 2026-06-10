@@ -17,8 +17,8 @@ use std::collections::HashMap;
 
 use matching::{selector_matches, ElementDescriptor};
 use mocha_css::{
-    parse_inline_style, parse_stylesheet, CssProperty, CssValue, Declaration, Specificity,
-    Stylesheet,
+    parse_inline_style, parse_selector_list, parse_stylesheet, CssProperty, CssValue, Declaration,
+    Selector, Specificity, Stylesheet,
 };
 use mocha_dom::{Document, ElementData, NodeKind};
 use mocha_error::MochaResult;
@@ -174,6 +174,18 @@ impl ComputedStyle {
     }
 }
 
+/// A decoded replaced element's final box: which image to paint and the resolved
+/// content-box size (after applying CSS, then attributes, then intrinsic size).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ReplacedBox {
+    /// Index into the document's image store.
+    pub image_id: usize,
+    /// Final content width in pixels.
+    pub width: f32,
+    /// Final content height in pixels.
+    pub height: f32,
+}
+
 /// A DOM node with its computed style and styled children.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StyledNode {
@@ -183,6 +195,9 @@ pub struct StyledNode {
     pub text: Option<String>,
     /// The computed style.
     pub style: ComputedStyle,
+    /// For a successfully-loaded replaced element (`<img>`), its image box.
+    /// `None` for every other node.
+    pub replaced: Option<ReplacedBox>,
     /// Styled children (comments/doctypes are dropped).
     pub children: Vec<StyledNode>,
 }
@@ -209,6 +224,59 @@ pub fn collect_stylesheets(document: &Document) -> MochaResult<Vec<Stylesheet>> 
     Ok(stylesheets)
 }
 
+/// The first element in `document` (in document order) matching `selector`.
+///
+/// Supports the same selector grammar as the cascade (type/class/id/universal/
+/// compound/descendant). Unsupported selectors return a clear error from the CSS
+/// parser. This reuses the cascade's matcher rather than introducing a second
+/// selector engine.
+pub fn query_selector(document: &Document, selector: &str) -> MochaResult<Option<NodeId>> {
+    let selectors = parse_selector_list(selector)?;
+    Ok(matching_elements(document, &selectors)?.into_iter().next())
+}
+
+/// All elements in `document` (in document order) matching `selector`.
+pub fn query_selector_all(document: &Document, selector: &str) -> MochaResult<Vec<NodeId>> {
+    let selectors = parse_selector_list(selector)?;
+    matching_elements(document, &selectors)
+}
+
+fn matching_elements(document: &Document, selectors: &[Selector]) -> MochaResult<Vec<NodeId>> {
+    let mut matches = Vec::new();
+    collect_matches(document, document.root_id(), &[], selectors, &mut matches)?;
+    Ok(matches)
+}
+
+fn collect_matches(
+    document: &Document,
+    id: NodeId,
+    ancestors: &[ElementDescriptor],
+    selectors: &[Selector],
+    out: &mut Vec<NodeId>,
+) -> MochaResult<()> {
+    if let NodeKind::Element(data) = &document.node(id)?.kind {
+        let descriptor = ElementDescriptor::from_element(data);
+        if selectors
+            .iter()
+            .any(|selector| selector_matches(selector, &descriptor, ancestors))
+        {
+            out.push(id);
+        }
+        let mut child_ancestors = ancestors.to_vec();
+        child_ancestors.push(descriptor);
+        for &child in document.children(id)? {
+            collect_matches(document, child, &child_ancestors, selectors, out)?;
+        }
+    } else {
+        // The document root and non-element nodes never match and do not extend
+        // the ancestor chain, but their element descendants are still visited.
+        for &child in document.children(id)? {
+            collect_matches(document, child, ancestors, selectors, out)?;
+        }
+    }
+    Ok(())
+}
+
 /// Build a styled tree for `document` using the given author `stylesheets`.
 pub fn build_style_tree(
     document: &Document,
@@ -221,6 +289,7 @@ pub fn build_style_tree(
         node_id: root_id,
         text: None,
         style: root_style,
+        replaced: None,
         children,
     })
 }
@@ -262,6 +331,7 @@ fn build_node(
                 node_id: id,
                 text: None,
                 style,
+                replaced: None,
                 children,
             }))
         }
@@ -269,6 +339,7 @@ fn build_node(
             node_id: id,
             text: Some(text.text.clone()),
             style: ComputedStyle::for_text(parent_style),
+            replaced: None,
             children: Vec::new(),
         })),
         // Comments, doctypes, and the (already-handled) document root produce no
@@ -336,8 +407,8 @@ fn ua_defaults(tag: &str) -> Vec<(CssProperty, CssValue)> {
     let mut defaults = Vec::new();
 
     let display = match tag {
-        "span" | "a" => "inline",
-        "style" => "none",
+        "span" | "a" | "img" => "inline",
+        "style" | "script" | "link" => "none",
         _ => "block",
     };
     defaults.push((CssProperty::Display, CssValue::Keyword(display.to_string())));
@@ -629,6 +700,46 @@ mod tests {
             tree.children[0].children[0].style.color,
             Color::rgb(0, 128, 0)
         );
+    }
+
+    #[test]
+    fn query_selector_by_type_class_id_and_descendant() {
+        // div#wrap > p.intro ; plus a stray span to ensure it is skipped.
+        let mut document = Document::new();
+        let root = document.root_id();
+        let div = document.create_element("div", vec![attr("id", "wrap")]);
+        let p = document.create_element("p", vec![attr("class", "intro")]);
+        let span = document.create_element("span", Vec::new());
+        document.append_child(root, div).unwrap();
+        document.append_child(div, p).unwrap();
+        document.append_child(div, span).unwrap();
+
+        assert_eq!(query_selector(&document, "p").unwrap(), Some(p));
+        assert_eq!(query_selector(&document, ".intro").unwrap(), Some(p));
+        assert_eq!(query_selector(&document, "#wrap").unwrap(), Some(div));
+        assert_eq!(query_selector(&document, "div p").unwrap(), Some(p));
+        assert_eq!(query_selector(&document, "p.intro").unwrap(), Some(p));
+        assert_eq!(query_selector(&document, "section p").unwrap(), None);
+    }
+
+    #[test]
+    fn query_selector_all_returns_document_order() {
+        let mut document = Document::new();
+        let root = document.root_id();
+        let p1 = document.create_element("p", Vec::new());
+        let div = document.create_element("div", Vec::new());
+        let p2 = document.create_element("p", Vec::new());
+        document.append_child(root, p1).unwrap();
+        document.append_child(root, div).unwrap();
+        document.append_child(div, p2).unwrap();
+        assert_eq!(query_selector_all(&document, "p").unwrap(), vec![p1, p2]);
+    }
+
+    #[test]
+    fn query_selector_rejects_unsupported_selector() {
+        let document = Document::new();
+        assert!(query_selector(&document, "p:hover").is_err());
+        assert!(query_selector(&document, "div > p").is_err());
     }
 
     #[test]

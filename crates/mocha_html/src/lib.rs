@@ -2,10 +2,11 @@
 //! builder that produces a [`mocha_dom::Document`].
 //!
 //! **This is not the [HTML5 tree construction algorithm].** There is no error
-//! recovery, no implied tags, and no foster parenting. `<style>` is accepted and
-//! its CSS is captured as a text child (extracted later by `mocha_style`);
-//! `<script>` is rejected. Only a small set of element names is accepted;
-//! anything else is a clear [`MochaError`] rather than a silent skip.
+//! recovery, no implied tags, and no foster parenting. `<style>` and `<script>`
+//! are accepted and their raw text is captured as a text child (`<style>` CSS is
+//! extracted later by `mocha_style`; `<script>` JavaScript is executed by the
+//! shell pipeline via `mocha_js_dom`). Only a small set of element names is
+//! accepted; anything else is a clear [`MochaError`] rather than a silent skip.
 //!
 //! [HTML5 tree construction algorithm]: https://html.spec.whatwg.org/multipage/parsing.html#tree-construction
 
@@ -18,10 +19,18 @@ use mocha_error::{MochaError, MochaResult};
 
 /// Element names the tree builder accepts.
 ///
-/// `style` is accepted so its CSS text can be extracted later; its contents are
-/// not laid out or painted. Encountering any other tag (start or end) is an
+/// `style` and `script` are accepted so their raw text can be extracted later
+/// (`style` for CSS, `script` for inline JavaScript); their contents are not laid
+/// out or painted. Encountering any other tag (start or end) is an
 /// [`MochaError::UnsupportedFeature`] error, not a silent skip.
-pub const SUPPORTED_TAGS: &[&str] = &["html", "body", "h1", "h2", "p", "div", "span", "a", "style"];
+pub const SUPPORTED_TAGS: &[&str] = &[
+    "html", "body", "h1", "h2", "p", "div", "span", "a", "style", "script", "link", "img",
+];
+
+/// Void elements have no content and no end tag (e.g. `<link rel="stylesheet">`
+/// and `<img src="...">`). They are appended but never pushed onto the
+/// open-element stack.
+pub const VOID_TAGS: &[&str] = &["link", "img"];
 
 /// Parse an HTML source string into a [`Document`].
 ///
@@ -62,7 +71,7 @@ fn build_tree(tokens: Vec<HtmlToken>) -> MochaResult<Document> {
                 check_supported(&name)?;
                 let element = document.create_element(name.clone(), attributes);
                 document.append_child(current_parent(root, &open), element)?;
-                if !self_closing {
+                if !self_closing && !VOID_TAGS.contains(&name.as_str()) {
                     open.push((element, name));
                 }
             }
@@ -103,14 +112,6 @@ fn current_parent(root: NodeId, open: &[(NodeId, String)]) -> NodeId {
 fn check_supported(name: &str) -> MochaResult<()> {
     if SUPPORTED_TAGS.contains(&name) {
         return Ok(());
-    }
-    // `<link rel="stylesheet">` is the natural way to reach for external CSS.
-    // Report that specifically rather than as a generic unsupported tag, and
-    // never pretend the stylesheet loads.
-    if name == "link" {
-        return Err(MochaError::UnsupportedFeature(
-            "external stylesheets (<link>) are not supported in Milestone 2".to_string(),
-        ));
     }
     Err(MochaError::UnsupportedFeature(format!(
         "tag <{name}> is not supported"
@@ -180,8 +181,27 @@ mod tests {
 
     #[test]
     fn reject_unsupported_tag() {
-        let error = parse_html("<img>").unwrap_err();
+        let error = parse_html("<marquee>").unwrap_err();
         assert!(matches!(error, MochaError::UnsupportedFeature(_)));
+    }
+
+    #[test]
+    fn img_parses_as_a_void_element_with_attributes() {
+        let document = parse_html(
+            r#"<html><body><img src="cat.png" alt="A cat" width="100" height="80"><p>after</p></body></html>"#,
+        )
+        .unwrap();
+        assert_eq!(collect_tags(&document), vec!["html", "body", "img", "p"]);
+        let order = document.traverse_depth_first(document.root_id()).unwrap();
+        let img = order
+            .iter()
+            .find(|&&id| document.tag_name(id).unwrap() == Some("img"))
+            .copied()
+            .unwrap();
+        assert_eq!(document.get_attribute(img, "src").unwrap(), Some("cat.png"));
+        assert_eq!(document.get_attribute(img, "alt").unwrap(), Some("A cat"));
+        assert_eq!(document.get_attribute(img, "width").unwrap(), Some("100"));
+        assert!(document.children(img).unwrap().is_empty());
     }
 
     #[test]
@@ -251,20 +271,52 @@ mod tests {
     }
 
     #[test]
-    fn script_tag_is_rejected() {
-        let error = parse_html("<script></script>").unwrap_err();
-        assert!(matches!(error, MochaError::UnsupportedFeature(_)));
+    fn script_tag_is_captured_as_raw_text() {
+        // `<` inside script source must survive and not start an HTML tag.
+        let document = parse_html("<script>if (1 < 2) { x; }</script>").unwrap();
+        assert_eq!(collect_tags(&document), vec!["script"]);
+        assert_eq!(collect_text(&document), vec!["if (1 < 2) { x; }"]);
     }
 
     #[test]
-    fn link_stylesheet_is_clearly_unsupported() {
-        let error = parse_html(r#"<link rel="stylesheet">"#).unwrap_err();
-        match error {
-            MochaError::UnsupportedFeature(message) => {
-                assert!(message.contains("external stylesheets"))
-            }
-            other => panic!("expected UnsupportedFeature, got {other:?}"),
-        }
+    fn unterminated_script_is_rejected() {
+        let error = parse_html("<script>doStuff();").unwrap_err();
+        assert!(matches!(error, MochaError::Parse(_)));
+    }
+
+    #[test]
+    fn script_with_src_attribute_parses_as_element() {
+        // The parser accepts `<script src=...>`; rejecting external scripts is the
+        // job of script collection in the execution pipeline, not the parser.
+        let document = parse_html(r#"<script src="app.js"></script>"#).unwrap();
+        let order = document.traverse_depth_first(document.root_id()).unwrap();
+        assert_eq!(
+            document.get_attribute(order[1], "src").unwrap(),
+            Some("app.js")
+        );
+    }
+
+    #[test]
+    fn link_parses_as_a_void_element_without_a_close_tag() {
+        // No `</link>` is required; the link sits at body level with siblings.
+        let document = parse_html(
+            r#"<html><body><link rel="stylesheet" href="a.css"><p>after</p></body></html>"#,
+        )
+        .unwrap();
+        assert_eq!(collect_tags(&document), vec!["html", "body", "link", "p"]);
+        let order = document.traverse_depth_first(document.root_id()).unwrap();
+        let link = order
+            .iter()
+            .find(|&&id| document.tag_name(id).unwrap() == Some("link"))
+            .copied()
+            .unwrap();
+        assert_eq!(
+            document.get_attribute(link, "rel").unwrap(),
+            Some("stylesheet")
+        );
+        assert_eq!(document.get_attribute(link, "href").unwrap(), Some("a.css"));
+        // The link did not capture the following <p> as a child (it is void).
+        assert!(document.children(link).unwrap().is_empty());
     }
 
     #[test]
