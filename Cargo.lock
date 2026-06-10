@@ -37,6 +37,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "mocha_js"
+version = "0.1.0"
+dependencies = [
+ "mocha_error",
+]
+
+[[package]]
 name = "mocha_layout"
 version = "0.1.0"
 dependencies = [
@@ -79,6 +86,7 @@ dependencies = [
  "mocha_error",
  "mocha_events",
  "mocha_html",
+ "mocha_js",
  "mocha_layout",
  "mocha_nav",
  "mocha_net",

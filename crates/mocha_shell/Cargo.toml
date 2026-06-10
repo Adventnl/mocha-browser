@@ -37,6 +37,7 @@ mocha_layout.workspace = true
 mocha_paint.workspace = true
 mocha_net.workspace = true
 mocha_nav.workspace = true
+mocha_js.workspace = true
 
 [dev-dependencies]
 mocha_dom.workspace = true

@@ -69,6 +69,21 @@ pub fn dump_layout_file(input: &str) -> MochaResult<String> {
     Ok(format_layout_tree(&render_to_layout(&response)?))
 }
 
+/// Evaluate a standalone JavaScript snippet and return its captured console
+/// output followed by the result value (omitted when `undefined`).
+///
+/// This does **not** load a document or touch the DOM — JavaScript is not wired
+/// into HTML/`<script>` in Milestone 6.
+pub fn eval_js(source: &str) -> MochaResult<String> {
+    let mut runtime = mocha_js::JsRuntime::new();
+    let result = runtime.eval(source)?;
+    let mut lines = runtime.take_console_output();
+    if !matches!(result, mocha_js::JsValue::Undefined) {
+        lines.push(result.stringify());
+    }
+    Ok(lines.join("\n"))
+}
+
 /// Load a location and return the DOM node at viewport point `(x, y)`.
 pub fn hit_test_file(input: &str, x: f32, y: f32) -> MochaResult<Option<NodeId>> {
     let response = load_document(input, RunOptions::default())?;
@@ -245,6 +260,31 @@ mod tests {
         assert!(matches!(
             run_html(html).unwrap_err(),
             MochaError::UnsupportedFeature(_)
+        ));
+    }
+
+    #[test]
+    fn eval_js_returns_result_and_console() {
+        assert_eq!(eval_js("let x = 1 + 2 * 3; x;").unwrap(), "7");
+        assert_eq!(
+            eval_js("function add(a, b) { return a + b; } add(2, 3);").unwrap(),
+            "5"
+        );
+        assert_eq!(
+            eval_js("console.log(\"hello\", 123);").unwrap(),
+            "hello 123"
+        );
+    }
+
+    #[test]
+    fn eval_js_reports_errors() {
+        assert!(matches!(
+            eval_js("missing;").unwrap_err(),
+            MochaError::JavaScript(_)
+        ));
+        assert!(matches!(
+            eval_js("let = ;").unwrap_err(),
+            MochaError::Parse(_)
         ));
     }
 }

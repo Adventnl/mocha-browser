@@ -16,7 +16,7 @@
 use std::process::ExitCode;
 
 use mocha_error::{MochaError, MochaResult};
-use mocha_shell::{hit_test_file, render_request, RunOptions};
+use mocha_shell::{eval_js, hit_test_file, render_request, RunOptions};
 
 fn main() -> ExitCode {
     match real_main() {
@@ -28,12 +28,13 @@ fn main() -> ExitCode {
     }
 }
 
-const USAGE: &str = "usage: mocha_shell [--dump-layout] [--no-cache] [--show-headers] [--hit-test X,Y] <path-or-url>\n       (file paths, file:// and http:// URLs; https:// is not implemented)";
+const USAGE: &str = "usage: mocha_shell [--dump-layout] [--no-cache] [--show-headers] [--hit-test X,Y] <path-or-url>\n       mocha_shell --eval-js \"<javascript>\"\n       (file paths, file:// and http:// URLs; https:// is not implemented)";
 
 fn real_main() -> MochaResult<()> {
     let mut options = RunOptions::default();
     let mut target: Option<String> = None;
     let mut hit_test: Option<(f32, f32)> = None;
+    let mut eval_source: Option<String> = None;
 
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -47,6 +48,11 @@ fn real_main() -> MochaResult<()> {
                     .ok_or_else(|| MochaError::Shell(format!("--hit-test needs X,Y\n{USAGE}")))?;
                 hit_test = Some(parse_coords(&coords)?);
             }
+            "--eval-js" => {
+                eval_source = Some(args.next().ok_or_else(|| {
+                    MochaError::Shell(format!("--eval-js needs a source string\n{USAGE}"))
+                })?);
+            }
             flag if flag.starts_with("--") => {
                 return Err(MochaError::Shell(format!("unknown flag '{flag}'\n{USAGE}")));
             }
@@ -57,6 +63,12 @@ fn real_main() -> MochaResult<()> {
                 )))
             }
         }
+    }
+
+    // `--eval-js` evaluates standalone JavaScript and never loads a document.
+    if let Some(source) = eval_source {
+        println!("{}", eval_js(&source)?);
+        return Ok(());
     }
 
     let target = target.ok_or_else(|| MochaError::Shell(USAGE.to_string()))?;

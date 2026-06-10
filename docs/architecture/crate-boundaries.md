@@ -58,6 +58,12 @@ mocha_events
 - listeners are Rust callbacks; no JavaScript, no URL/navigation knowledge
 - depends on: mocha_error, mocha_dom
 
+mocha_js
+- from-scratch JavaScript-subset interpreter (lexer/parser/AST/interpreter)
+- standalone evaluation only; no DOM/HTML/CSS/events/network knowledge
+- no existing JS engine or parser is used
+- depends on: mocha_error
+
 mocha_nav
 - navigation history (navigate/back/forward/reload) over a ResourceLoader
 - link default-action interpretation (click on <a href> → Navigate)
@@ -69,7 +75,7 @@ mocha_shell
 - loads via mocha_nav/mocha_net, then renders through the engine
 - exposes hit testing (--hit-test); no browser UI yet
 - depends on: mocha_error, mocha_url, mocha_html, mocha_style,
-  mocha_layout, mocha_paint, mocha_net, mocha_nav
+  mocha_layout, mocha_paint, mocha_net, mocha_nav, mocha_js
 ```
 
 ## Notes
@@ -93,7 +99,11 @@ mocha_shell
   then renders. `mocha_net` depends on no rendering crate, and `mocha_nav` owns
   only history (it does not render — that boundary keeps navigation reusable).
 - See [networking-and-navigation.md](networking-and-navigation.md) for the
-  loading/navigation design and [events.md](events.md) for the event system.
+  loading/navigation design, [events.md](events.md) for the event system, and
+  [javascript-interpreter.md](javascript-interpreter.md) for the JS interpreter.
+- `mocha_js` is deliberately isolated: it knows nothing about the DOM or the rest
+  of the engine and is reached only through the shell's `--eval-js`. Milestone 7
+  will introduce the DOM↔JS bridge as a separate concern.
 - `mocha_events` is the event core and stays free of URL/navigation knowledge;
   link default-action interpretation lives in `mocha_nav` (which may depend on
   `mocha_events`). The point→node `hit_test` bridge lives in `mocha_layout`

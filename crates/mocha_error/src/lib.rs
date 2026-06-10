@@ -38,6 +38,8 @@ pub enum MochaError {
     Network(String),
     /// A navigation/history failure (e.g. no previous entry to go back to).
     Navigation(String),
+    /// A JavaScript runtime error (undefined variable, bad call, step limit, …).
+    JavaScript(String),
     /// A failure in the command-line shell that wires the pipeline together.
     Shell(String),
 }
@@ -59,6 +61,7 @@ impl fmt::Display for MochaError {
             MochaError::Paint(message) => write!(f, "paint error: {message}"),
             MochaError::Network(message) => write!(f, "network error: {message}"),
             MochaError::Navigation(message) => write!(f, "navigation error: {message}"),
+            MochaError::JavaScript(message) => write!(f, "javascript error: {message}"),
             MochaError::Shell(message) => write!(f, "shell error: {message}"),
         }
     }

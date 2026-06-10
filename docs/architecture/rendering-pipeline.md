@@ -136,4 +136,9 @@ limitations, and intended future expansion.
 Separate from the render pipeline, the layout tree also supports **hit testing**
 (`mocha_layout::hit_test`) to map a point to a DOM node, which feeds the internal
 **event system** (`mocha_events`) and link **default actions** (`mocha_nav`). See
-[events.md](events.md). There is no JavaScript or real window input yet.
+[events.md](events.md). There is no real window input yet.
+
+The JavaScript interpreter (`mocha_js`, see
+[javascript-interpreter.md](javascript-interpreter.md)) is **not** part of the
+render pipeline in Milestone 6: it evaluates standalone snippets via `--eval-js`
+and is not connected to the DOM or `<script>` tags.

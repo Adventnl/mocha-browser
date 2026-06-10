@@ -1,0 +1,10 @@
+[package]
+name = "mocha_js"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "A small from-scratch JavaScript-subset interpreter for Mocha Browser (no DOM bindings, not ECMAScript-compliant)."
+
+[dependencies]
+mocha_error.workspace = true

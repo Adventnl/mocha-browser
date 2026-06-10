@@ -4,7 +4,7 @@ Mocha Browser is an experimental from-scratch browser engine and desktop browser
 
 Mocha is not based on Chromium, WebKit, Gecko, Servo, Electron, CEF, Tauri WebView, system WebView, V8, SpiderMonkey, JavaScriptCore, QuickJS, Deno, or Node.js.
 
-Current status: Milestone 5 (DOM Events) implemented.
+Current status: Milestone 6 (Custom JavaScript Interpreter v1) implemented.
 
 Mocha is not safe for general web browsing yet.
 
@@ -55,7 +55,13 @@ content-type, cache) -> HTML tokenizer/tree builder -> DOM -> <style> extraction
   `stopImmediatePropagation` / `preventDefault`, and `click`/mouse/keyboard event
   data — plus layout **hit testing** (`--hit-test X,Y`), minimal `<a href>`
   support, and a link navigation **default action**. These are engine-internal;
-  there is no JavaScript and no real window input.
+  there is no real window input.
+- **A from-scratch JavaScript interpreter** (`mocha_js`): lexer → parser → AST →
+  tree-walking interpreter for a small standalone subset — numbers, strings,
+  booleans, `null`/`undefined`, objects, arrays, functions, **closures**,
+  `if`/`while`/`for`, operators, `console.log` capture, and small `Math`/array/
+  string built-ins, with an execution step limit. Run snippets with
+  `--eval-js "<source>"`. **No DOM bindings and no `<script>` execution yet.**
 
 ## What does not work
 
@@ -66,9 +72,11 @@ and [networking-and-navigation.md](docs/architecture/networking-and-navigation.m
   proxies, HTTP/2-3, real HTTP cache semantics, charset decoding beyond UTF-8.
 - Subresource loading: external / linked CSS (`<link>` is rejected), images,
   scripts, fonts.
-- **JavaScript** (event listeners are Rust-only), real window/OS input or event
-  loop, pointer/touch/wheel/focus events; hit testing ignores
-  z-index/transforms/scrolling/clipping.
+- **JavaScript in pages**: the interpreter is standalone — no DOM bindings
+  (`document`/`window`), no `<script>` execution, no event listeners from JS, no
+  timers/promises/modules/classes; it is not ECMAScript-compliant.
+- Real window/OS input or event loop, pointer/touch/wheel/focus events; hit
+  testing ignores z-index/transforms/scrolling/clipping.
 - The real HTML5 parsing algorithm and real CSS error recovery.
 - `!important`, media queries, pseudo-classes/elements, attribute selectors, the
   `>`/`+`/`~` combinators, `em`/`rem`/`%` units, `rgb()`/`calc()`/`var()`.
@@ -126,6 +134,7 @@ cargo run -p mocha_shell -- "file://$(pwd)/examples/basic/index.html"
 cargo run -p mocha_shell -- --dump-layout examples/layout/inline-wrap.html
 cargo run -p mocha_shell -- --show-headers --no-cache http://127.0.0.1:8080/index.html
 cargo run -p mocha_shell -- --hit-test 20,40 examples/layout/inline-wrap.html
+cargo run -p mocha_shell -- --eval-js "let x = 1 + 2 * 3; x;"
 ```
 
 `https://` is not implemented and exits with a clear error.
@@ -146,9 +155,10 @@ mocha-browser/
     mocha_net/      resource loading (file/http), redirects, content-type, cache
     mocha_nav/      navigation history (navigate/back/forward/reload) + default actions
     mocha_events/   internal DOM event model and dispatch
+    mocha_js/       from-scratch JavaScript-subset interpreter (standalone)
     mocha_shell/    CLI that wires the pipeline together
   docs/architecture/  overview, pipeline, milestones, boundaries, limitations,
-                      networking-and-navigation, events
+                      networking-and-navigation, events, javascript-interpreter
   examples/basic/     plain HTML example
   examples/styled/    HTML + CSS example
   examples/layout/    article / inline-wrap / box-model layout examples
@@ -167,8 +177,8 @@ The full roadmap lives in [docs/architecture/milestones.md](docs/architecture/mi
 2. Basic CSS engine (done)
 3. Real layout foundation (done)
 4. Networking and navigation (done)
-5. DOM events (current)
-6. Custom JavaScript interpreter
+5. DOM events (done)
+6. Custom JavaScript interpreter (current)
 7. JavaScript DOM bindings
 8. Multi-process architecture
 9. Storage and profile system

@@ -1,6 +1,6 @@
 # Milestone Roadmap
 
-Mocha Browser is built one milestone at a time. **Milestones 1–5 are implemented
+Mocha Browser is built one milestone at a time. **Milestones 1–6 are implemented
 today**; everything after them is direction, not code. Each milestone lists its
 goal, what is explicitly not included, and how completion is verified.
 
@@ -67,15 +67,20 @@ goal, what is explicitly not included, and how completion is verified.
   and an `events_pipeline` integration test (hit-test link → dispatch click →
   resolve navigation; `preventDefault` suppresses it).
 
-## Milestone 6: Custom JavaScript interpreter — next
+## Milestone 6: Custom JavaScript interpreter — done (current)
 
 - **Goal:** a from-scratch JS lexer, parser, AST, and tree-walking interpreter
-  with values, functions, and closures. No third-party JS engine.
-- **Not included:** DOM bindings, JIT, full ECMAScript coverage.
-- **Verification:** interpreter tests over a language subset (arithmetic,
-  control flow, functions, closures).
+  (`mocha_js`) with numbers/strings/booleans/null/undefined, objects, arrays,
+  functions and closures, `if`/`while`/`for`, operators, `console.log` capture,
+  small `Math`/array/string built-ins, and an execution step limit. No
+  third-party JS engine or parser. Standalone evaluation via `--eval-js`.
+- **Not included:** DOM bindings, `<script>` execution, timers, promises,
+  async/await, modules, classes, prototypes/full `this`, JIT, full ECMAScript.
+- **Verification:** `mocha_js` lexer/parser/interpreter tests (arithmetic,
+  control flow, functions, closures, objects/arrays, built-ins, error paths,
+  step limit) plus shell `--eval-js` tests.
 
-## Milestone 7: JavaScript DOM bindings
+## Milestone 7: JavaScript DOM bindings — next
 
 - **Goal:** expose `window`, `document`, `querySelector`, events, timers, and
   DOM mutation to the interpreter.

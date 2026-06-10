@@ -25,16 +25,17 @@ the modern web. It must never claim otherwise.
 
 ## Current milestone
 
-**Milestone 5: DOM Events.** Building on document loading (Milestone 4), Mocha
-adds an internal DOM event system (`mocha_events`): capture/target/bubble
-dispatch, listener registration/removal, propagation control, and cancelation,
-with `click`/mouse/keyboard event data. A layout **hit-test** maps a point to a
-DOM node, minimal `<a href>` support is added, and a `click` on a link produces a
-navigation **default action** (interpreted in `mocha_nav`). This is
-engine-internal — **there is no JavaScript and no real window input**; events are
-dispatched programmatically. See [events.md](events.md),
-[networking-and-navigation.md](networking-and-navigation.md), and
-[rendering-pipeline.md](rendering-pipeline.md) for the stages and
+**Milestone 6: Custom JavaScript Interpreter v1.** Mocha adds `mocha_js`, a
+from-scratch JavaScript-subset interpreter (lexer → parser → AST → tree-walking
+evaluator) with numbers/strings/booleans/null/undefined, objects, arrays,
+functions and **closures**, `if`/`while`/`for`, operators, `console.log`
+capture, small `Math`/array/string built-ins, and an execution step limit. It
+evaluates **standalone** snippets (run via `--eval-js`) and uses **no existing JS
+engine or parser**. It is **not** wired to the DOM, `window`, `document`,
+events, or `<script>` tags — that is Milestone 7. This builds on the internal DOM
+event system from Milestone 5 (`mocha_events`, hit testing, link default
+actions). See [javascript-interpreter.md](javascript-interpreter.md),
+[events.md](events.md), and [rendering-pipeline.md](rendering-pipeline.md), and
 [limitations.md](limitations.md) for what is intentionally absent.
 
 ## Long-term architecture direction

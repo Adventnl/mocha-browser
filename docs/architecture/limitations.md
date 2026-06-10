@@ -1,12 +1,14 @@
 # Limitations
 
-Mocha Browser is at **Milestone 5**. It is an engine laboratory, not a usable
+Mocha Browser is at **Milestone 6**. It is an engine laboratory, not a usable
 browser. This document is deliberately explicit about what does not exist so the
 project never overclaims.
 
 ## Not supported
 
-- **JavaScript** — no engine, no execution, no bindings.
+- **JavaScript in pages** — `mocha_js` evaluates *standalone* snippets only; it
+  has no DOM bindings, does not execute `<script>` tags, and is not
+  ECMAScript-compliant (see the JavaScript section below).
 - **External / linked CSS and other subresources** — `<link rel="stylesheet">`
   is rejected with a clear `UnsupportedFeature` error; images, scripts, and fonts
   are not loaded. Milestone 4 loads the top-level document only.
@@ -67,6 +69,22 @@ Not supported (returns a clear error):
   default of `display: none`, so layout skips its subtree.
 - **`height` of the viewport** does not constrain layout; vertical content may
   exceed it. There is no scrolling or overflow handling.
+
+## JavaScript limitations (Milestone 6)
+
+See [javascript-interpreter.md](javascript-interpreter.md) for detail.
+
+- **Not ECMAScript-compliant** and a small subset only.
+- **No DOM bindings** (`window`/`document`/`querySelector`), **no `<script>`
+  execution**, no external scripts, no `addEventListener` from JS.
+- No timers, promises, `async`/`await`, modules, classes, `new`, prototype
+  chains, full `this` semantics, regex, `Date`, `JSON`, template literals, arrow
+  functions, destructuring, spread, generators, `break`/`continue`, or
+  exceptions/`try`-`catch`.
+- `==`/`!=` behave like `===`/`!==` (so `null == undefined` is **false** here);
+  coercion is a small documented subset.
+- No garbage collector beyond Rust ownership + `Rc`; an execution **step limit**
+  (100,000) aborts runaway loops.
 
 ## Event limitations (Milestone 5)
 

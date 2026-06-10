@@ -73,9 +73,9 @@ Every crate must have tests.
 
 Every milestone must produce a runnable result.
 
-The current milestone is Milestone 5: an internal DOM event system (`mocha_events`) — capture/target/bubble dispatch, listener registration/removal, propagation control, cancelation, click/mouse/keyboard event data — plus a layout hit-test bridge, minimal `<a href>` support, and link navigation default actions in `mocha_nav`. Listeners are Rust callbacks; there is no JavaScript and no real window input.
+The current milestone is Milestone 6: a from-scratch JavaScript-subset interpreter (`mocha_js`) — lexer, parser, AST, tree-walking evaluator with values/scopes/closures/objects/arrays, small built-ins (`console.log`, `Math`), and an execution step limit. It evaluates standalone snippets (shell `--eval-js`) and uses no existing JS engine or parser. It is NOT wired to the DOM, `window`, `document`, events, or `<script>` tags.
 
-Do not add JavaScript, real window/OS input or an event loop, pointer/touch/wheel/focus events, `passive` listeners, HTTPS/TLS, subresource loading, an origin/security model, tabs, sandboxing, or desktop window rendering during Milestone 5.
+Do not add DOM bindings, `<script>` execution, timers, promises, async/await, modules, classes, prototypes/full `this`, an existing JS engine/parser, real window input, HTTPS/TLS, or desktop window rendering during Milestone 6. DOM↔JS bindings (and the DOM mutation APIs they require) are Milestone 7.
 
 ## Verification commands
 
