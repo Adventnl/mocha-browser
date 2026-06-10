@@ -1,10 +1,12 @@
 //! A small, deliberately incomplete HTML tokenizer.
 //!
 //! This is **not** the [HTML5 tokenization state machine]. It recognises a tiny
-//! grammar that is enough for hand-written Milestone 1 documents: doctype,
-//! comments, start/end tags, quoted/unquoted/valueless attributes, and text.
-//! Anything malformed (an unterminated tag, comment, or attribute quote) is
-//! reported as a [`MochaError::Parse`] error instead of being silently recovered.
+//! grammar: doctype, comments, start/end tags, quoted/unquoted/valueless
+//! attributes, and text. `<style>` uses a minimal raw-text mode — its body is
+//! captured verbatim until `</style>` so CSS containing `<`/`>` is preserved —
+//! but this is not the full HTML raw-text/RCDATA algorithm. Anything malformed
+//! (an unterminated tag, comment, attribute quote, or `<style>`) is reported as
+//! a [`MochaError::Parse`] error instead of being silently recovered.
 //!
 //! [HTML5 tokenization state machine]: https://html.spec.whatwg.org/multipage/parsing.html#tokenization
 
@@ -61,14 +63,62 @@ impl Tokenizer {
         let mut tokens = Vec::new();
         while let Some(&c) = self.chars.get(self.pos) {
             if c == '<' {
-                tokens.push(self.read_markup()?);
-            } else {
-                if let Some(text) = self.read_text() {
-                    tokens.push(HtmlToken::Text(text));
+                let token = self.read_markup()?;
+                // `<style>` switches to a minimal raw-text mode: its body is read
+                // verbatim until the literal `</style>`, so CSS containing `<`,
+                // `>`, or significant whitespace is preserved rather than being
+                // tokenized as HTML. The `</style>` is then read by the main loop.
+                let raw_style = matches!(
+                    &token,
+                    HtmlToken::StartTag { name, self_closing: false, .. } if name == "style"
+                );
+                tokens.push(token);
+                if raw_style {
+                    let raw = self.read_raw_text_until_close("style")?;
+                    if !raw.is_empty() {
+                        tokens.push(HtmlToken::Text(raw));
+                    }
                 }
+            } else if let Some(text) = self.read_text() {
+                tokens.push(HtmlToken::Text(text));
             }
         }
         Ok(tokens)
+    }
+
+    /// Read raw element content up to (but not consuming) the closing
+    /// `</tag>`, matched case-insensitively. The text is returned verbatim — no
+    /// whitespace collapsing — so CSS survives intact. Returns a [`MochaError::Parse`]
+    /// error if the closing tag is never found.
+    fn read_raw_text_until_close(&mut self, tag: &str) -> MochaResult<String> {
+        let start = self.pos;
+        while self.pos < self.chars.len() {
+            if self.matches_close_tag(tag) {
+                return Ok(self.chars[start..self.pos].iter().collect());
+            }
+            self.pos += 1;
+        }
+        Err(MochaError::Parse(format!(
+            "unterminated <{tag}>: missing </{tag}>"
+        )))
+    }
+
+    /// Whether the input at the current position is `</tag>` (or `</tag >`),
+    /// matched case-insensitively.
+    fn matches_close_tag(&self, tag: &str) -> bool {
+        if self.chars.get(self.pos) != Some(&'<') || self.chars.get(self.pos + 1) != Some(&'/') {
+            return false;
+        }
+        for (offset, expected) in tag.chars().enumerate() {
+            match self.chars.get(self.pos + 2 + offset) {
+                Some(actual) if actual.eq_ignore_ascii_case(&expected) => {}
+                _ => return false,
+            }
+        }
+        matches!(
+            self.chars.get(self.pos + 2 + tag.len()),
+            Some(c) if c.is_whitespace() || *c == '>'
+        )
     }
 
     /// Read a run of text up to the next `<` and normalise its whitespace.
@@ -444,5 +494,58 @@ mod tests {
     fn unterminated_tag_is_a_parse_error() {
         let error = tokenize("<div").unwrap_err();
         assert!(matches!(error, MochaError::Parse(_)));
+    }
+
+    #[test]
+    fn style_body_is_raw_text_and_not_tokenized_as_markup() {
+        // The `<` inside the CSS must not start an HTML tag.
+        let tokens = tokenize(r#"<style>/* <not-a-tag> */ p { color: red; }</style>"#).unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                HtmlToken::StartTag {
+                    name: "style".into(),
+                    attributes: Vec::new(),
+                    self_closing: false,
+                },
+                HtmlToken::Text("/* <not-a-tag> */ p { color: red; }".into()),
+                HtmlToken::EndTag {
+                    name: "style".into()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn style_body_preserves_whitespace_verbatim() {
+        let tokens = tokenize("<style>  p  {  }  </style>").unwrap();
+        assert_eq!(tokens[1], HtmlToken::Text("  p  {  }  ".into()));
+    }
+
+    #[test]
+    fn unterminated_style_is_a_parse_error() {
+        let error = tokenize("<style>p { color: red; }").unwrap_err();
+        match error {
+            MochaError::Parse(message) => assert!(message.contains("</style>")),
+            other => panic!("expected Parse error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn empty_style_produces_no_text_token() {
+        let tokens = tokenize("<style></style>").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                HtmlToken::StartTag {
+                    name: "style".into(),
+                    attributes: Vec::new(),
+                    self_closing: false,
+                },
+                HtmlToken::EndTag {
+                    name: "style".into()
+                },
+            ]
+        );
     }
 }

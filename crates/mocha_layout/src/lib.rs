@@ -313,6 +313,37 @@ mod tests {
     }
 
     #[test]
+    fn inline_box_is_currently_stacked_not_inline_formatted() {
+        // MILESTONE 3 NOTE: inline layout is intentionally fake today — an inline
+        // element produces its own stacked box rather than participating in a line
+        // box. This test pins the current behavior so the Milestone 3 rewrite is a
+        // deliberate, visible change.
+        let mut inline = ComputedStyle::initial();
+        inline.display = Display::Inline;
+        let a = element(1, inline.clone(), vec![text(3, "a", 16.0)]);
+        let b = element(2, inline, vec![text(4, "b", 16.0)]);
+        let root = element(0, block_style(), vec![a, b]);
+        let layout = build_layout_tree(&root, LayoutViewport::default()).unwrap();
+
+        let box_a = find(&layout, 1).unwrap();
+        let box_b = find(&layout, 2).unwrap();
+        assert_eq!(box_a.kind, LayoutBoxKind::Inline);
+        // Two inline siblings stack on separate lines (b below a), which real
+        // inline formatting would not do.
+        assert!(box_b.rect.y >= box_a.rect.y + box_a.rect.height);
+    }
+
+    #[test]
+    fn text_width_is_estimated_from_char_count() {
+        // MILESTONE 3 NOTE: width is char_count * font_size * 0.6, not measured
+        // from a font. This will change when real text measurement lands.
+        let root = element(0, block_style(), vec![text(1, "abcde", 16.0)]);
+        let layout = build_layout_tree(&root, LayoutViewport::default()).unwrap();
+        let text_box = find(&layout, 1).unwrap();
+        assert_eq!(text_box.rect.width, (5.0 * 16.0 * 0.6_f32).round());
+    }
+
+    #[test]
     fn blocks_stack_vertically() {
         let first = element(1, block_style(), vec![text(3, "first", 16.0)]);
         let second = element(2, block_style(), vec![text(4, "second", 16.0)]);

@@ -32,7 +32,6 @@ dependencies = [
 name = "mocha_layout"
 version = "0.1.0"
 dependencies = [
- "mocha_dom",
  "mocha_error",
  "mocha_style",
 ]

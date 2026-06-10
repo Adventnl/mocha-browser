@@ -8,5 +8,4 @@ description = "Simple box-model layout for Mocha Browser, consuming computed sty
 
 [dependencies]
 mocha_error.workspace = true
-mocha_dom.workspace = true
 mocha_style.workspace = true

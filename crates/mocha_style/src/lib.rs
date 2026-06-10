@@ -501,6 +501,67 @@ mod tests {
     }
 
     #[test]
+    fn font_weight_inherits() {
+        let mut document = Document::new();
+        let root = document.root_id();
+        let div = document.create_element("div", Vec::new());
+        let p = document.create_element("p", Vec::new());
+        document.append_child(root, div).unwrap();
+        document.append_child(div, p).unwrap();
+
+        let sheets = vec![parse_stylesheet("div { font-weight: bold; }").unwrap()];
+        let tree = build_style_tree(&document, &sheets).unwrap();
+        assert_eq!(
+            tree.children[0].children[0].style.font_weight,
+            FontWeight::Bold
+        );
+    }
+
+    #[test]
+    fn padding_and_border_do_not_inherit() {
+        let mut document = Document::new();
+        let root = document.root_id();
+        let div = document.create_element("div", Vec::new());
+        let p = document.create_element("p", Vec::new());
+        document.append_child(root, div).unwrap();
+        document.append_child(div, p).unwrap();
+
+        let sheets = vec![parse_stylesheet("div { padding: 10px; border-width: 5px; }").unwrap()];
+        let tree = build_style_tree(&document, &sheets).unwrap();
+        let p_node = &tree.children[0].children[0];
+        assert_eq!(p_node.style.padding.top, 0.0);
+        assert_eq!(p_node.style.border_width, 0.0);
+    }
+
+    #[test]
+    fn compound_selector_applies_in_pipeline() {
+        let mut document = Document::new();
+        let root = document.root_id();
+        let p = document.create_element("p", vec![attr("class", "note")]);
+        document.append_child(root, p).unwrap();
+
+        // `p.note` must match (both parts true); `p.other` must not.
+        let sheets =
+            vec![parse_stylesheet("p.note { color: blue; } p.other { color: red; }").unwrap()];
+        let tree = build_style_tree(&document, &sheets).unwrap();
+        assert_eq!(tree.children[0].style.color, Color::rgb(0, 0, 255));
+    }
+
+    #[test]
+    fn selector_list_uses_best_matching_specificity() {
+        let mut document = Document::new();
+        let root = document.root_id();
+        let h1 = document.create_element("h1", vec![attr("class", "x")]);
+        document.append_child(root, h1).unwrap();
+
+        // Rule A matches via type (0,0,1). Rule B matches via its `.x` selector
+        // (0,1,0), which is higher, so B should win even though it lists `h1` too.
+        let sheets = vec![parse_stylesheet("h1 { color: red; } .x, h1 { color: blue; }").unwrap()];
+        let tree = build_style_tree(&document, &sheets).unwrap();
+        assert_eq!(tree.children[0].style.color, Color::rgb(0, 0, 255));
+    }
+
+    #[test]
     fn background_color_does_not_inherit() {
         let mut document = Document::new();
         let root = document.root_id();

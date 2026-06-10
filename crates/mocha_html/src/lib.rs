@@ -220,6 +220,23 @@ mod tests {
     }
 
     #[test]
+    fn parse_style_tag_with_angle_brackets_in_css() {
+        // `<` inside a CSS comment must not break parsing or create elements.
+        let document = parse_html("<style>/* <not-a-tag> */ p { color: red; }</style>").unwrap();
+        assert_eq!(collect_tags(&document), vec!["style"]);
+        assert_eq!(
+            collect_text(&document),
+            vec!["/* <not-a-tag> */ p { color: red; }"]
+        );
+    }
+
+    #[test]
+    fn unterminated_style_is_rejected() {
+        let error = parse_html("<style>p { color: red; }").unwrap_err();
+        assert!(matches!(error, MochaError::Parse(_)));
+    }
+
+    #[test]
     fn parse_class_and_id_and_inline_style_attributes() {
         let document = parse_html(r#"<p id="x" class="a b" style="color: red;"></p>"#).unwrap();
         let order = document.traverse_depth_first(document.root_id()).unwrap();

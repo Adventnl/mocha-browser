@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Command-line shell that wires the Mocha Browser Milestone 1 pipeline together."
+description = "Command-line shell that wires Mocha Browser's local HTML/CSS rendering pipeline together."
 
 [[bin]]
 name = "mocha_shell"
@@ -14,11 +14,11 @@ path = "src/main.rs"
 name = "mocha_shell"
 path = "src/lib.rs"
 
-# The Milestone 1 integration test lives at the repository root (as required by
-# the project layout) but is compiled and run as part of this crate.
+# The end-to-end pipeline integration test lives at the repository root (as
+# required by the project layout) but is compiled and run as part of this crate.
 [[test]]
-name = "milestone_1_pipeline"
-path = "../../tests/integration/milestone_1_pipeline.rs"
+name = "rendering_pipeline"
+path = "../../tests/integration/rendering_pipeline.rs"
 
 [dependencies]
 mocha_error.workspace = true

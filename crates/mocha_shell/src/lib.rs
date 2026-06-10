@@ -107,4 +107,22 @@ mod tests {
         let error = run_html(html).unwrap_err();
         assert!(matches!(error, MochaError::UnsupportedFeature(_)));
     }
+
+    #[test]
+    fn angle_bracket_in_style_css_comment_flows_through_pipeline() {
+        // Raw-text `<style>` keeps the `<` inside the CSS comment; the CSS still
+        // parses (comments are ignored) and the `<` is never painted.
+        let html = "<html><body><style>/* <not-a-tag> */ p { color: red; }</style>\
+                    <p>Hi</p></body></html>";
+        let commands = run_html(html).unwrap();
+        let red = commands.iter().any(|c| {
+            matches!(c, DisplayCommand::DrawText { text, color, .. }
+                if text == "Hi" && color.r == 255 && color.g == 0 && color.b == 0)
+        });
+        assert!(red, "expected red 'Hi', got {commands:?}");
+        let leaked = commands.iter().any(
+            |c| matches!(c, DisplayCommand::DrawText { text, .. } if text.contains("not-a-tag")),
+        );
+        assert!(!leaked, "CSS comment text must not be painted");
+    }
 }

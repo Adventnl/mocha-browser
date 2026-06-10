@@ -30,10 +30,11 @@ lists its goal, what is explicitly not included, and how completion is verified.
   `cargo run -p mocha_shell -- examples/styled/index.html` prints a colored
   display list with `<style>` text not painted.
 
-## Milestone 3: Real layout foundation
+## Milestone 3: Real layout foundation — next
 
 - **Goal:** a real box model with block and inline formatting contexts, text
-  measurement, and line wrapping.
+  measurement, and line wrapping (replacing today's vertical-stacking layout and
+  intentionally-fake inline boxes).
 - **Not included:** flexbox/grid, JavaScript, networking.
 - **Verification:** layout tests for wrapping, nested boxes, and margin/padding
   geometry.

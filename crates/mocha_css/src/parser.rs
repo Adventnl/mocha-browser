@@ -159,6 +159,12 @@ impl Parser {
                         "attribute selectors are not supported in Milestone 2".to_string(),
                     ))
                 }
+                Some(CssToken::Delim('@')) => {
+                    return Err(MochaError::UnsupportedFeature(
+                        "at-rules (such as @media and @import) are not supported in Milestone 2"
+                            .to_string(),
+                    ))
+                }
                 _ => break,
             }
         }
@@ -367,10 +373,24 @@ fn keyword(tokens: &[CssToken], allowed: &[&str]) -> MochaResult<CssValue> {
 fn length(tokens: &[CssToken]) -> MochaResult<CssValue> {
     match tokens {
         [token] => Ok(CssValue::LengthPx(length_value(token)?)),
-        _ => Err(MochaError::Parse(format!(
-            "expected a single length, found {tokens:?}"
-        ))),
+        _ => {
+            reject_function(tokens)?;
+            Err(MochaError::Parse(format!(
+                "expected a single length, found {tokens:?}"
+            )))
+        }
     }
+}
+
+/// If the value looks like a function call (`name(...)`, e.g. `calc()`, `var()`,
+/// `rgb()`), report it as a clear unsupported-feature error.
+fn reject_function(tokens: &[CssToken]) -> MochaResult<()> {
+    if let [CssToken::Ident(name), CssToken::Delim('('), ..] = tokens {
+        return Err(MochaError::UnsupportedFeature(format!(
+            "CSS function '{name}()' is not supported in Milestone 2"
+        )));
+    }
+    Ok(())
 }
 
 /// Convert a single token to a pixel length, rejecting non-`px` units.
@@ -402,10 +422,13 @@ fn color(tokens: &[CssToken]) -> MochaResult<CssValue> {
                 ))
             })
         }
-        // rgb()/rgba()/hsl() would tokenize as an ident followed by other tokens.
-        _ => Err(MochaError::UnsupportedFeature(format!(
-            "unsupported color value {tokens:?} (use a named color or hex)"
-        ))),
+        // rgb()/rgba()/hsl() tokenize as an ident followed by '(' and more tokens.
+        _ => {
+            reject_function(tokens)?;
+            Err(MochaError::UnsupportedFeature(
+                "unsupported color value (use a named color or hex)".to_string(),
+            ))
+        }
     }
 }
 
@@ -592,6 +615,40 @@ mod tests {
     fn reject_child_combinator() {
         let error = parse_stylesheet("div > p { color: red; }").unwrap_err();
         assert!(matches!(error, MochaError::UnsupportedFeature(_)));
+    }
+
+    #[test]
+    fn unsupported_syntax_fails_clearly() {
+        // Each of these is a known CSS concept Mocha intentionally does not
+        // support yet; all must surface as UnsupportedFeature, never silently.
+        for input in [
+            "@media screen { p { color: red; } }",
+            "p:hover { color: red; }",
+            "p::before { color: red; }",
+            "p[class] { color: red; }",
+            "div + p { color: red; }",
+            "div ~ p { color: red; }",
+            "p { color: rgb(255, 0, 0); }",
+            "p { width: calc(10px + 2px); }",
+            "p { width: 50%; }",
+            "p { font-size: 2em; }",
+            "p { color: red !important; }",
+        ] {
+            let error = parse_stylesheet(input).unwrap_err();
+            assert!(
+                matches!(error, MochaError::UnsupportedFeature(_)),
+                "expected UnsupportedFeature for `{input}`, got {error:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn function_values_name_the_function() {
+        let error = parse_stylesheet("p { color: rgb(1,2,3); }").unwrap_err();
+        match error {
+            MochaError::UnsupportedFeature(message) => assert!(message.contains("rgb()")),
+            other => panic!("expected UnsupportedFeature, got {other:?}"),
+        }
     }
 
     #[test]

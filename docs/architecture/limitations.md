@@ -55,8 +55,12 @@ Not supported (returns a clear error):
 ## Intentionally ignored, by design (documented)
 
 - **Whitespace-only text nodes** are dropped during tokenization, and the
-  whitespace inside retained text is collapsed to single spaces (including inside
-  `<style>` CSS). This is a simplification, not standards behaviour.
+  whitespace inside retained *HTML* text is collapsed to single spaces. This is a
+  simplification, not standards behaviour.
+- **`<style>` raw-text handling is minimal**: the body is captured verbatim
+  (whitespace preserved) until the literal `</style>`. This is **not** the
+  HTML5 raw-text/RCDATA algorithm — there is no handling of escaped or nested
+  edge cases beyond finding the closing tag. A missing `</style>` is an error.
 - **Comment and doctype nodes** are stored in the DOM but produce no styled or
   layout box, and therefore no display command.
 - **`<style>` element contents** never produce `DrawText`: `style` has a UA

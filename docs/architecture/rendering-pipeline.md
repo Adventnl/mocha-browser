@@ -27,9 +27,11 @@ limitations, and intended future expansion.
 - **Owning crate:** `mocha_html` (`tokenizer.rs`).
 - **Current limitations:** recognises a tiny hand-written grammar. Whitespace is
   collapsed and whitespace-only text is dropped. Malformed input is a `Parse`
-  error. `<style>` content is captured as ordinary text (it happens to contain no
-  `<`), not via a raw-text tokenizer mode.
-- **Future expansion:** the HTML5 tokenization state machine and raw-text modes.
+  error. `<style>` uses a **minimal raw-text mode**: its body is captured verbatim
+  until the literal `</style>` (so CSS with `<`/`>` survives), but this is not the
+  full HTML raw-text/RCDATA algorithm. A missing `</style>` is a `Parse` error.
+- **Future expansion:** the HTML5 tokenization state machine and proper raw-text
+  modes.
 
 ## 2. Tokens → DOM (HTML tree builder)
 
