@@ -84,8 +84,10 @@ pub fn dump_layout_file(input: &str) -> MochaResult<String> {
 /// Evaluate a standalone JavaScript snippet and return its captured console
 /// output followed by the result value (omitted when `undefined`).
 ///
-/// This does **not** load a document or touch the DOM — JavaScript is not wired
-/// into HTML/`<script>` in Milestone 6.
+/// This is the standalone `--eval-js` path: it does **not** load a document and
+/// does **not** install DOM bindings. Inline document `<script>` is a separate
+/// path, executed against the DOM by `mocha_js_dom` during the HTML rendering
+/// pipeline (see `run_document_scripts`).
 pub fn eval_js(source: &str) -> MochaResult<String> {
     let mut runtime = mocha_js::JsRuntime::new();
     let result = runtime.eval(source)?;

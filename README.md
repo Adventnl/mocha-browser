@@ -37,7 +37,11 @@ stylesheets and images are resolved against the document base URL.
 ## What works
 
 - Parsing a small, well-formed subset of HTML (`html`, `body`, `h1`, `h2`, `p`,
-  `div`, `span`, `style`, plus doctype and comments).
+  `div`, `span`, `a`, `style`, `script`, `link`, `img`, plus doctype and
+  comments). `style` and `script` use minimal raw-text handling; `link` and `img`
+  are void elements. This is **not** the HTML5 parser. `<script src>` is
+  unsupported; `<link>` is honored only for `rel="stylesheet"`; `<img>` stores
+  `src`/`width`/`height`/`alt` and lays out as a replaced element.
 - Building a minimal arena-backed DOM tree.
 - Basic CSS from `<style>` blocks and inline `style` attributes:
   type / class / id / universal / descendant selectors, specificity, cascade
@@ -114,10 +118,20 @@ and [networking-and-navigation.md](docs/architecture/networking-and-navigation.m
 - Flexbox/grid, floats, positioning.
 - Security sandboxing, multi-process architecture, tabs, and desktop windowing.
 
-Unsupported tags, unsupported CSS, and non-`file` URLs return clear errors; they
-are not silently ignored. `<style>` CSS text is never painted.
+`file://` and `http://` document loading are supported; `https://` is not
+implemented. Unsupported tags/features, unsupported CSS, unsupported URL schemes,
+non-HTML document content types, and unsupported subresources (e.g. `<script
+src>`) return clear errors; they are not silently ignored. `<style>` and
+`<script>` text is never painted.
 
 ## Build, test, and run
+
+The toolchain is pinned to **stable** Rust via `rust-toolchain.toml` (with
+`rustfmt` and `clippy`); `rustup` selects it automatically. CI runs the full gate
+(fmt / clippy / build / test) on both Linux and Windows. The only third-party
+dependency is the `image` crate (PNG/JPEG, default features off), used solely by
+`mocha_image`; the rest of the workspace is std-only. Node.js is **not** used for
+build, test, or runtime.
 
 Build:
 

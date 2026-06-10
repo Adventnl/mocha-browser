@@ -4,7 +4,7 @@ Mocha Browser is built one milestone at a time. **Milestones 1–9 are implement
 today**; everything after them is direction, not code. Each milestone lists its
 goal, what is explicitly not included, and how completion is verified.
 
-## Milestone 1: Engine laboratory — done
+## Milestone 1: Engine laboratory — complete
 
 - **Goal:** load a local HTML file and run it through tokenizer → tree builder →
   DOM → layout → display list, printing the display list to the terminal.
@@ -15,7 +15,7 @@ goal, what is explicitly not included, and how completion is verified.
   `cargo run -p mocha_shell -- examples/basic/index.html` prints a display list
   containing the document's text.
 
-## Milestone 2: Basic CSS engine — done (current)
+## Milestone 2: Basic CSS engine — complete
 
 - **Goal:** a CSS tokenizer and parser (`mocha_css`), plus selector matching,
   specificity, cascade, inheritance, and computed style (`mocha_style`), with
@@ -30,7 +30,7 @@ goal, what is explicitly not included, and how completion is verified.
   `cargo run -p mocha_shell -- examples/styled/index.html` prints a colored
   display list with `<style>` text not painted.
 
-## Milestone 3: Real layout foundation — done (current)
+## Milestone 3: Real layout foundation — complete
 
 - **Goal:** real block and inline formatting — line boxes, word wrapping, and
   anonymous block boxes for mixed content — with a margin/border/padding box
@@ -42,7 +42,7 @@ goal, what is explicitly not included, and how completion is verified.
   offsets, inline line sharing, word wrapping, and anonymous blocks; paint tests;
   integration tests over `examples/layout/*`; and the `--dump-layout` output.
 
-## Milestone 4: Networking and navigation — done (current)
+## Milestone 4: Networking and navigation — complete
 
 - **Goal:** load `file://` and `http://` resources through `mocha_net` with
   redirect following, content-type handling, and a simple in-memory cache, plus a
@@ -54,7 +54,7 @@ goal, what is explicitly not included, and how completion is verified.
   integration tests against a localhost `std::net` test server (success,
   redirect, redirect loop, text/plain rejection, cache hit, back/forward).
 
-## Milestone 5: DOM events — done (current)
+## Milestone 5: DOM events — complete
 
 - **Goal:** an internal event model (`mocha_events`) with capture/target/bubble
   dispatch, listener registration/removal, `once` listeners, propagation control
@@ -67,7 +67,7 @@ goal, what is explicitly not included, and how completion is verified.
   and an `events_pipeline` integration test (hit-test link → dispatch click →
   resolve navigation; `preventDefault` suppresses it).
 
-## Milestone 6: Custom JavaScript interpreter — done (current)
+## Milestone 6: Custom JavaScript interpreter — complete
 
 - **Goal:** a from-scratch JS lexer, parser, AST, and tree-walking interpreter
   (`mocha_js`) with numbers/strings/booleans/null/undefined, objects, arrays,
@@ -80,7 +80,7 @@ goal, what is explicitly not included, and how completion is verified.
   control flow, functions, closures, objects/arrays, built-ins, error paths,
   step limit) plus shell `--eval-js` tests.
 
-## Milestone 7: JavaScript DOM bindings — done (current)
+## Milestone 7: JavaScript DOM bindings — complete
 
 - **Goal:** a real host-object mechanism in `mocha_js` plus a `mocha_js_dom`
   bridge that installs `window`/`document`/`console` globals, exposes DOM
@@ -100,7 +100,7 @@ goal, what is explicitly not included, and how completion is verified.
   changes; created element renders; style/class mutation changes the final paint;
   JS click listener + `preventDefault`; timers).
 
-## Milestone 8: Subresource loading — done (current)
+## Milestone 8: Subresource loading — complete
 
 - **Goal:** discover and load external `<link rel="stylesheet">` stylesheets
   (`mocha_resources`), resolve them against the document base URL (with
@@ -113,7 +113,7 @@ goal, what is explicitly not included, and how completion is verified.
   integration test (external CSS over local file and HTTP, content-type
   validation, cascade order, inline-style precedence, clear errors).
 
-## Milestone 9: Images and replaced elements — done (current)
+## Milestone 9: Images and replaced elements — complete
 
 - **Goal:** `<img>` support — void-element parsing, base-URL resolution, loading
   through `mocha_net`, PNG/JPEG decoding (`mocha_image`, built on the `image`

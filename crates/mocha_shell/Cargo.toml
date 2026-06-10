@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Command-line shell that wires Mocha Browser's local HTML/CSS rendering pipeline together."
+description = "Command-line shell that wires Mocha Browser's loading, JS, subresource, layout, and display-list pipeline together (terminal-first, no window)."
 
 [[bin]]
 name = "mocha_shell"

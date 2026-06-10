@@ -6,8 +6,15 @@ on:
 
 jobs:
   check:
-    name: build / fmt / clippy / test
-    runs-on: ubuntu-latest
+    name: build / fmt / clippy / test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Both OSes run the full gate so platform-specific behaviour (e.g. Windows
+        # file:// path handling) is covered. Tests use only local files and a
+        # localhost test server — no public internet.
+        os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
 

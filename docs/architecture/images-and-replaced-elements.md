@@ -17,11 +17,15 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 ```
 
 `default-features = false` keeps the tree minimal — only the PNG and JPEG codecs
-are pulled in (via `png` and `zune-jpeg`), no GIF/WebP/TIFF, no `rayon`. Mocha
-does **not** write an image decoder from scratch. The `mocha_image` crate is a
-thin wrapper: it detects the format, validates by fully decoding, and returns the
-intrinsic dimensions (`DecodedImage { width, height, format }`). Unsupported
-formats are `UnsupportedFeature`; corrupt/unreadable data is `MochaError::Image`.
+are pulled in (via `png` and `zune-jpeg`; plus their support crates such as
+`flate2`/`miniz_oxide` and `zune-core`), no GIF/WebP/TIFF, no `rayon`. This is the
+**only external runtime dependency** in the workspace, and it is used **only by
+`mocha_image`** (other crates reach it transitively through `mocha_image`; verify
+with `cargo tree -e normal -i image`). Mocha does **not** write an image decoder
+from scratch. The `mocha_image` crate is a thin wrapper: it detects the format,
+validates by fully decoding, and returns the intrinsic dimensions (`DecodedImage {
+width, height, format }`). Unsupported formats are `UnsupportedFeature`;
+corrupt/unreadable data is `MochaError::Image`.
 
 ## `<img>` parsing
 

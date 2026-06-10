@@ -1,0 +1,8 @@
+# Pin the toolchain used to build, lint, and test Mocha Browser.
+#
+# `stable` is deliberate and conservative: Mocha uses only stable Rust features,
+# and CI installs the same channel. rustfmt and clippy are required by the
+# verification gate (`cargo fmt --all --check`, `cargo clippy ... -D warnings`).
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]
