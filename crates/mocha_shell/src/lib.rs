@@ -1,40 +1,17 @@
-//! The Mocha Browser command-line shell library.
+//! The Mocha Browser terminal shell library.
 //!
-//! This crate wires the rendering pipeline together. Loading now goes through
-//! `mocha_net` (file/http) and `mocha_nav` (history); the shell only orchestrates
-//! and renders:
-//!
-//! ```text
-//! input -> mocha_url -> mocha_nav/mocha_net (load) -> content-type check
-//!       -> UTF-8 decode -> mocha_html -> inline <script> execution (mocha_js_dom)
-//!       -> subresources: external <link> CSS + <img> images (mocha_resources/mocha_image)
-//!       -> mocha_style -> mocha_layout -> mocha_paint
-//! ```
-//!
-//! Entry points: [`render_request`] (full load+render, returns text to print),
-//! [`run_file`]/[`run_html`] (display list) and [`dump_layout_file`]/
-//! [`dump_layout_html`] (layout dump). The shell does **not** open a window or run
-//! an interactive UI. `https://` is not implemented and fails clearly. Inline
-//! `<script>` runs once before style/layout (Milestone 7, coarse invalidation);
-//! external `<link rel="stylesheet">` CSS (Milestone 8) and `<img>` images
-//! (Milestone 9) are loaded against the document base URL. External `<script src>`,
-//! CSS `url(...)`, and in-memory subresources (no base URL) remain unsupported.
+//! This crate is a thin terminal frontend over `mocha_engine`, which owns the
+//! whole rendering pipeline (load → parse → scripts → subresources → style →
+//! layout → display list). The shell renders through the engine and prints the
+//! display list (default), the layout tree (`--dump-layout`), or the
+//! form-control state (`--dump-form-state`), optionally preceded by response
+//! headers. It does **not** open a window — that is `mocha_desktop` (Milestone
+//! 11). `https://` is unsupported and fails clearly. `--eval-js` evaluates a
+//! standalone JavaScript snippet with no DOM.
 
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::rc::Rc;
-
-use mocha_dom::{Document, NodeId as DomNodeId};
-use mocha_error::{MochaError, MochaResult};
-use mocha_forms::{ControlKind, FormState};
-use mocha_image::DecodedImage;
-use mocha_layout::{
-    build_layout_tree, format_layout_tree, LayoutBox, LayoutViewport, DEFAULT_VIEWPORT_WIDTH,
-};
-use mocha_nav::NavigationController;
-use mocha_net::{DefaultLoader, ResourceResponse, ResourceType};
-use mocha_style::{ControlBox, ReplacedBox, StyledNode};
-use mocha_url::Url;
+use mocha_engine::{render_html, render_url, RenderOptions, ResponseMeta};
+use mocha_error::MochaResult;
+use mocha_layout::{format_layout_tree, hit_test};
 
 pub use mocha_layout::NodeId;
 pub use mocha_paint::{format_display_list, DisplayCommand};
@@ -46,57 +23,59 @@ pub struct RunOptions {
     pub dump_layout: bool,
     /// Print the form-control state instead of the display list.
     pub dump_form_state: bool,
-    /// Bypass the in-memory cache when loading.
+    /// Bypass the in-memory loader cache.
     pub no_cache: bool,
     /// Print response metadata before the output.
     pub show_headers: bool,
 }
 
+fn render_options(options: RunOptions) -> RenderOptions {
+    RenderOptions {
+        no_cache: options.no_cache,
+        ..RenderOptions::default()
+    }
+}
+
 /// Load `input` and render it, returning the text the CLI should print.
 pub fn render_request(input: &str, options: RunOptions) -> MochaResult<String> {
-    let response = load_document(input, options)?;
+    let mut page = render_url(input, &render_options(options))?;
+    report_side_effects(&page.console_output, page.submitted_form.is_some());
 
     let mut output = String::new();
     if options.show_headers {
-        output.push_str(&format_headers(&response));
+        output.push_str(&format_headers(page.meta.as_ref()));
         output.push('\n');
     }
     if options.dump_form_state {
-        let html = decode_html(&response)?;
-        let (document, mut forms) = run_document_scripts(mocha_html::parse_html(html)?)?;
-        output.push_str(&format_form_state(&document, &mut forms)?);
+        output.push_str(&mocha_engine::format_form_state(
+            &page.document,
+            &mut page.form_state,
+        )?);
+    } else if options.dump_layout {
+        output.push_str(&format_layout_tree(&page.layout_root));
     } else {
-        let layout = render_to_layout(&response)?;
-        if options.dump_layout {
-            output.push_str(&format_layout_tree(&layout));
-        } else {
-            output.push_str(&format_display_list(&mocha_paint::build_display_list(
-                &layout,
-            )?));
-        }
+        output.push_str(&format_display_list(&page.display_list));
     }
     Ok(output)
 }
 
 /// Load a location (file or http) and produce its display list.
 pub fn run_file(input: &str) -> MochaResult<Vec<DisplayCommand>> {
-    let response = load_document(input, RunOptions::default())?;
-    mocha_paint::build_display_list(&render_to_layout(&response)?)
+    Ok(render_url(input, &RenderOptions::default())?.display_list)
 }
 
 /// Load a location (file or http) and produce its formatted layout-tree dump.
 pub fn dump_layout_file(input: &str) -> MochaResult<String> {
-    let response = load_document(input, RunOptions::default())?;
-    Ok(format_layout_tree(&render_to_layout(&response)?))
+    Ok(format_layout_tree(
+        &render_url(input, &RenderOptions::default())?.layout_root,
+    ))
 }
 
 /// Evaluate a standalone JavaScript snippet and return its captured console
 /// output followed by the result value (omitted when `undefined`).
 ///
 /// This is the standalone `--eval-js` path: it does **not** load a document and
-/// does **not** install DOM bindings. Inline document `<script>` is a separate
-/// path, executed against the DOM by `mocha_js_dom` during the HTML rendering
-/// pipeline (see `run_document_scripts`).
+/// does **not** install DOM bindings.
 pub fn eval_js(source: &str) -> MochaResult<String> {
     let mut runtime = mocha_js::JsRuntime::new();
     let result = runtime.eval(source)?;
@@ -109,354 +88,54 @@ pub fn eval_js(source: &str) -> MochaResult<String> {
 
 /// Load a location and return the DOM node at viewport point `(x, y)`.
 pub fn hit_test_file(input: &str, x: f32, y: f32) -> MochaResult<Option<NodeId>> {
-    let response = load_document(input, RunOptions::default())?;
-    let layout = render_to_layout(&response)?;
-    Ok(mocha_layout::hit_test(&layout, x, y))
+    let page = render_url(input, &RenderOptions::default())?;
+    Ok(hit_test(&page.layout_root, x, y))
 }
 
 /// Render an in-memory HTML string to a display list (no loading).
 pub fn run_html(input: &str) -> MochaResult<Vec<DisplayCommand>> {
-    mocha_paint::build_display_list(&layout_html(input)?)
+    Ok(render_html(input, &RenderOptions::default())?.display_list)
 }
 
 /// Render an in-memory HTML string to a layout-tree dump (no loading).
 pub fn dump_layout_html(input: &str) -> MochaResult<String> {
-    Ok(format_layout_tree(&layout_html(input)?))
+    Ok(format_layout_tree(
+        &render_html(input, &RenderOptions::default())?.layout_root,
+    ))
 }
 
-/// Parse the location and load it through the navigation/loader pipeline.
-fn load_document(input: &str, options: RunOptions) -> MochaResult<ResourceResponse> {
-    let url = Url::parse(input)?;
-    let mut controller = NavigationController::new(DefaultLoader::new());
-    if options.no_cache {
-        controller.navigate_no_cache(url)
-    } else {
-        controller.navigate(url)
-    }
-}
-
-/// Validate the content type and decode the body as UTF-8.
-fn decode_html(response: &ResourceResponse) -> MochaResult<&str> {
-    if response.resource_type() != ResourceType::Html {
-        return Err(MochaError::UnsupportedFeature(
-            "only text/html documents can be rendered in Milestone 4".to_string(),
-        ));
-    }
-    std::str::from_utf8(&response.body).map_err(|_| {
-        MochaError::UnsupportedFeature(
-            "character encodings other than UTF-8 are not supported in Milestone 4".to_string(),
-        )
-    })
-}
-
-/// Validate the content type, decode the body as UTF-8, and run the engine.
-fn render_to_layout(response: &ResourceResponse) -> MochaResult<LayoutBox> {
-    layout_document(decode_html(response)?, Some(&response.final_url))
-}
-
-/// Render in-memory HTML with no base URL (external subresources unsupported).
-fn layout_html(input: &str) -> MochaResult<LayoutBox> {
-    layout_document(input, None)
-}
-
-/// Parse HTML, execute inline scripts, collect stylesheets (inline `<style>` plus
-/// external `<link rel="stylesheet">` resolved against `base`), compute style, and
-/// build the layout tree. With no `base` (in-memory rendering) external
-/// stylesheets are unsupported. Subresources are collected once, after scripts run.
-/// Form-control state (initialized from attributes, mutated by scripts) is
-/// resolved into control boxes before layout.
-fn layout_document(input: &str, base: Option<&Url>) -> MochaResult<LayoutBox> {
-    let (document, mut forms) = run_document_scripts(mocha_html::parse_html(input)?)?;
-    let stylesheets = match base {
-        Some(base) => {
-            let mut loader = mocha_net::DefaultLoader::new();
-            mocha_resources::collect_document_stylesheets(&document, base, &mut loader)?
-        }
-        None => mocha_resources::collect_inline_stylesheets(&document)?,
-    };
-    let images = load_document_images(&document, base)?;
-    let mut styled = mocha_style::build_style_tree(&document, &stylesheets)?;
-    attach_images(&mut styled, &document, &images);
-    attach_controls(&mut styled, &document, &mut forms)?;
-    let viewport = LayoutViewport {
-        width: DEFAULT_VIEWPORT_WIDTH,
-        ..LayoutViewport::default()
-    };
-    build_layout_tree(&styled, viewport)
-}
-
-/// Decoded images for one document, keyed by the `<img>`'s DOM node id.
-#[derive(Default)]
-struct ImageStore {
-    by_node: HashMap<DomNodeId, usize>,
-    decoded: Vec<DecodedImage>,
-}
-
-/// Discover, resolve, load, and decode every `<img>` in the document. With no
-/// `base` (in-memory rendering) any `<img>` is unsupported. A missing `src`,
-/// failed load, wrong content type, or decode failure is a clear error.
-fn load_document_images(document: &Document, base: Option<&Url>) -> MochaResult<ImageStore> {
-    let images = mocha_resources::discover_images(document)?;
-    if images.is_empty() {
-        return Ok(ImageStore::default());
-    }
-    let base = base.ok_or_else(|| {
-        MochaError::UnsupportedFeature(
-            "images require a document base URL (load via file/http, not in-memory HTML)"
-                .to_string(),
-        )
-    })?;
-    let mut loader = mocha_net::DefaultLoader::new();
-    let mut store = ImageStore::default();
-    for (node, src) in images {
-        let decoded = mocha_resources::load_image(&src, base, &mut loader)?;
-        let id = store.decoded.len();
-        store.decoded.push(decoded);
-        store.by_node.insert(node, id);
-    }
-    Ok(store)
-}
-
-/// Attach decoded-image boxes to the matching `<img>` styled nodes, resolving each
-/// image's final size from CSS, then `width`/`height` attributes, then intrinsic
-/// dimensions (preserving aspect ratio when only one dimension is specified).
-fn attach_images(styled: &mut StyledNode, document: &Document, store: &ImageStore) {
-    if let Some(&image_id) = store.by_node.get(&styled.node_id) {
-        let decoded = store.decoded[image_id];
-        let (width, height) = resolve_image_size(styled, document, &decoded);
-        styled.replaced = Some(ReplacedBox {
-            image_id,
-            width,
-            height,
-        });
-    }
-    for child in &mut styled.children {
-        attach_images(child, document, store);
-    }
-}
-
-fn resolve_image_size(
-    styled: &StyledNode,
-    document: &Document,
-    decoded: &DecodedImage,
-) -> (f32, f32) {
-    let intrinsic_w = decoded.width as f32;
-    let intrinsic_h = decoded.height as f32;
-    let attr = |name: &str| -> Option<f32> {
-        document
-            .get_attribute(styled.node_id, name)
-            .ok()
-            .flatten()
-            .and_then(|value| value.trim().parse::<f32>().ok())
-            .filter(|value| *value >= 0.0)
-    };
-    // CSS wins over attributes, which win over the intrinsic size.
-    let spec_w = styled.style.width.or_else(|| attr("width"));
-    let spec_h = styled.style.height.or_else(|| attr("height"));
-    match (spec_w, spec_h) {
-        (Some(w), Some(h)) => (w, h),
-        (Some(w), None) if intrinsic_w > 0.0 => (w, w * intrinsic_h / intrinsic_w),
-        (Some(w), None) => (w, intrinsic_h),
-        (None, Some(h)) if intrinsic_h > 0.0 => (h * intrinsic_w / intrinsic_h, h),
-        (None, Some(h)) => (intrinsic_w, h),
-        (None, None) => (intrinsic_w, intrinsic_h),
-    }
-}
-
-/// Run every inline `<script>` in document order, then any pending zero-delay
-/// timers, returning the mutated document and the final form-control state.
-/// Milestone 7 uses coarse invalidation: scripts run once, then
-/// style/layout/paint run once over the final DOM. A script (parse or runtime)
-/// error aborts the render with a clear [`MochaError`]. `console.log` output is
-/// written to stderr so it never corrupts the rendered stdout. External
-/// `<script src>` is unsupported. Form state initializes from attributes before
-/// scripts run (unsupported control types error here); a `form.submit()` request
-/// is noted on stderr but never navigates.
-fn run_document_scripts(document: Document) -> MochaResult<(Document, FormState)> {
-    let scripts = mocha_js_dom::collect_inline_scripts(&document)?;
-    if scripts.is_empty() {
-        let forms = mocha_forms::build_form_state(&document)?;
-        return Ok((document, forms));
-    }
-    let shared = Rc::new(RefCell::new(document));
-    let mut runtime = mocha_js_dom::DomRuntime::new(shared.clone());
-    runtime.init_form_state()?;
-    for source in &scripts {
-        runtime.run_script(source)?;
-    }
-    runtime.run_pending_timers()?;
-    for line in runtime.take_console_output() {
+/// Print captured `console.log` output and any `form.submit()` note to stderr,
+/// so they never corrupt the rendered stdout.
+fn report_side_effects(console_output: &[String], submitted: bool) {
+    for line in console_output {
         eprintln!("{line}");
     }
-    if runtime.take_pending_submission().is_some() {
+    if submitted {
         eprintln!(
             "mocha: a script called form.submit(); form navigation is not performed by the shell"
         );
     }
-    // Reclaim the final document and form state. JS closures captured in
-    // listeners/timers may still reference the bridge, so we clone both out
-    // rather than trying to unwrap the shared `Rc`s.
-    let final_document = shared.borrow().clone();
-    let forms = runtime.form_state().borrow().clone();
-    Ok((final_document, forms))
 }
 
-/// Attach resolved [`ControlBox`]es to form-control styled nodes (the forms
-/// counterpart of [`attach_images`]). Hidden inputs get no box at all.
-fn attach_controls(
-    styled: &mut StyledNode,
-    document: &Document,
-    forms: &mut FormState,
-) -> MochaResult<()> {
-    styled.control = resolve_control_box(styled, document, forms)?;
-    for child in &mut styled.children {
-        attach_controls(child, document, forms)?;
-    }
-    Ok(())
-}
-
-/// Resolve one node's control box: its display type, painted value/label,
-/// checked/disabled state, and final size (CSS `width`/`height` override the
-/// control defaults).
-fn resolve_control_box(
-    styled: &StyledNode,
-    document: &Document,
-    forms: &mut FormState,
-) -> MochaResult<Option<ControlBox>> {
-    let node = styled.node_id;
-    // Only the box-generating control elements; options render inside their
-    // select, and labels/forms are ordinary flow content.
-    if !matches!(
-        document.tag_name(node)?,
-        Some("input" | "button" | "textarea" | "select")
-    ) {
-        return Ok(None);
-    }
-    let is_button_element = document.tag_name(node)? == Some("button");
-    let Some(control) = forms.ensure_control(document, node)? else {
-        return Ok(None);
+fn format_headers(meta: Option<&ResponseMeta>) -> String {
+    let Some(meta) = meta else {
+        return String::new();
     };
-    let (kind, value, checked, disabled) = (
-        control.kind,
-        control.value.clone(),
-        control.checked,
-        control.disabled,
-    );
-
-    let font_size = styled.style.font_size;
-    let (control_type, display_value, checked_state, default_width, default_height) = match kind {
-        ControlKind::Hidden | ControlKind::Option => return Ok(None),
-        ControlKind::Text | ControlKind::Password => {
-            (kind.as_str(), Some(value), None, 160.0, 24.0)
-        }
-        ControlKind::Checkbox | ControlKind::Radio => {
-            (kind.as_str(), None, Some(checked), 13.0, 13.0)
-        }
-        ControlKind::Submit | ControlKind::Reset | ControlKind::Button => {
-            // The visible label: a <button>'s text content, an <input>'s value,
-            // or the UA default. Width estimates the label with the same metric
-            // layout uses for text (chars * font * 0.6) plus padding.
-            let label = if is_button_element {
-                document.text_content(node)?.trim().to_string()
-            } else {
-                value
-            };
-            let label = if label.is_empty() {
-                match kind {
-                    ControlKind::Reset => "Reset".to_string(),
-                    _ => "Submit".to_string(),
-                }
-            } else {
-                label
-            };
-            let width = (label.chars().count() as f32 * font_size * 0.6).round() + 16.0;
-            let control_type = if is_button_element {
-                "button"
-            } else {
-                kind.as_str()
-            };
-            (control_type, Some(label), None, width.max(40.0), 26.0)
-        }
-        ControlKind::TextArea => {
-            let dimension = |name: &str| {
-                document
-                    .get_attribute(node, name)
-                    .ok()
-                    .flatten()
-                    .and_then(|attr| attr.trim().parse::<f32>().ok())
-                    .filter(|parsed| *parsed > 0.0)
-            };
-            let width = dimension("cols").map(|cols| cols * 8.0).unwrap_or(200.0);
-            let height = dimension("rows").map(|rows| rows * 18.0).unwrap_or(80.0);
-            ("textarea", Some(value), None, width, height)
-        }
-        ControlKind::Select => {
-            let value = mocha_forms::select_value(document, forms, node)?;
-            ("select", value, None, 160.0, 24.0)
-        }
-    };
-
-    Ok(Some(ControlBox {
-        control_type: control_type.to_string(),
-        value: display_value,
-        checked: checked_state,
-        disabled,
-        width: styled.style.width.unwrap_or(default_width),
-        height: styled.style.height.unwrap_or(default_height),
-    }))
-}
-
-/// Format the form-control state of a document as one line per form/control, in
-/// document order (the `--dump-form-state` output).
-fn format_form_state(document: &Document, forms: &mut FormState) -> MochaResult<String> {
-    let mut lines = Vec::new();
-    for node in document.traverse_depth_first(document.root_id())? {
-        if document.tag_name(node)? == Some("form") {
-            lines.push(format!(
-                "form node=#{} action={:?} method={:?}",
-                node.0,
-                document.get_attribute(node, "action")?.unwrap_or(""),
-                document.get_attribute(node, "method")?.unwrap_or("get"),
-            ));
-            continue;
-        }
-        let Some(control) = forms.ensure_control(document, node)? else {
-            continue;
-        };
-        let mut line = format!(
-            "{} node=#{} name={:?} value={:?}",
-            control.kind.as_str(),
-            node.0,
-            control.name.as_deref().unwrap_or(""),
-            control.value,
-        );
-        if matches!(control.kind, ControlKind::Checkbox | ControlKind::Radio) {
-            line.push_str(&format!(" checked={}", control.checked));
-        }
-        if control.kind == ControlKind::Option {
-            line.push_str(&format!(" selected={}", control.selected));
-        }
-        line.push_str(&format!(" disabled={}", control.disabled));
-        lines.push(line);
-    }
-    Ok(lines.join("\n"))
-}
-
-fn format_headers(response: &ResourceResponse) -> String {
-    let mut lines = vec![format!("url: {}", response.final_url.normalized())];
-    if let Some(status) = response.status {
+    let mut lines = vec![format!("url: {}", meta.final_url.normalized())];
+    if let Some(status) = meta.status {
         lines.push(format!("status: {status}"));
     }
-    if let Some(content_type) = &response.content_type {
+    if let Some(content_type) = &meta.content_type {
         lines.push(format!("content-type: {content_type}"));
     }
-    lines.push(format!("from-cache: {}", response.from_cache));
+    lines.push(format!("from-cache: {}", meta.from_cache));
     lines.join("\n")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mocha_error::MochaError;
     use mocha_net::test_server::{Reply, TestServer};
 
     #[test]

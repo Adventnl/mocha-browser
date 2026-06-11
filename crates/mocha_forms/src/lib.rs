@@ -25,10 +25,12 @@
 //! from JavaScript and programmatic event dispatch.
 
 mod default_action;
+mod metrics;
 mod state;
 mod submission;
 
 pub use default_action::{click_default_action, form_default_action_for_event, FormDefaultAction};
+pub use metrics::{resolve_control_metrics, ControlMetrics};
 pub use state::{
     build_form_state, owner_form, reset_form, select_radio, select_value, selected_index,
     set_select_value, set_selected_index, ControlKind, ControlState, FormState,

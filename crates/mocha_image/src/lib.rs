@@ -2,10 +2,10 @@
 //!
 //! This is a thin, honest wrapper over the third-party [`image`] crate (PNG and
 //! JPEG only). It detects the format from the bytes, validates it by fully
-//! decoding, and reports the intrinsic pixel dimensions. Mocha does **not** write
-//! an image decoder from scratch, and does **not** rasterize to a window — the
-//! decoded dimensions feed replaced-element layout and a `DrawImage` display
-//! command. Unsupported formats and decode failures are clear errors.
+//! decoding, and reports the intrinsic pixel dimensions ([`decode`]) or the full
+//! RGBA pixels ([`decode_rgba`], used by the Milestone 11 software rasterizer).
+//! Mocha does **not** write an image decoder from scratch. Unsupported formats
+//! and decode failures are clear errors.
 
 use std::io::Cursor;
 
@@ -22,8 +22,9 @@ pub enum ImageFormat {
 
 /// A successfully decoded image: its format and intrinsic pixel dimensions.
 ///
-/// Pixel data is intentionally not retained: there is no raster surface in this
-/// milestone, and layout/paint only need the dimensions.
+/// Pixel data is intentionally not retained here; layout/paint only need the
+/// dimensions. The Milestone 11 rasterizer uses [`decode_rgba`] /
+/// [`RasterImage`] when it actually needs pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DecodedImage {
     /// Intrinsic width in pixels.
@@ -34,13 +35,24 @@ pub struct DecodedImage {
     pub format: ImageFormat,
 }
 
-/// Detect, validate, and decode `bytes`, returning the image's intrinsic
-/// dimensions and format.
+/// A decoded image with its RGBA8 pixels (row-major, 4 bytes per pixel), for the
+/// software rasterizer. `rgba.len() == width * height * 4`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RasterImage {
+    /// Intrinsic width in pixels.
+    pub width: u32,
+    /// Intrinsic height in pixels.
+    pub height: u32,
+    /// RGBA8 pixels, row-major (top-left first), 4 bytes per pixel.
+    pub rgba: Vec<u8>,
+}
+
+/// Detect and validate `bytes`, returning the format and the fully decoded image.
 ///
 /// Returns [`MochaError::UnsupportedFeature`] for a recognised-but-unsupported
 /// format (anything other than PNG/JPEG) and [`MochaError::Image`] for unreadable
 /// or corrupt data.
-pub fn decode(bytes: &[u8]) -> MochaResult<DecodedImage> {
+fn decode_dynamic(bytes: &[u8]) -> MochaResult<(ImageFormat, image::DynamicImage)> {
     let reader = image::ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
         .map_err(|error| MochaError::Image(format!("could not read image: {error}")))?;
@@ -63,11 +75,28 @@ pub fn decode(bytes: &[u8]) -> MochaResult<DecodedImage> {
     let decoded = reader
         .decode()
         .map_err(|error| MochaError::Image(format!("could not decode image: {error}")))?;
+    Ok((format, decoded))
+}
 
+/// Detect, validate, and decode `bytes`, returning the image's intrinsic
+/// dimensions and format (no pixels).
+pub fn decode(bytes: &[u8]) -> MochaResult<DecodedImage> {
+    let (format, decoded) = decode_dynamic(bytes)?;
     Ok(DecodedImage {
         width: decoded.width(),
         height: decoded.height(),
         format,
+    })
+}
+
+/// Detect, validate, and decode `bytes` into RGBA8 pixels for rasterization.
+pub fn decode_rgba(bytes: &[u8]) -> MochaResult<RasterImage> {
+    let (_, decoded) = decode_dynamic(bytes)?;
+    let rgba = decoded.to_rgba8();
+    Ok(RasterImage {
+        width: rgba.width(),
+        height: rgba.height(),
+        rgba: rgba.into_raw(),
     })
 }
 
@@ -107,6 +136,15 @@ mod tests {
         let decoded = decode(&sample_jpeg()).unwrap();
         assert_eq!((decoded.width, decoded.height), (4, 3));
         assert_eq!(decoded.format, ImageFormat::Jpeg);
+    }
+
+    #[test]
+    fn decode_rgba_returns_pixels() {
+        let raster = decode_rgba(&sample_png()).unwrap();
+        assert_eq!((raster.width, raster.height), (2, 2));
+        assert_eq!(raster.rgba.len(), 2 * 2 * 4);
+        // The sample is a solid colour; the first pixel matches.
+        assert_eq!(&raster.rgba[0..4], &[10, 20, 30, 255]);
     }
 
     #[test]

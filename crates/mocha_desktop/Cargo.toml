@@ -1,0 +1,37 @@
+[package]
+name = "mocha_desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Milestone 11 desktop document shell: a native window that rasterizes the Mocha display list, scrolls, and routes mouse/keyboard input into the shared engine. A document viewer, not browser chrome."
+
+[lib]
+name = "mocha_desktop"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mocha_desktop"
+path = "src/main.rs"
+
+[features]
+# The actual native window (minifb). Off by default so `cargo build/test --all`
+# and CI never need a display or platform window libraries; the testable core
+# (DesktopPageState, rasterization) builds and tests without it. Build the real
+# window with `--features gui`.
+default = []
+gui = ["dep:minifb"]
+
+[dependencies]
+mocha_error.workspace = true
+mocha_url.workspace = true
+mocha_dom.workspace = true
+mocha_events.workspace = true
+mocha_forms.workspace = true
+mocha_layout.workspace = true
+mocha_paint.workspace = true
+mocha_image.workspace = true
+mocha_nav.workspace = true
+mocha_engine.workspace = true
+mocha_raster.workspace = true
+minifb = { workspace = true, optional = true }

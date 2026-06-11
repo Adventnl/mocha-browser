@@ -1,0 +1,27 @@
+[package]
+name = "mocha_engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Shared rendering pipeline for Mocha Browser: load/parse/script/style/layout/paint a document into a reusable RenderedPage for the terminal and desktop shells."
+
+[dependencies]
+mocha_error.workspace = true
+mocha_url.workspace = true
+mocha_dom.workspace = true
+mocha_html.workspace = true
+mocha_css.workspace = true
+mocha_style.workspace = true
+mocha_layout.workspace = true
+mocha_paint.workspace = true
+mocha_net.workspace = true
+mocha_nav.workspace = true
+mocha_js_dom.workspace = true
+mocha_forms.workspace = true
+mocha_resources.workspace = true
+mocha_image.workspace = true
+
+[dev-dependencies]
+mocha_net = { workspace = true, features = ["test-util"] }
+image.workspace = true

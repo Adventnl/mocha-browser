@@ -151,6 +151,10 @@ fn layout_children(
 }
 
 /// Lay out any accumulated inline children as one anonymous block box.
+///
+/// A group that produces no line boxes — e.g. only inter-tag whitespace between
+/// block siblings — emits nothing, so indentation whitespace adds no visible box
+/// or height.
 fn flush_inline_group(
     inline_group: &mut Vec<&StyledNode>,
     content_x: f32,
@@ -162,6 +166,10 @@ fn flush_inline_group(
         return;
     }
     let (lines, height) = inline::layout_inline(inline_group, content_x, *cursor_y, content_width);
+    if lines.is_empty() {
+        inline_group.clear();
+        return;
+    }
     let anon = LayoutBox::anonymous(
         LayoutBoxKind::AnonymousBlock,
         Rect {

@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Command-line shell that wires Mocha Browser's loading, JS, subresource, layout, and display-list pipeline together (terminal-first, no window)."
+description = "Terminal frontend for Mocha Browser: renders a document through mocha_engine and prints the display list, layout tree, or form state (terminal-first, no window)."
 
 [[bin]]
 name = "mocha_shell"
@@ -46,20 +46,24 @@ path = "../../tests/integration/forms_pipeline.rs"
 
 [dependencies]
 mocha_error.workspace = true
-mocha_forms.workspace = true
+mocha_js.workspace = true
+mocha_layout.workspace = true
+mocha_paint.workspace = true
+mocha_engine.workspace = true
+
+# The integration tests (declared as this crate's [[test]] targets) drive the
+# pipeline crates directly, so they appear here as dev-dependencies even though
+# the shell library itself only depends on mocha_engine + the print helpers.
+[dev-dependencies]
+mocha_error.workspace = true
 mocha_url.workspace = true
+mocha_dom.workspace = true
 mocha_html.workspace = true
 mocha_style.workspace = true
 mocha_layout.workspace = true
 mocha_paint.workspace = true
-mocha_net.workspace = true
-mocha_nav.workspace = true
-mocha_js.workspace = true
-mocha_dom.workspace = true
-mocha_js_dom.workspace = true
-mocha_resources.workspace = true
-mocha_image.workspace = true
-
-[dev-dependencies]
 mocha_events.workspace = true
+mocha_forms.workspace = true
+mocha_nav.workspace = true
+mocha_js_dom.workspace = true
 mocha_net = { workspace = true, features = ["test-util"] }

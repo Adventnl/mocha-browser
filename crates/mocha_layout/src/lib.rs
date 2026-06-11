@@ -684,6 +684,96 @@ mod tests {
         assert!(format_layout_tree(&tree).contains("Control checkbox"));
     }
 
+    // --- inter-atom whitespace (Milestone 11 / Part A1) ---------------------
+
+    #[test]
+    fn whitespace_text_between_controls_adds_a_separating_space() {
+        // <input> " " <input>: a whitespace-only text node between two controls
+        // must keep them apart on the line.
+        let p = element(
+            1,
+            block_style(),
+            vec![
+                control_node(2, control_box("text", 160.0, 24.0)),
+                text(3, " ", 16.0, Color::BLACK),
+                control_node(4, control_box("text", 160.0, 24.0)),
+            ],
+        );
+        let root = element(0, block_style(), vec![p]);
+        let tree = layout(&root, 800.0);
+        let first = find_control(&tree, 2).unwrap();
+        let second = find_control(&tree, 4).unwrap();
+        assert!(
+            second.rect.x > first.rect.right(),
+            "controls separated by whitespace must not touch ({} !> {})",
+            second.rect.x,
+            first.rect.right()
+        );
+    }
+
+    #[test]
+    fn whitespace_between_control_and_text_adds_a_space() {
+        // <input> " Agree": checkbox then label text, separated by a space.
+        let p = element(
+            1,
+            block_style(),
+            vec![
+                control_node(2, control_box("checkbox", 13.0, 13.0)),
+                text(3, " Agree", 16.0, Color::BLACK),
+            ],
+        );
+        let root = element(0, block_style(), vec![p]);
+        let tree = layout(&root, 800.0);
+        let control = find_control(&tree, 2).unwrap();
+        let run = text_runs(&tree)[0];
+        assert!(
+            run.rect.x > control.rect.right(),
+            "text starts after the gap"
+        );
+    }
+
+    #[test]
+    fn whitespace_only_inline_group_between_blocks_emits_no_box() {
+        // <div><p/>" "<p/></div>: the indentation-only text node between block
+        // siblings must not become an anonymous block (no visible box/height).
+        let div = element(
+            1,
+            block_style(),
+            vec![
+                element(2, block_style(), vec![text(5, "a", 16.0, Color::BLACK)]),
+                text(3, " ", 16.0, Color::BLACK),
+                element(4, block_style(), vec![text(6, "b", 16.0, Color::BLACK)]),
+            ],
+        );
+        let root = element(0, block_style(), vec![div]);
+        let tree = layout(&root, 800.0);
+        let div_box = find(&tree, 1).unwrap();
+        assert_eq!(
+            div_box.children.len(),
+            2,
+            "only the two block children; the whitespace group is dropped"
+        );
+        assert!(div_box
+            .children
+            .iter()
+            .all(|c| c.kind == LayoutBoxKind::Block));
+    }
+
+    #[test]
+    fn leading_whitespace_text_does_not_create_visible_leading_space() {
+        // " Hello": a leading space at the start of a line is ignored.
+        let p = element(
+            1,
+            block_style(),
+            vec![text(2, " Hello", 16.0, Color::BLACK)],
+        );
+        let root = element(0, block_style(), vec![p]);
+        let tree = layout(&root, 800.0);
+        let run = text_runs(&tree)[0];
+        // The first run sits at the content origin (x == 0 here), not pushed right.
+        assert_eq!(run.rect.x, 0.0);
+    }
+
     // --- debug dump ---------------------------------------------------------
 
     #[test]

@@ -14,7 +14,7 @@
 use mocha_css::{parse_stylesheet, Stylesheet};
 use mocha_dom::{Document, ElementData, NodeId, NodeKind};
 use mocha_error::{MochaError, MochaResult};
-use mocha_image::DecodedImage;
+use mocha_image::{DecodedImage, RasterImage};
 use mocha_net::{LoadRequest, ResourceLoader, ResourceResponse, ResourceType};
 use mocha_url::Url;
 
@@ -100,6 +100,25 @@ pub fn load_image(
     base: &Url,
     loader: &mut dyn ResourceLoader,
 ) -> MochaResult<DecodedImage> {
+    mocha_image::decode(&fetch_image_bytes(src, base, loader)?)
+}
+
+/// Like [`load_image`], but decodes the full RGBA pixels for the software
+/// rasterizer (Milestone 11).
+pub fn load_image_rgba(
+    src: &str,
+    base: &Url,
+    loader: &mut dyn ResourceLoader,
+) -> MochaResult<RasterImage> {
+    mocha_image::decode_rgba(&fetch_image_bytes(src, base, loader)?)
+}
+
+/// Fetch and validate an image resource, returning its raw bytes.
+fn fetch_image_bytes(
+    src: &str,
+    base: &Url,
+    loader: &mut dyn ResourceLoader,
+) -> MochaResult<Vec<u8>> {
     let url = base.join(src)?;
     let response = loader.load(LoadRequest::get(url))?;
     if let Some(status) = response.status {
@@ -110,7 +129,7 @@ pub fn load_image(
         }
     }
     validate_image_content_type(&response)?;
-    mocha_image::decode(&response.body)
+    Ok(response.body)
 }
 
 /// Reject responses whose content type is clearly not an image. A missing content
@@ -348,6 +367,22 @@ mod tests {
         let mut loader = DefaultLoader::new();
         let decoded = load_image("pic.png", &base, &mut loader).unwrap();
         assert_eq!((decoded.width, decoded.height), (5, 7));
+    }
+
+    #[test]
+    fn load_image_rgba_over_http_decodes_pixels() {
+        let server = TestServer::start(vec![(
+            "/pic.png".to_string(),
+            Reply::Bytes {
+                content_type: "image/png".to_string(),
+                body: sample_png(3, 2),
+            },
+        )]);
+        let base = Url::parse(&server.url("/index.html")).unwrap();
+        let mut loader = DefaultLoader::new();
+        let raster = load_image_rgba("pic.png", &base, &mut loader).unwrap();
+        assert_eq!((raster.width, raster.height), (3, 2));
+        assert_eq!(raster.rgba.len(), 3 * 2 * 4);
     }
 
     #[test]

@@ -387,11 +387,19 @@ fn is_raw_text_tag(name: &str) -> bool {
 
 /// Normalise an HTML text run: collapse internal whitespace to single spaces,
 /// and preserve a single leading/trailing space when the run has content.
-/// Returns `None` for a whitespace-only run.
+///
+/// A whitespace-only run collapses to a single space `" "` (rather than being
+/// dropped) so that inter-tag whitespace separating inline content — e.g.
+/// `<input> <input>` or `Text <img> after` — survives tokenization and renders
+/// as one space. This space stays invisible where it should: inline formatting
+/// ignores spaces at line/block edges, and block layout discards inline groups
+/// that produce no line boxes (so indentation between block elements adds no
+/// visible text or box). This is a deliberately small whitespace policy, not the
+/// full HTML whitespace-processing algorithm.
 fn normalize_text(text: &str) -> Option<String> {
     let core = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if core.is_empty() {
-        return None;
+        return Some(" ".to_string());
     }
     let mut normalised = String::new();
     if text.starts_with(char::is_whitespace) {
@@ -458,7 +466,10 @@ mod tests {
     }
 
     #[test]
-    fn whitespace_only_text_is_dropped() {
+    fn whitespace_only_text_collapses_to_single_space() {
+        // A whitespace-only run between tags becomes a single space (not dropped),
+        // so inter-tag whitespace separating inline content survives. Layout keeps
+        // it invisible at block/line edges.
         let tokens = tokenize("<p>   </p>").unwrap();
         assert_eq!(
             tokens,
@@ -468,8 +479,32 @@ mod tests {
                     attributes: Vec::new(),
                     self_closing: false,
                 },
+                HtmlToken::Text(" ".to_string()),
                 HtmlToken::EndTag {
                     name: "p".to_string()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn whitespace_between_void_tags_is_preserved_as_one_space() {
+        // <input> <input>: the inter-tag space must survive so controls render
+        // separated. (input is a void element; here we just check tokens.)
+        let tokens = tokenize("<input> <input>").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                HtmlToken::StartTag {
+                    name: "input".to_string(),
+                    attributes: Vec::new(),
+                    self_closing: false,
+                },
+                HtmlToken::Text(" ".to_string()),
+                HtmlToken::StartTag {
+                    name: "input".to_string(),
+                    attributes: Vec::new(),
+                    self_closing: false,
                 },
             ]
         );

@@ -1,0 +1,12 @@
+[package]
+name = "mocha_raster"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "A small pure-Rust software rasterizer: turns a Mocha display list (+ decoded images) into an RGBA pixel buffer, with a crude built-in debug font. No windowing, no GPU."
+
+[dependencies]
+mocha_layout.workspace = true
+mocha_paint.workspace = true
+mocha_image.workspace = true
