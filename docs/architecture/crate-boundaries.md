@@ -101,16 +101,43 @@ mocha_nav
 - no protocol details, no rendering
 - depends on: mocha_error, mocha_url, mocha_net, mocha_dom, mocha_events
 
-mocha_shell
-- command-line executable (library + binary)
+mocha_engine
+- high-level document loading and rendering orchestration (M1–M10 pipeline)
 - loads via mocha_nav/mocha_net, runs inline scripts (mocha_js_dom), loads
-  subresources (mocha_resources/mocha_image), resolves form-control boxes
-  (mocha_forms state -> ControlBox sizes), then renders through the engine
-- exposes hit testing (--hit-test), form-state dumping (--dump-form-state), and
-  standalone JS (--eval-js); no browser UI yet
+  subresources (mocha_resources/mocha_image), computes style/layout/paint
+- produces a display list and image refs, completely agnostic to output (terminal
+  or window)
+- used by both mocha_shell and mocha_desktop; the core stateless pipeline
 - depends on: mocha_error, mocha_url, mocha_html, mocha_dom, mocha_style,
   mocha_layout, mocha_paint, mocha_net, mocha_nav, mocha_js, mocha_js_dom,
   mocha_forms, mocha_resources, mocha_image
+
+mocha_raster
+- display list + images to pixel buffer rasterization (M11)
+- owns the Surface (framebuffer), drawing primitives (rect/text/image),
+  and command-to-pixel conversion
+- stateless: rasterize(surface, commands, images, scroll_y) → pixels
+- no window, no input, no event loop
+- depends on: mocha_error, mocha_paint, mocha_image, mocha_layout (Color)
+
+mocha_desktop
+- desktop shell and browser app state (M11–M12)
+- BrowserAppState: state machine for page/chrome/address-bar/history/focus
+- DesktopPageState: document loading/rendering (calls mocha_engine)
+- ChromeLayout: toolbar/button/address-bar positioning and hit testing
+- AddressBarState: address bar editing
+- window.rs: native window event loop (thin, untestable layer using minifb)
+- fully testable without a window; window.rs is intentionally untestable
+- optional `gui` feature: enables minifb for visible windowing
+- depends on: mocha_error, mocha_url, mocha_engine, mocha_raster, minifb (optional)
+
+mocha_shell
+- command-line executable (library + binary)
+- alternative front-end to mocha_engine (terminal output instead of windowing)
+- loads via mocha_engine, exposes hit testing (--hit-test), form-state dumping
+  (--dump-form-state), and standalone JS (--eval-js)
+- no window, no browser UI; purely for terminal output and testing
+- depends on: mocha_error, mocha_engine
 ```
 
 ## Notes
@@ -158,6 +185,20 @@ mocha_shell
   `ReplacedBox`), which layout turns into a `Control` box and paint into a
   `DrawControl` command. Submission produces a URL; it never performs network
   I/O (that stays in `mocha_net`/`mocha_nav`).
-- Future crates (`mocha_gpu`, `mocha_security`, `mocha_browser`, …) are
-  intentionally **not** created yet. They are described in
-  [milestones.md](milestones.md) as direction only.
+- `mocha_engine` (M11+) is the unified document loading/rendering pipeline,
+  shared by all frontends (terminal and desktop). This keeps pipeline logic
+  in one place and allows multiple UIs to consume the same display list.
+- `mocha_raster` (M11+) owns pixel rasterization and is decoupled from windowing.
+  The Surface is a simple CPU framebuffer; no GPU, no compositor. `mocha_desktop`
+  calls `mocha_raster` and passes the pixel buffer to `minifb` for display.
+- `mocha_desktop` (M11–M12) owns browser state (page/chrome/address-bar/history),
+  which is entirely testable (`BrowserAppState` tests pass without a window).
+  The window event loop (`window.rs`) is a thin untestable layer that pumps
+  events and drives the rasterizer. The optional `gui` feature gates the
+  `minifb` dependency.
+- `mocha_shell` is now a pure frontend (no pipeline logic); it uses `mocha_engine`
+  and prints the display list as text. Both `mocha_shell` and `mocha_desktop`
+  use the same engine, ensuring they render identically (except for output format).
+- Future crates (`mocha_gpu`, `mocha_security`, …) are intentionally **not**
+  created yet. They are described in [milestones.md](milestones.md) as
+  direction only.

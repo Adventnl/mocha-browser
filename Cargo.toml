@@ -51,13 +51,13 @@ mocha_raster = { path = "crates/mocha_raster" }
 mocha_desktop = { path = "crates/mocha_desktop" }
 mocha_shell = { path = "crates/mocha_shell" }
 
-# Milestone 11 desktop window shell: a small cross-platform window + CPU
-# framebuffer. Optional and behind mocha_desktop's non-default `gui` feature, so
-# the default `cargo build/test --all` never pull it (keeping the gate display-
-# free); only the desktop window binary needs it.
-minifb = { version = "0.28", default-features = false, features = ["x11", "wayland"] }
-
-# The only third-party dependency in the workspace: a safe image decoder for
-# Milestone 9. `default-features = false` keeps the dependency tree minimal — only
-# the PNG and JPEG codecs are pulled in (no GIF/WebP/TIFF/etc., no rayon).
+# Image decoder (Milestone 9): used by mocha_image for PNG/JPEG intrinsic
+# dimensions. Only PNG and JPEG codecs are enabled (no GIF/WebP/TIFF/etc.).
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+
+# Desktop window (Milestone 11): a cross-platform window + event loop via minifb.
+# This is optional and behind mocha_desktop's non-default `gui` feature. The
+# default `cargo build/test --all` pulls it (since clippy tests --all-features),
+# but runtime binaries can avoid it if they compile without `gui`. The terminal
+# shell (mocha_shell) does not use minifb and is purely std-based.
+minifb = { version = "0.28", default-features = false, features = ["x11", "wayland"] }

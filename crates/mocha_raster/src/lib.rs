@@ -150,7 +150,15 @@ impl Surface {
     }
 
     /// Draw a stroked rectangle at device coordinates (public for chrome rendering).
-    pub fn draw_rect_outline(&mut self, x: i32, y: i32, w: i32, h: i32, thickness: i32, color: Color) {
+    pub fn draw_rect_outline(
+        &mut self,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        thickness: i32,
+        color: Color,
+    ) {
         self.stroke_rect(x, y, w, h, thickness, color);
     }
 

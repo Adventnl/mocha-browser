@@ -16,7 +16,10 @@ pub struct AddressBarState {
 impl AddressBarState {
     pub fn new(url: Option<Url>) -> Self {
         let current_url = url.clone();
-        let draft_text = current_url.as_ref().map(|u| u.normalized()).unwrap_or_default();
+        let draft_text = current_url
+            .as_ref()
+            .map(|u| u.normalized())
+            .unwrap_or_default();
         Self {
             current_url,
             draft_text,

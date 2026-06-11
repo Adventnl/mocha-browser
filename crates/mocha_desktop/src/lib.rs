@@ -509,9 +509,9 @@ mod tests {
     }
 }
 
-pub mod chrome;
 pub mod address_bar;
 pub mod browser_app;
+pub mod chrome;
 
 pub use address_bar::AddressBarState;
 pub use browser_app::{BrowserAppState, BrowserFocus};

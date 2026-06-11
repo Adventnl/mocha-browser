@@ -1,0 +1,37 @@
+chore(desktop): harden milestone 12 docs and tests before tabs
+
+Fix a hardcoded local Windows path in desktop tests (crates/mocha_desktop/src/
+browser_app.rs) by adding a workspace-relative helper function that works on
+all platforms. Tests are now portable across Linux, macOS, and Windows.
+
+Update README and architecture docs to reflect the implemented desktop shell
+(M11) and browser chrome (M12): remove stale "current milestone M10" claims,
+remove "not rasterized to a window" and "no graphics surface" language, document
+that chrome is now drawn and input is routed.
+
+Add new architecture docs:
+- desktop-shell.md: explain M11-M12 desktop window, event flow, BrowserAppState
+- rasterization.md: explain display list → pixel conversion, Surface, limitations
+
+Update existing architecture docs:
+- overview.md: describe M12 actual status, move "next" from M11 to M13
+- rendering-pipeline.md: document both terminal and desktop output paths,
+  explain rasterization and chrome integration, clarify window input
+- limitations.md: update from M10 to M12 claims, correct image/form limitations
+- browser-chrome.md: fix stale "chrome not rasterized" claim, document actual
+  rasterization behavior
+- crate-boundaries.md: add mocha_engine, mocha_raster, mocha_desktop entries
+  with their responsibilities and dependencies
+
+Update Cargo.toml comments to clarify that image and minifb are the two
+third-party dependencies, not just image; document minifb as optional gui feature.
+
+Fix clippy errors in mocha_desktop:
+- Replace map_or(false, ...) with is_some_and(...)
+- Fix unused mut variable
+- Fix import ordering
+
+All tests pass. No hardcoded paths remain. HTTPS still errors clearly (expected).
+Terminal shell and headless modes still work. Ready for M13 tabs/session work.
+
+Co-Authored-By: Claude Haiku 4.5 <noreply@anthropic.com>

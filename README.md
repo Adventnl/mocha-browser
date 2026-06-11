@@ -18,25 +18,12 @@ with a clear error rather than being faked.
 
 ## Current milestone
 
-**Milestone 10: Forms and basic input controls.** The pipeline now parses form
-controls, tracks their dynamic state (value/checked/selected/disabled) outside
-the DOM, exposes it to JavaScript, lays controls out as inline replaced items,
-and renders them as `DrawControl` commands:
-
-```text
-input URL/path -> mocha_url -> mocha_nav/mocha_net (load: file/http, redirects,
-content-type, cache) -> HTML tokenizer/tree builder -> DOM
--> form state init (mocha_forms) -> inline <script> execution
-   (mocha_js + mocha_js_dom bindings, incl. value/checked/disabled)
--> subresources: external <link> CSS + <img> images (mocha_resources/mocha_image)
--> computed style -> block & inline layout (text + replaced images + controls)
--> display list (DrawRect/DrawBorder/DrawText/DrawImage/DrawControl) -> terminal
-```
-
-Inline scripts run once before style/layout (coarse invalidation). External
-stylesheets and images are resolved against the document base URL. Form
-submission is modelled (`GET` query URLs only; `POST` is a clear error) but the
-shell never navigates from a form — there is still no interactive window.
+**Milestone 12: Browser chrome and desktop shell.** The engine now renders to a
+desktop window with a software rasterizer. Browser chrome (address bar, back/forward/reload
+buttons) is drawn natively. The page content is rendered via a shared
+`mocha_engine` pipeline that flows through the style/layout/paint system into a
+display list, then to `mocha_raster` for pixel rasterization and `mocha_desktop`
+for windowing. The command-line shell still exists for terminal output mode.
 
 ## What works
 
@@ -122,11 +109,13 @@ and [networking-and-navigation.md](docs/architecture/networking-and-navigation.m
   async/await, modules, classes, full `this`/prototypes, ternary `?:`, `switch`,
   or `try`/`catch`. DOM bindings are a tiny hand-picked surface; there is no
   security model. Invalidation is coarse (no incremental relayout).
-- **Image rendering to a window**: `DrawImage` commands are emitted but pixels are
-  not rasterized — there is no graphics surface. Responsive images
-  (`srcset`/`<picture>`), SVG, and animation are unsupported.
-- Real window/OS input or event loop, pointer/touch/wheel/focus events; hit
-  testing ignores z-index/transforms/scrolling/clipping.
+- **Image rendering**: `DrawImage` commands are rasterized to the display surface
+  in desktop mode. Responsive images (`srcset`/`<picture>`), SVG, and animation
+  are unsupported.
+- Mature window input: no keyboard text editing (address bar only), focus/caret/text
+  selection, IME, or pointer/touch/wheel gesture handling. Hit testing does not
+  account for z-index/transforms/scrolling/clipping. No tabs or persistent session
+  yet.
 - The real HTML5 parsing algorithm and real CSS error recovery.
 - `!important`, media queries, pseudo-classes/elements, attribute selectors, the
   `>`/`+`/`~` combinators, `em`/`rem`/`%` units, `rgb()`/`calc()`/`var()`.
@@ -143,7 +132,8 @@ and [networking-and-navigation.md](docs/architecture/networking-and-navigation.m
   widgets.
 - Fonts, canvas, accessibility.
 - Flexbox/grid, floats, positioning.
-- Security sandboxing, multi-process architecture, tabs, and desktop windowing.
+- Tabs, persistent session/profiles, and security sandboxing.
+- Multi-process architecture.
 
 `file://` and `http://` document loading are supported; `https://` is not
 implemented. Unsupported tags/features, unsupported CSS, unsupported URL schemes,
@@ -155,9 +145,11 @@ src>`) return clear errors; they are not silently ignored. `<style>` and
 
 The toolchain is pinned to **stable** Rust via `rust-toolchain.toml` (with
 `rustfmt` and `clippy`); `rustup` selects it automatically. CI runs the full gate
-(fmt / clippy / build / test) on both Linux and Windows. The only third-party
-dependency is the `image` crate (PNG/JPEG, default features off), used solely by
-`mocha_image`; the rest of the workspace is std-only. Node.js is **not** used for
+(fmt / clippy / build / test) on both Linux and Windows. The `image` crate
+(PNG/JPEG, default features off) is used by `mocha_image` for image decoding. The
+optional `gui` feature uses the `minifb` crate for a visible desktop window; without
+it, only terminal output is available. The rest of the workspace is std-only. No
+browser engine, webview, or JavaScript engine is used. Node.js is **not** used for
 build, test, or runtime.
 
 Build:
@@ -241,6 +233,9 @@ mocha-browser/
     mocha_js_dom/   bridge: JS host objects for window/document/DOM, events, timers, forms
     mocha_resources/ subresource discovery + loading (external CSS, images)
     mocha_image/    image format detection + PNG/JPEG decoding (uses the image crate)
+    mocha_engine/   high-level document loading/rendering pipeline
+    mocha_raster/   display list + images to pixel buffer rasterization
+    mocha_desktop/  desktop shell, browser chrome, address bar, navigation controls
     mocha_shell/    CLI that wires the pipeline together
   docs/architecture/  overview, pipeline, milestones, boundaries, limitations,
                       networking-and-navigation, events, javascript-interpreter,
@@ -275,10 +270,12 @@ The full roadmap lives in [docs/architecture/milestones.md](docs/architecture/mi
 8. Subresource loading — external stylesheets (done)
 9. Images and replaced elements (done)
 10. Forms and basic input controls (done)
-11. Desktop window shell — a real raster surface for the display list (next)
+11. Desktop window shell — a real raster surface for the display list (done)
+12. Browser chrome and desktop shell (done)
+13. Tabs and session model (next)
 
-Longer-term direction (not code yet): multi-process architecture, storage and
-profiles, a security/origin foundation, and web-compatibility hardening.
+Longer-term direction (not code yet): multi-process architecture, persistent
+storage and profiles, a security/origin foundation, and web-compatibility hardening.
 
 ## Safety warning
 

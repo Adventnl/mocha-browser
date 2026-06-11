@@ -1,8 +1,9 @@
 # Limitations
 
-Mocha Browser is at **Milestone 10**. It is an engine laboratory, not a usable
-browser. This document is deliberately explicit about what does not exist so the
-project never overclaims.
+Mocha Browser is at **Milestone 12** (desktop shell with browser chrome). It is an
+experimental engine with a minimal desktop frontend, not a usable browser. This
+document is deliberately explicit about what does not exist so the project never
+overclaims.
 
 ## Not supported
 
@@ -14,9 +15,11 @@ project never overclaims.
 - **External scripts and CSS `url(...)`** — `<script src>`, CSS `url(...)`
   resources, web fonts, and a `<base>` element are unsupported. External
   `<link rel="stylesheet">` CSS and `<img>` images *are* loaded (Milestones 8–9).
-- **Image rasterization** — `<img>` is decoded (PNG/JPEG) and laid out, and a
-  `DrawImage` command is emitted, but **no pixels are drawn** (there is no
-  graphics surface). `srcset`/`<picture>`, SVG, and animation are unsupported.
+- **Image rendering** — `<img>` is decoded (PNG/JPEG) and laid out, and a
+  `DrawImage` command is emitted. In desktop mode (M12), images are rasterized via
+  `mocha_raster`; in terminal mode, the display list is printed as text. No
+  nearest-neighbor, antialiasing, or scaling quality control. `srcset`/`<picture>`,
+  SVG, and animation are unsupported.
 - **HTTPS / TLS** — `https://` returns `UnsupportedFeature` (TLS is never
   hand-rolled and no TLS library is bundled). This includes HTTPS subresources.
 - **Real HTML5 parsing algorithm** — the tokenizer and tree builder accept a
@@ -26,13 +29,13 @@ project never overclaims.
   re-run **once** over the final DOM (coarse invalidation); there is no
   incremental relayout.
 - **Forms beyond the Milestone 10 basics** — basic controls parse, carry
-  state, lay out, paint as `DrawControl`, and model GET submission (see
-  [forms-and-controls.md](forms-and-controls.md)), but there is **no keyboard
-  text editing, focus, caret, selection, or IME**, no validation, no POST
-  bodies / `multipart/form-data`, no file/date/color/range/number inputs, no
-  `:checked`/`:disabled`/`:focus` pseudo-classes, no `<optgroup>` /
-  `<fieldset>` / multiple-select / `form` attribute, no label activation, no
-  autofill, and no automatic form navigation.
+  state, lay out, and model GET submission (see
+  [forms-and-controls.md](forms-and-controls.md)). In M12, controls render as
+  `DrawControl` commands (display-list only, no native widgets). **There is no
+  keyboard text editing, focus, caret, selection, or IME**, no validation, no
+  POST bodies / `multipart/form-data`, no file/date/color/range/number inputs,
+  no `:checked`/`:disabled`/`:focus` pseudo-classes, no `<optgroup>` / `<fieldset>`
+  / multiple-select / `form` attribute, no label activation, and no autofill.
 - **Fonts** — no font loading or shaping; text size is estimated, not measured.
 - **Canvas / accessibility** — not parsed or rendered.
 - **Security sandbox** — no process sandbox, origin model, or permissions.
@@ -104,17 +107,19 @@ See [javascript-interpreter.md](javascript-interpreter.md) and
 - No garbage collector beyond Rust ownership + `Rc`; an execution **step limit**
   (100,000) aborts runaway loops.
 
-## Event limitations (Milestone 5)
+## Event and input limitations (Milestone 5, M12 extended)
 
 See [events.md](events.md) for detail.
 
-- **No JavaScript** — event listeners are Rust callbacks; there is no scripting.
-- **No real window/OS input or event loop** — events are dispatched
-  programmatically (e.g. in tests or via `--hit-test`).
-- **No pointer, touch, wheel, focus, input, composition, or drag/drop events**;
-  only `click`/`mousedown`/`mouseup`/`mousemove`/`keydown`/`keyup` data exist.
+- **No JavaScript event handlers** — the DOM event system exists for internal
+  dispatch (link clicks, form actions, etc.) and test harnesses, but there is no
+  way to attach JavaScript listeners at runtime (the JS bindings offer a stub
+  `addEventListener` that does not fire handlers).
+- **Window input (M12)** — `mocha_desktop` routes clicks and keyboard to the
+  page/address bar via the layout's hit-test and browser state (see
+  [desktop-shell.md](desktop-shell.md)). **But:** no text editing/caret, no
+  focus/selection, no IME, no pointer/wheel/touch/drag events, no accessibility.
 - **No `passive` listeners** and no accessibility event model.
-- **Link navigation is a default-action result only**, not an interactive UI.
 - **Hit testing ignores z-index, transforms, scrolling, clipping, and
   `pointer-events`**; it returns the deepest box containing the point.
 - `<a>` supports only `href` (inline, blue); `target`/`download`/`rel`/`ping`

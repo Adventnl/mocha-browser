@@ -5,7 +5,7 @@ use crate::chrome::{ChromeElement, ChromeLayout};
 use mocha_error::MochaResult;
 use mocha_url::Url;
 
-use super::{DesktopPageState, DesktopAction};
+use super::{DesktopAction, DesktopPageState};
 
 /// The current focus context in the browser.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -221,66 +221,65 @@ impl BrowserAppState {
     }
 
     pub fn can_go_back(&self) -> bool {
-        self.history_index.map_or(false, |idx| idx > 0)
+        self.history_index.is_some_and(|idx| idx > 0)
     }
 
     pub fn can_go_forward(&self) -> bool {
         self.history_index
-            .map_or(false, |idx| idx + 1 < self.history.len())
+            .is_some_and(|idx| idx + 1 < self.history.len())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+
+    fn example_path(name: &str) -> String {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        manifest_dir
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("crate is under crates/mocha_desktop")
+            .join("examples")
+            .join(name)
+            .to_string_lossy()
+            .into_owned()
+    }
 
     #[test]
     fn browser_loads_and_initializes() {
-        let mut app = BrowserAppState::load(
-            "c:\\Users\\Adventnl\\mocha-browser\\examples\\basic\\index.html",
-            800,
-            600,
-        )
-        .unwrap();
+        let app = BrowserAppState::load(&example_path("basic/index.html"), 800, 600).unwrap();
         assert_eq!(app.focus, BrowserFocus::Page);
     }
 
     #[test]
     fn address_bar_focus_click() {
-        let mut app = BrowserAppState::load(
-            "c:\\Users\\Adventnl\\mocha-browser\\examples\\basic\\index.html",
-            800,
-            600,
+        let mut app = BrowserAppState::load(&example_path("basic/index.html"), 800, 600).unwrap();
+        let addr_rect = app.chrome.address_bar();
+        app.click(
+            addr_rect.x + addr_rect.width / 2.0,
+            addr_rect.y + addr_rect.height / 2.0,
         )
         .unwrap();
-        let addr_rect = app.chrome.address_bar();
-        app.click(addr_rect.x + addr_rect.width / 2.0, addr_rect.y + addr_rect.height / 2.0)
-            .unwrap();
         assert_eq!(app.focus, BrowserFocus::AddressBar);
         assert!(app.address_bar.focused);
     }
 
     #[test]
     fn reload_button_works() {
-        let mut app = BrowserAppState::load(
-            "c:\\Users\\Adventnl\\mocha-browser\\examples\\basic\\index.html",
-            800,
-            600,
+        let mut app = BrowserAppState::load(&example_path("basic/index.html"), 800, 600).unwrap();
+        let reload_rect = app.chrome.reload_button();
+        app.click(
+            reload_rect.x + reload_rect.width / 2.0,
+            reload_rect.y + reload_rect.height / 2.0,
         )
         .unwrap();
-        let reload_rect = app.chrome.reload_button();
-        app.click(reload_rect.x + reload_rect.width / 2.0, reload_rect.y + reload_rect.height / 2.0)
-            .unwrap();
     }
 
     #[test]
     fn resize_updates_chrome_and_page() {
-        let mut app = BrowserAppState::load(
-            "c:\\Users\\Adventnl\\mocha-browser\\examples\\basic\\index.html",
-            800,
-            600,
-        )
-        .unwrap();
+        let mut app = BrowserAppState::load(&example_path("basic/index.html"), 800, 600).unwrap();
         app.resize(400, 300).unwrap();
         let (w, h) = app.viewport();
         assert_eq!(w, 400);

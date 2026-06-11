@@ -11,7 +11,12 @@ pub struct Rect {
 
 impl Rect {
     pub fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
-        Self { x, y, width, height }
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 
     pub fn contains(&self, px: f32, py: f32) -> bool {
@@ -171,7 +176,10 @@ mod tests {
         let layout = ChromeLayout::new(800.0, 600.0);
         let viewport = layout.page_viewport();
         assert_eq!(
-            layout.hit_test(viewport.x + viewport.width / 2.0, viewport.y + viewport.height / 2.0),
+            layout.hit_test(
+                viewport.x + viewport.width / 2.0,
+                viewport.y + viewport.height / 2.0
+            ),
             Some(ChromeElement::PageViewport)
         );
     }

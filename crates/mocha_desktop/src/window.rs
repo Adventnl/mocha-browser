@@ -119,12 +119,7 @@ pub fn run(target: &str, width: u32, height: u32) -> MochaResult<()> {
 
 /// Render the browser: page + chrome.
 fn render_browser(surface: &mut Surface, app: &BrowserAppState) {
-    mocha_raster::rasterize(
-        surface,
-        app.display_list(),
-        app.images(),
-        app.scroll_y(),
-    );
+    mocha_raster::rasterize(surface, app.display_list(), app.images(), app.scroll_y());
 
     render_chrome(surface, app);
 }
@@ -164,7 +159,12 @@ fn render_chrome(surface: &mut Surface, app: &BrowserAppState) {
         back_rect.width as i32,
         back_rect.height as i32,
         1,
-        Color { r: 100, g: 100, b: 100, a: 255 },
+        Color {
+            r: 100,
+            g: 100,
+            b: 100,
+            a: 255,
+        },
     );
 
     surface.draw_rect(
@@ -180,7 +180,12 @@ fn render_chrome(surface: &mut Surface, app: &BrowserAppState) {
         forward_rect.width as i32,
         forward_rect.height as i32,
         1,
-        Color { r: 100, g: 100, b: 100, a: 255 },
+        Color {
+            r: 100,
+            g: 100,
+            b: 100,
+            a: 255,
+        },
     );
 
     surface.draw_rect(
@@ -196,7 +201,12 @@ fn render_chrome(surface: &mut Surface, app: &BrowserAppState) {
         reload_rect.width as i32,
         reload_rect.height as i32,
         1,
-        Color { r: 100, g: 100, b: 100, a: 255 },
+        Color {
+            r: 100,
+            g: 100,
+            b: 100,
+            a: 255,
+        },
     );
 
     surface.draw_rect(
@@ -204,7 +214,12 @@ fn render_chrome(surface: &mut Surface, app: &BrowserAppState) {
         addr_rect.y as i32,
         addr_rect.width as i32,
         addr_rect.height as i32,
-        Color { r: 255, g: 255, b: 255, a: 255 },
+        Color {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 255,
+        },
     );
     surface.draw_rect_outline(
         addr_rect.x as i32,
@@ -212,10 +227,20 @@ fn render_chrome(surface: &mut Surface, app: &BrowserAppState) {
         addr_rect.width as i32,
         addr_rect.height as i32,
         1,
-        Color { r: 100, g: 100, b: 100, a: 255 },
+        Color {
+            r: 100,
+            g: 100,
+            b: 100,
+            a: 255,
+        },
     );
 
-    let text_color = Color { r: 0, g: 0, b: 0, a: 255 };
+    let text_color = Color {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 255,
+    };
     let addr_text = app.address_bar.draft_text.as_str();
     surface.draw_text_at(
         addr_text,

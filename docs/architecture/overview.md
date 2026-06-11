@@ -25,47 +25,36 @@ the modern web. It must never claim otherwise.
 
 ## Current milestone
 
-**Milestone 10: Forms and basic input controls.** The pipeline loads a document,
-runs its inline `<script>`s against the DOM, loads its external stylesheets and
-images, and renders text, images, and form controls to a display list. Building
-on the from-scratch interpreter (`mocha_js`, Milestone 6):
+**Milestone 12: Browser chrome and desktop shell.** Milestones 1–10 built a
+complete document loading and rendering pipeline (HTML, CSS, layout, JavaScript
+bindings, forms). **Milestone 11** introduced the desktop shell and a software
+rasterizer that draws display lists to a pixel buffer and displays them in a
+window via `mocha_desktop`. **Milestone 12** adds minimal browser chrome: an
+address bar, back/forward/reload buttons, and window event routing.
 
-- **Milestone 7 — JavaScript DOM bindings** (`mocha_js_dom`): a real host-object
-  mechanism wires the interpreter to the DOM. Inline `<script>` runs in document
-  order and can use `window`/`document`/`console`, query and mutate the DOM,
-  register event listeners, and schedule deterministic timers. DOM mutations are
-  reflected in a single post-script style/layout/paint pass (coarse invalidation).
-- **Milestone 8 — Subresource loading** (`mocha_resources`): external
-  `<link rel="stylesheet">` CSS is resolved against the document base URL, loaded,
-  content-type validated, and folded into the document-order cascade.
-- **Milestone 9 — Images** (`mocha_image`, the workspace's only third-party
-  dependency): `<img>` is parsed, loaded, and decoded (PNG/JPEG) for its intrinsic
-  size, laid out as a replaced element (inline or block), and painted as a
-  `DrawImage` command. **Pixels are not rasterized to a window.**
-- **Milestone 10 — Forms** (`mocha_forms`): form controls carry dynamic
-  value/checked/selected/disabled state outside the DOM, exposed to JavaScript;
-  controls lay out as inline replaced items and paint as `DrawControl` commands;
-  programmatic clicks toggle checkboxes, select radio groups, and identify
-  submissions (honouring `preventDefault`/`disabled`); GET submission builds a
-  form-urlencoded query URL, and **POST is a clear error**. There is still no
-  interactive window — no real typing, focus, or caret.
+The pipeline still loads documents, executes JavaScript, resolves subresources,
+and generates display lists exactly as before (Milestones 1–10). The display list
+is now rasterized by `mocha_raster` and drawn by `mocha_desktop`'s window. The
+shell still exists for terminal/headless output mode.
 
-It uses **no existing browser or JavaScript engine**. See
+The engine uses **no existing browser or JavaScript engine**. See
 [dom-bindings.md](dom-bindings.md), [subresources.md](subresources.md),
 [images-and-replaced-elements.md](images-and-replaced-elements.md),
 [forms-and-controls.md](forms-and-controls.md),
-[rendering-pipeline.md](rendering-pipeline.md), and
+[rendering-pipeline.md](rendering-pipeline.md), [desktop-shell.md](desktop-shell.md),
+[rasterization.md](rasterization.md), and
 [limitations.md](limitations.md) for detail and what is intentionally absent.
 
 ## Long-term architecture direction
 
-Over the roadmap (see [milestones.md](milestones.md)), Mocha is intended to grow
-toward the shape of a modern browser: a CSS engine, a real layout/box model, a
-networking and navigation layer, a DOM event system, a custom JavaScript
-interpreter with DOM bindings, a multi-process (browser/renderer) architecture
-with typed IPC, storage and profiles, a security/origin model, and finally a
-desktop product shell with tabs and chrome. None of that exists yet, and it is
-documented as direction only — not implemented.
+Over the roadmap (see [milestones.md](milestones.md)), Mocha has grown and is
+intended to continue growing toward the shape of a modern browser: a CSS engine,
+a real layout/box model, a networking and navigation layer, a DOM event system,
+a custom JavaScript interpreter with DOM bindings, a desktop shell with
+rasterization and browser chrome (Milestones 11–12, implemented), then a
+multi-process (browser/renderer) architecture with typed IPC, tabs and session
+persistence, storage and profiles, a security/origin model, and finally broader
+standards compliance. **Milestone 13 (tabs and session model) is next.**
 
 ## Why the project starts terminal-first
 

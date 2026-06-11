@@ -86,26 +86,28 @@ Focus changes:
 
 ### Rendering
 
-The rasterizer (`mocha_raster`) does not yet draw chrome; chrome rendering is not implemented in M12. The display list from the page is clipped below the chrome offset during rasterization, but buttons/address/toolbar pixels are not drawn.
-
-**This is a limitation documented below.**
+Browser chrome is rasterized by `mocha_desktop::window::render_chrome` after the
+page content is rasterized. Chrome is drawn as simple rectangles/text via
+`Surface` (the same drawing surface used for the page). The chrome layer is drawn
+on top of the page to avoid clipping the page's vertical space at the full
+viewport height. The page viewport is positioned below the chrome for hit testing.
 
 ## Limitations — M12 Does NOT Provide
 
-- Actual rasterization of chrome UI (buttons, address bar visuals, toolbar background)
 - Error page rendering for failed navigation
-- Loading state indicator
-- Page title display
+- Loading state indicator / spinner
+- Page title display in window title or chrome
 - Tab support (see M13)
-- Bookmarks, history database, settings
+- Bookmarks, history database, settings UI
 - HTTPS support (unsupported since M4; returns clear error)
 - Cookies
-- Search suggestions
-- Keyboard shortcuts (Ctrl+T, Ctrl+L, etc.)
-- Drag/reorder UI elements
-- Full text field editing (IME, caret, selection)
-- Form validation
-- Button/address bar visual feedback on hover/press
+- Search / search suggestions / address autocomplete
+- Keyboard shortcuts (Ctrl+T, Ctrl+L, Ctrl+R, Ctrl+W, etc.)
+- Fullscreen / zoom controls
+- Full address bar text field editing (IME, caret, selection, copy/paste)
+- Form validation UI
+- Favicon display
+- Favicon caching
 
 ## Testing
 
@@ -143,16 +145,21 @@ M13 builds on M12 by replacing single-page state with a tab manager:
 ## Current Honest Status
 
 **What works:**
-- Browser chrome state machine (testable)
-- Address bar input/navigation
-- Back/forward/reload logic
-- Chrome layout computation
-- Hit testing for buttons/address/page
-- All existing M1-M11 features (display list, page rendering, forms, etc.)
+- Browser chrome state machine (fully testable without a window)
+- Address bar input/editing/submit/navigation
+- Back/forward/reload button logic and disable state
+- Chrome layout computation and hit testing
+- Chrome rasterization to the display surface (buttons, toolbar, address bar)
+- Window event routing (clicks and keyboard) to chrome or page
+- All existing M1-M11 features (display list, page rendering, forms, JS, etc.)
+- Desktop window via `minifb` (with `gui` feature)
+- Terminal shell still works (renders page only, no chrome)
 
 **What doesn't work:**
-- Chrome UI is not rasterized to the window (buttons/toolbar/address not drawn)
 - No error page for failed navigation
-- No page title in window or chrome
-- No loading indicator
-- Terminal shell unaffected (still works, no chrome)
+- No page title in window title
+- No loading indicator / spinner
+- No favicon display
+- Address bar text field has no caret/selection/copy-paste/IME
+- No tabs or session persistence (M13)
+- Terminal mode has no chrome (intentional; address bar can't exist without a window)

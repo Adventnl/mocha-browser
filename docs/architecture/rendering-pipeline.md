@@ -1,26 +1,24 @@
 # Rendering Pipeline
 
-As of Milestone 10 the pipeline is:
+As of Milestone 12 the pipeline is:
 
+**Terminal path (mocha_shell):**
 ```text
-input URL/path
-  -> URL parse/normalize (mocha_url)
-  -> load: file/http, redirects, content-type, cache (mocha_net via mocha_nav)
-  -> content-type check + UTF-8 decode
-  -> HTML tokenizer
-  -> HTML tree builder
-  -> DOM tree
-  -> form state init from attributes (mocha_forms)
-  -> inline <script> execution + DOM/form-state mutation (mocha_js + mocha_js_dom)
-  -> subresources: external <link> CSS (mocha_resources) + <img> images (mocha_image)
-  -> <style> / <link> / inline style extraction
-  -> CSS tokenizer + parser
-  -> selector matching + cascade + inheritance
-  -> computed style tree (+ replaced-element image boxes + control boxes)
-  -> block & inline layout tree (text runs + image boxes + control boxes)
-  -> display list (DrawRect / DrawBorder / DrawText / DrawImage / DrawControl)
-  -> terminal output
+input URL/path → mocha_url → mocha_net/mocha_nav (load: file/http, redirects,
+  content-type, cache) → HTML/CSS/JS/subresources/images/forms
+  → DOM/style/layout → display list → terminal text output
 ```
+
+**Desktop path (mocha_desktop):**
+```text
+input URL/path → [same core pipeline] → display list + image resources
+  → mocha_raster (rasterize to pixel buffer)
+  → mocha_desktop::window (draw buffer + browser chrome)
+  → desktop window
+```
+
+The core document loading and rendering (Milestones 1–10) is orchestrated by
+`mocha_engine` and produces an identical display list regardless of output path:
 
 Inline scripts run **once** before style/layout (coarse invalidation), then
 subresources are collected from the final DOM and style/layout/paint run once.
@@ -164,17 +162,30 @@ limitations, and intended future expansion.
   background and `DrawBorder` for a non-zero border; text runs emit `DrawText`;
   image boxes emit `DrawImage` (referencing a decoded-image id); control boxes
   emit `DrawControl` (type, geometry, value/label, checked, disabled); line
-  boxes paint nothing. **`DrawImage`/`DrawControl` are emitted but no pixels are
-  rasterized** — there is no graphics surface and no real widgets. No gradients,
-  stacking contexts, or compositing.
-- **Future expansion:** a richer command set fed to a real GPU compositor that
-  actually rasterizes images.
+  boxes paint nothing. No gradients, stacking contexts, or compositing. Drawing
+  order follows DOM tree order (no z-index).
+- **Future expansion:** a richer command set, z-index stacking, and GPU rendering.
 
-## 8. Display list → terminal output
+## 8. Display list → output
 
+The display list flows to different outputs depending on the consuming crate:
+
+**Terminal output (mocha_shell):**
 - **Owning crate:** `mocha_shell`.
-- **Current limitations:** plain text, one command per line. No window.
-- **Future expansion:** a desktop window and compositor consuming the same list.
+- **Output:** plain text, one command per line (debug format for inspection).
+- **Limitations:** no window, no pixel rendering.
+
+**Desktop rasterization (mocha_desktop with mocha_raster):**
+- **Owning crates:** `mocha_raster` (rasterizer), `mocha_desktop` (window/chrome).
+- **Behaviour:** the display list is rasterized into a pixel buffer via `mocha_raster::rasterize`
+  (which converts `DrawRect` / `DrawBorder` / `DrawText` / `DrawImage` / `DrawControl`
+  commands into pixels), then `mocha_desktop` composites this buffer with browser
+  chrome (address bar, buttons) and draws the result to a window via `minifb` (if
+  the `gui` feature is enabled).
+- **Browser chrome:** address bar, back/forward/reload buttons, tab area (reserved
+  for M13). Chrome is **not** HTML/CSS content — it is drawn natively by `mocha_desktop`.
+- **Limitations:** no GPU acceleration, text is rendered with a debug bitmap font,
+  image scaling is basic (nearest-neighbor), no antialiasing, no accessibility.
 
 ## Interaction (after rendering)
 
@@ -184,7 +195,12 @@ Separate from the render pipeline, the layout tree also supports **hit testing**
 form **default actions** (`mocha_forms`: checkbox toggle, radio group selection,
 reset, submit identification — all honouring `preventDefault` and `disabled`).
 See [events.md](events.md) and [forms-and-controls.md](forms-and-controls.md).
-There is no real window input yet.
+
+**Window input (M12):** `mocha_desktop` routes window clicks and keyboard input
+to the browser state. Clicks are hit-tested against the layout tree or chrome
+elements. Keyboard input reaches the address bar (if focused) or the page.
+See [desktop-shell.md](desktop-shell.md). **Limitations:** no text editing/caret,
+no focus/selection, no IME, no pointer/wheel/touch, no drag-drop.
 
 The JavaScript interpreter (`mocha_js`, see
 [javascript-interpreter.md](javascript-interpreter.md)) is now part of the render
