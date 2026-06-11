@@ -10,8 +10,9 @@
 //! ```
 //!
 //! Loads a local file, `file://`, or `http://` document, runs the rendering
-//! pipeline, and prints the display list (default) or the layout tree
-//! (`--dump-layout`). Exits non-zero on any error.
+//! pipeline, and prints the display list (default), the layout tree
+//! (`--dump-layout`), or the form-control state (`--dump-form-state`). Exits
+//! non-zero on any error.
 
 use std::process::ExitCode;
 
@@ -28,7 +29,7 @@ fn main() -> ExitCode {
     }
 }
 
-const USAGE: &str = "usage: mocha_shell [--dump-layout] [--no-cache] [--show-headers] [--hit-test X,Y] <path-or-url>\n       mocha_shell --eval-js \"<javascript>\"\n       (file paths, file:// and http:// URLs; https:// is not implemented)";
+const USAGE: &str = "usage: mocha_shell [--dump-layout] [--dump-form-state] [--no-cache] [--show-headers] [--hit-test X,Y] <path-or-url>\n       mocha_shell --eval-js \"<javascript>\"\n       (file paths, file:// and http:// URLs; https:// is not implemented)";
 
 fn real_main() -> MochaResult<()> {
     let mut options = RunOptions::default();
@@ -40,6 +41,7 @@ fn real_main() -> MochaResult<()> {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--dump-layout" => options.dump_layout = true,
+            "--dump-form-state" => options.dump_form_state = true,
             "--no-cache" => options.no_cache = true,
             "--show-headers" => options.show_headers = true,
             "--hit-test" => {

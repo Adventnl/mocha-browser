@@ -63,12 +63,23 @@ after they run.
 
 ## Default actions
 
-Default-action interpretation lives in `mocha_nav` (so `mocha_events` stays free
-of URL/navigation knowledge): `default_action_for_event(document, event,
-base_url) -> DefaultAction`. The only modelled action is **link navigation**: an
-un-prevented `click` on (or inside) an `<a href>` yields
-`DefaultAction::Navigate(url)`. `href` resolves against `base_url` when provided;
-without a base only absolute hrefs resolve. `prevent_default` suppresses it.
+Default-action interpretation lives **outside** `mocha_events` (so the event
+core stays free of URL/navigation/forms knowledge):
+
+- **Link navigation** (`mocha_nav::default_action_for_event(document, event,
+  base_url) -> DefaultAction`): an un-prevented `click` on (or inside) an
+  `<a href>` yields `DefaultAction::Navigate(url)`. `href` resolves against
+  `base_url` when provided; without a base only absolute hrefs resolve.
+- **Form actions** (Milestone 10,
+  `mocha_forms::form_default_action_for_event(document, state, event) ->
+  FormDefaultAction`): an un-prevented `click` on (or inside) a form control
+  toggles a checkbox, selects a radio (unchecking its same-name group in the
+  same form), resets a form, or identifies a submission
+  (`Submit { form, submitter }` — the caller builds the `FormSubmission`).
+  Disabled controls do nothing. See
+  [forms-and-controls.md](forms-and-controls.md).
+
+`prevent_default` suppresses both.
 
 ## Hit-testing bridge
 

@@ -4,11 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Bridges Mocha's from-scratch JavaScript interpreter to its DOM (window/document/console, mutation, query, events, timers)."
+description = "Bridges Mocha's from-scratch JavaScript interpreter to its DOM (window/document/console, mutation, query, events, timers, form state)."
 
 [dependencies]
 mocha_error.workspace = true
 mocha_js.workspace = true
 mocha_dom.workspace = true
+mocha_forms.workspace = true
 mocha_html.workspace = true
 mocha_style.workspace = true

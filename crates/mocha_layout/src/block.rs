@@ -41,6 +41,30 @@ pub(crate) fn layout_block(styled: &StyledNode, x: f32, y: f32, available_width:
         };
     }
 
+    // A block-level form control (`display: block` via CSS): like a replaced
+    // element, its content box is the resolved control size and it has no flow
+    // children.
+    if let Some(control) = &styled.control {
+        let border_box_width = control.width + padding.horizontal() + 2.0 * border;
+        let border_box_height = control.height + padding.vertical() + 2.0 * border;
+        return LayoutBox {
+            node_id: Some(styled.node_id),
+            kind: LayoutBoxKind::Control(control.clone()),
+            rect: Rect {
+                x: x + margin.left,
+                y: y + margin.top,
+                width: border_box_width,
+                height: border_box_height,
+            },
+            font_size: 0.0,
+            color: style.color,
+            background_color: style.background_color,
+            border_width: border,
+            border_color: style.border_color,
+            children: Vec::new(),
+        };
+    }
+
     let content_width = style.width.unwrap_or_else(|| {
         (available_width - margin.horizontal() - padding.horizontal() - 2.0 * border).max(0.0)
     });

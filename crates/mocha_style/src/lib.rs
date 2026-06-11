@@ -186,6 +186,26 @@ pub struct ReplacedBox {
     pub height: f32,
 }
 
+/// A form control's resolved box and paint data: everything the `DrawControl`
+/// display command needs. Like [`ReplacedBox`], this is attached to the styled
+/// tree by the embedder (the shell resolves sizes from control kind, attributes,
+/// and CSS); style and layout do not know about `mocha_forms`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ControlBox {
+    /// The normalized control type (`"text"`, `"checkbox"`, `"button"`, …).
+    pub control_type: String,
+    /// The current value (text controls) or visible label (buttons), if any.
+    pub value: Option<String>,
+    /// The checked state for checkboxes/radios; `None` for other controls.
+    pub checked: Option<bool>,
+    /// Whether the control is disabled.
+    pub disabled: bool,
+    /// Final content width in pixels.
+    pub width: f32,
+    /// Final content height in pixels.
+    pub height: f32,
+}
+
 /// A DOM node with its computed style and styled children.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StyledNode {
@@ -198,6 +218,9 @@ pub struct StyledNode {
     /// For a successfully-loaded replaced element (`<img>`), its image box.
     /// `None` for every other node.
     pub replaced: Option<ReplacedBox>,
+    /// For a form control (`<input>`, `<button>`, `<textarea>`, `<select>`),
+    /// its resolved control box. `None` for every other node.
+    pub control: Option<ControlBox>,
     /// Styled children (comments/doctypes are dropped).
     pub children: Vec<StyledNode>,
 }
@@ -290,6 +313,7 @@ pub fn build_style_tree(
         text: None,
         style: root_style,
         replaced: None,
+        control: None,
         children,
     })
 }
@@ -332,6 +356,7 @@ fn build_node(
                 text: None,
                 style,
                 replaced: None,
+                control: None,
                 children,
             }))
         }
@@ -340,6 +365,7 @@ fn build_node(
             text: Some(text.text.clone()),
             style: ComputedStyle::for_text(parent_style),
             replaced: None,
+            control: None,
             children: Vec::new(),
         })),
         // Comments, doctypes, and the (already-handled) document root produce no
@@ -407,8 +433,11 @@ fn ua_defaults(tag: &str) -> Vec<(CssProperty, CssValue)> {
     let mut defaults = Vec::new();
 
     let display = match tag {
-        "span" | "a" | "img" => "inline",
-        "style" | "script" | "link" => "none",
+        // Form controls are inline-level replaced items (Mocha has no
+        // `inline-block`); `<form>` falls through to block. Options render only
+        // as part of their `<select>`, never as their own boxes.
+        "span" | "a" | "img" | "label" | "input" | "button" | "textarea" | "select" => "inline",
+        "style" | "script" | "link" | "option" => "none",
         _ => "block",
     };
     defaults.push((CssProperty::Display, CssValue::Keyword(display.to_string())));
@@ -700,6 +729,31 @@ mod tests {
             tree.children[0].children[0].style.color,
             Color::rgb(0, 128, 0)
         );
+    }
+
+    #[test]
+    fn form_control_default_displays() {
+        let mut document = Document::new();
+        let root = document.root_id();
+        let form = document.create_element("form", Vec::new());
+        let label = document.create_element("label", Vec::new());
+        let input = document.create_element("input", Vec::new());
+        let select = document.create_element("select", Vec::new());
+        let option = document.create_element("option", Vec::new());
+        document.append_child(root, form).unwrap();
+        document.append_child(form, label).unwrap();
+        document.append_child(form, input).unwrap();
+        document.append_child(form, select).unwrap();
+        document.append_child(select, option).unwrap();
+
+        let tree = build_style_tree(&document, &[]).unwrap();
+        let form_node = &tree.children[0];
+        assert_eq!(form_node.style.display, Display::Block);
+        assert_eq!(form_node.children[0].style.display, Display::Inline); // label
+        assert_eq!(form_node.children[1].style.display, Display::Inline); // input
+        let select_node = &form_node.children[2];
+        assert_eq!(select_node.style.display, Display::Inline);
+        assert_eq!(select_node.children[0].style.display, Display::None); // option
     }
 
     #[test]

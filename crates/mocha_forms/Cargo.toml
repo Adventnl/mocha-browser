@@ -1,0 +1,16 @@
+[package]
+name = "mocha_forms"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Form-control state, form ownership, default actions, and the GET form-submission model for Mocha Browser."
+
+[dependencies]
+mocha_error.workspace = true
+mocha_dom.workspace = true
+mocha_url.workspace = true
+mocha_events.workspace = true
+
+[dev-dependencies]
+mocha_html.workspace = true

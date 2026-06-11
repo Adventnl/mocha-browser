@@ -4,7 +4,7 @@ Mocha Browser is an experimental from-scratch browser engine and desktop browser
 
 Mocha is not based on Chromium, WebKit, Gecko, Servo, Electron, CEF, Tauri WebView, system WebView, V8, SpiderMonkey, JavaScriptCore, QuickJS, Deno, or Node.js.
 
-Current status: Milestone 9 (Images and replaced elements) implemented.
+Current status: Milestone 10 (Forms and basic input controls) implemented.
 
 Mocha is not safe for general web browsing yet.
 
@@ -18,30 +18,36 @@ with a clear error rather than being faked.
 
 ## Current milestone
 
-**Milestone 9: Images and replaced elements.** The full pipeline now loads a
-document, runs inline scripts, loads its external stylesheets and images, and
-renders text and images to a display list:
+**Milestone 10: Forms and basic input controls.** The pipeline now parses form
+controls, tracks their dynamic state (value/checked/selected/disabled) outside
+the DOM, exposes it to JavaScript, lays controls out as inline replaced items,
+and renders them as `DrawControl` commands:
 
 ```text
 input URL/path -> mocha_url -> mocha_nav/mocha_net (load: file/http, redirects,
 content-type, cache) -> HTML tokenizer/tree builder -> DOM
--> inline <script> execution (mocha_js + mocha_js_dom bindings)
+-> form state init (mocha_forms) -> inline <script> execution
+   (mocha_js + mocha_js_dom bindings, incl. value/checked/disabled)
 -> subresources: external <link> CSS + <img> images (mocha_resources/mocha_image)
--> computed style -> block & inline layout (text + replaced images)
--> display list (DrawRect/DrawBorder/DrawText/DrawImage) -> terminal
+-> computed style -> block & inline layout (text + replaced images + controls)
+-> display list (DrawRect/DrawBorder/DrawText/DrawImage/DrawControl) -> terminal
 ```
 
 Inline scripts run once before style/layout (coarse invalidation). External
-stylesheets and images are resolved against the document base URL.
+stylesheets and images are resolved against the document base URL. Form
+submission is modelled (`GET` query URLs only; `POST` is a clear error) but the
+shell never navigates from a form — there is still no interactive window.
 
 ## What works
 
 - Parsing a small, well-formed subset of HTML (`html`, `body`, `h1`, `h2`, `p`,
-  `div`, `span`, `a`, `style`, `script`, `link`, `img`, plus doctype and
-  comments). `style` and `script` use minimal raw-text handling; `link` and `img`
-  are void elements. This is **not** the HTML5 parser. `<script src>` is
-  unsupported; `<link>` is honored only for `rel="stylesheet"`; `<img>` stores
-  `src`/`width`/`height`/`alt` and lays out as a replaced element.
+  `div`, `span`, `a`, `style`, `script`, `link`, `img`, `form`, `input`,
+  `button`, `label`, `textarea`, `select`, `option`, plus doctype and comments).
+  `style`, `script`, and `textarea` use minimal raw-text handling; `link`,
+  `img`, and `input` are void elements. This is **not** the HTML5 parser.
+  `<script src>` is unsupported; `<link>` is honored only for
+  `rel="stylesheet"`; `<img>` stores `src`/`width`/`height`/`alt` and lays out
+  as a replaced element.
 - Building a minimal arena-backed DOM tree.
 - Basic CSS from `<style>` blocks and inline `style` attributes:
   type / class / id / universal / descendant selectors, specificity, cascade
@@ -87,6 +93,20 @@ stylesheets and images are resolved against the document base URL.
   as replaced elements (inline by default, or block) using CSS, then attribute,
   then intrinsic dimensions, and paint as `DrawImage` commands. **Pixels are not
   rasterized to a window.**
+- **Forms and basic controls** (`mocha_forms`): `<form>`, `<input>` (text,
+  password, checkbox, radio, submit, reset, hidden), `<button>`, `<label>`,
+  `<textarea>`, `<select>`/`<option>`. Dynamic value/checked/selected/disabled
+  state lives in a `FormState` keyed by DOM node (attributes only initialize
+  it); JavaScript reads and writes `value`/`checked`/`disabled`/`type`/`name`,
+  `select.value`/`selectedIndex`, and `form.submit()` (recorded, never
+  navigated). Controls lay out as inline replaced items with simple default
+  sizes (CSS `width`/`height` override) and paint as `DrawControl` commands;
+  `--dump-form-state` prints the control state. Click default actions —
+  checkbox toggle, radio group selection, form reset, submit identification —
+  honour `preventDefault` and `disabled`. GET submission builds a
+  form-urlencoded query URL; **POST is a clear error**. Unsupported
+  `input`/`button` types fail form processing clearly. **There is no real
+  typing, focus, caret, or validation.**
 
 ## What does not work
 
@@ -114,7 +134,14 @@ and [networking-and-navigation.md](docs/architecture/networking-and-navigation.m
   collapse, `text-align`, `white-space` modes, hyphenation; long words can
   overflow. Baseline/`vertical-align` for inline images (top-aligned). Inline
   backgrounds/borders are deferred (inline text color and font size are honored).
-- Forms, fonts, canvas, accessibility.
+- **Forms beyond the basics**: no keyboard text editing, focus, caret, text
+  selection, or IME; no validation or validation UI; no `POST` bodies or
+  `multipart/form-data`; no file/date/color/range/number inputs; no
+  `:checked`/`:disabled`/`:focus` pseudo-classes; no `<optgroup>`,
+  `<fieldset>`, `<legend>`, or the `form` attribute; label clicks do not
+  activate controls; controls are painted as `DrawControl` commands, not real
+  widgets.
+- Fonts, canvas, accessibility.
 - Flexbox/grid, floats, positioning.
 - Security sandboxing, multi-process architecture, tabs, and desktop windowing.
 
@@ -172,13 +199,20 @@ cargo run -p mocha_shell -- examples/resources/external-css.html
 cargo run -p mocha_shell -- examples/images/basic-image.html
 cargo run -p mocha_shell -- examples/images/inline-image.html
 cargo run -p mocha_shell -- examples/images/sized-image.html
+cargo run -p mocha_shell -- examples/forms/basic-form.html
+cargo run -p mocha_shell -- examples/forms/checkbox-radio.html
+cargo run -p mocha_shell -- examples/forms/textarea-select.html
+cargo run -p mocha_shell -- examples/forms/js-form-state.html
+cargo run -p mocha_shell -- examples/forms/form-submit.html
 ```
 
-Load over `file://` or `http://`, dump the layout tree, or show response headers:
+Load over `file://` or `http://`, dump the layout tree or form state, or show
+response headers:
 
 ```bash
 cargo run -p mocha_shell -- "file://$(pwd)/examples/basic/index.html"
 cargo run -p mocha_shell -- --dump-layout examples/layout/inline-wrap.html
+cargo run -p mocha_shell -- --dump-form-state examples/forms/basic-form.html
 cargo run -p mocha_shell -- --show-headers --no-cache http://127.0.0.1:8080/index.html
 cargo run -p mocha_shell -- --hit-test 20,40 examples/layout/inline-wrap.html
 cargo run -p mocha_shell -- --eval-js "let x = 1 + 2 * 3; x;"
@@ -202,22 +236,25 @@ mocha-browser/
     mocha_net/      resource loading (file/http), redirects, content-type, cache
     mocha_nav/      navigation history (navigate/back/forward/reload) + default actions
     mocha_events/   internal DOM event model and dispatch
+    mocha_forms/    form-control state, default actions, GET submission model
     mocha_js/       from-scratch JavaScript-subset interpreter
-    mocha_js_dom/   bridge: JS host objects for window/document/DOM, events, timers
+    mocha_js_dom/   bridge: JS host objects for window/document/DOM, events, timers, forms
     mocha_resources/ subresource discovery + loading (external CSS, images)
     mocha_image/    image format detection + PNG/JPEG decoding (uses the image crate)
     mocha_shell/    CLI that wires the pipeline together
   docs/architecture/  overview, pipeline, milestones, boundaries, limitations,
                       networking-and-navigation, events, javascript-interpreter,
-                      dom-bindings, subresources, images-and-replaced-elements
+                      dom-bindings, subresources, images-and-replaced-elements,
+                      forms-and-controls
   examples/basic/     plain HTML example
   examples/styled/    HTML + CSS example
   examples/layout/    article / inline-wrap / box-model layout examples
   examples/js/        inline <script> DOM mutation / events / timer examples
   examples/resources/ external stylesheet example (+ style.css)
   examples/images/    <img> basic / inline / sized examples
+  examples/forms/     form / checkbox-radio / textarea-select / js-state / submit examples
   examples/assets/    mocha-test.png (tiny PNG asset)
-  tests/integration/  rendering + navigation + events + js-dom + subresource + image pipelines
+  tests/integration/  rendering + navigation + events + js-dom + subresource + image + forms pipelines
   tests/visual/       future render targets (no image comparison yet)
 ```
 
@@ -236,12 +273,12 @@ The full roadmap lives in [docs/architecture/milestones.md](docs/architecture/mi
 6. Custom JavaScript interpreter (done)
 7. JavaScript DOM bindings (done)
 8. Subresource loading — external stylesheets (done)
-9. Images and replaced elements (current)
-10. Forms and basic input controls (next)
+9. Images and replaced elements (done)
+10. Forms and basic input controls (done)
+11. Desktop window shell — a real raster surface for the display list (next)
 
 Longer-term direction (not code yet): multi-process architecture, storage and
-profiles, a security/origin foundation, a desktop product shell with a real
-raster surface, and web-compatibility hardening.
+profiles, a security/origin foundation, and web-compatibility hardening.
 
 ## Safety warning
 

@@ -46,8 +46,9 @@ return a clear `MochaError::JavaScript` error.
   grammar: type/class/id/universal/compound/descendant). Unsupported selectors
   error clearly.
 - `createElement(tag)` → detached element host. Only a fixed allow-set of tags is
-  creatable (`html, body, h1, h2, p, div, span, a, style, script, img, link`);
-  anything else is `UnsupportedFeature`.
+  creatable (the parser's supported set: `html, body, h1, h2, p, div, span, a,
+  style, script, img, link, form, input, button, label, textarea, select,
+  option`); anything else is `UnsupportedFeature`.
 - `createTextNode(text)` → detached text host.
 - `document.body` / `document.documentElement` → node host or `null`.
 
@@ -61,6 +62,28 @@ Node (element or text) host:
 
 `appendChild` detaches the child from its previous parent first. Unknown
 ("expando") property writes are accepted but not persisted onto the DOM.
+
+### Form-control properties (Milestone 10)
+
+Form controls additionally expose properties backed by the shared
+`mocha_forms::FormState` (not by DOM attributes — attributes only initialize the
+state; see [forms-and-controls.md](forms-and-controls.md)):
+
+- read/write: `value`, `checked`, `selected`, `disabled`; read-only: `type`
+  (normalized), `name`.
+- selects: `value` derives from the selected option (setting it selects the
+  matching option, or deselects all on no match); `selectedIndex` gets/sets the
+  index (`-1` only for an option-less select).
+- setting `checked = true` on a radio unchecks the rest of its group.
+- `form.submit()` records a pending submission request (first call wins) that
+  the embedder takes via `DomRuntime::take_pending_submission()` — it never
+  navigates. Calling `submit()` on a non-form node is a clear error.
+
+On non-control nodes these properties read as `undefined` and writes fall
+through to the expando rule above. `DomRuntime::init_form_state()` initializes
+state for the whole document before scripts run (erroring on unsupported
+control types); `DomRuntime::form_state()` hands the embedder the same shared
+state for layout/paint/submission.
 
 ### `innerHTML`
 

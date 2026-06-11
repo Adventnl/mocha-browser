@@ -58,6 +58,13 @@ mocha_events
 - listeners are Rust callbacks; no JavaScript, no URL/navigation knowledge
 - depends on: mocha_error, mocha_dom
 
+mocha_forms
+- form-control state (value/checked/selected/disabled keyed by node), form
+  ownership, click default actions (checkbox/radio/reset/submit), and the GET
+  form-submission model (successful controls + form-urlencoded query URLs)
+- no HTML tokenization, no CSS/layout/paint, no network execution, no UI
+- depends on: mocha_error, mocha_dom, mocha_url, mocha_events
+
 mocha_js
 - from-scratch JavaScript-subset interpreter (lexer/parser/AST/interpreter)
 - a host-object mechanism (JsValue::Host + the HostObject trait) lets embedders
@@ -75,9 +82,12 @@ mocha_image
 mocha_js_dom
 - bridges mocha_js to mocha_dom: window/document/console globals, DOM
   read/mutate/query, JS event listeners, a deterministic timer queue, inline
-  script execution against a shared Document
+  script execution against a shared Document, and form-control properties
+  (value/checked/disabled/…, form.submit()) backed by a shared
+  mocha_forms::FormState
 - no layout/paint/network knowledge
-- depends on: mocha_error, mocha_js, mocha_dom, mocha_html, mocha_style
+- depends on: mocha_error, mocha_js, mocha_dom, mocha_forms, mocha_html,
+  mocha_style
 
 mocha_resources
 - subresource discovery + loading (external <link> CSS, <img> images) resolved
@@ -94,11 +104,13 @@ mocha_nav
 mocha_shell
 - command-line executable (library + binary)
 - loads via mocha_nav/mocha_net, runs inline scripts (mocha_js_dom), loads
-  subresources (mocha_resources/mocha_image), then renders through the engine
-- exposes hit testing (--hit-test) and standalone JS (--eval-js); no browser UI yet
+  subresources (mocha_resources/mocha_image), resolves form-control boxes
+  (mocha_forms state -> ControlBox sizes), then renders through the engine
+- exposes hit testing (--hit-test), form-state dumping (--dump-form-state), and
+  standalone JS (--eval-js); no browser UI yet
 - depends on: mocha_error, mocha_url, mocha_html, mocha_dom, mocha_style,
   mocha_layout, mocha_paint, mocha_net, mocha_nav, mocha_js, mocha_js_dom,
-  mocha_resources, mocha_image
+  mocha_forms, mocha_resources, mocha_image
 ```
 
 ## Notes
@@ -139,6 +151,13 @@ mocha_shell
   `mocha_events`). JS event listeners are dispatched by `mocha_js_dom` (which has
   the live interpreter), mirroring `mocha_events`' semantics. The point→node
   `hit_test` bridge lives in `mocha_layout`. This keeps each boundary one-directional.
+- `mocha_forms` owns form *semantics* (state, default actions, submission) and,
+  like `mocha_nav`, may depend on `mocha_events` for its default-action helper.
+  Style/layout/paint stay forms-agnostic: the shell resolves form state into a
+  plain `ControlBox` (defined in `mocha_style`, mirroring the image
+  `ReplacedBox`), which layout turns into a `Control` box and paint into a
+  `DrawControl` command. Submission produces a URL; it never performs network
+  I/O (that stays in `mocha_net`/`mocha_nav`).
 - Future crates (`mocha_gpu`, `mocha_security`, `mocha_browser`, …) are
   intentionally **not** created yet. They are described in
   [milestones.md](milestones.md) as direction only.

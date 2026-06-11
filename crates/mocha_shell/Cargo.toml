@@ -40,8 +40,13 @@ path = "../../tests/integration/subresource_pipeline.rs"
 name = "image_pipeline"
 path = "../../tests/integration/image_pipeline.rs"
 
+[[test]]
+name = "forms_pipeline"
+path = "../../tests/integration/forms_pipeline.rs"
+
 [dependencies]
 mocha_error.workspace = true
+mocha_forms.workspace = true
 mocha_url.workspace = true
 mocha_html.workspace = true
 mocha_style.workspace = true

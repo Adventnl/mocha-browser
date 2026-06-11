@@ -10,7 +10,7 @@
 use mocha_style::{Display, StyledNode};
 
 use crate::box_tree::LayoutBox;
-use crate::line::{layout_items, ImageAtom, InlineItem, Word};
+use crate::line::{layout_items, ControlAtom, ImageAtom, InlineItem, Word};
 
 /// Lay an inline run (the inline-level children of one container) out into line
 /// boxes at `(content_x, content_y)` within `available_width`.
@@ -43,6 +43,19 @@ fn collect_items(node: &StyledNode, items: &mut Vec<InlineItem>, pending_space: 
             image_id: replaced.image_id,
             width: replaced.width,
             height: replaced.height,
+            space_before: *pending_space,
+            node_id: node.node_id,
+        }));
+        *pending_space = false;
+        return;
+    }
+
+    // A form control is a single inline atom too; its children (e.g. a
+    // button's label or a select's options) never lay out as separate boxes —
+    // paint renders the control from its `ControlBox` data.
+    if let Some(control) = &node.control {
+        items.push(InlineItem::Control(ControlAtom {
+            control: control.clone(),
             space_before: *pending_space,
             node_id: node.node_id,
         }));

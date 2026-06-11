@@ -1,6 +1,6 @@
 # Milestone Roadmap
 
-Mocha Browser is built one milestone at a time. **Milestones 1–9 are implemented
+Mocha Browser is built one milestone at a time. **Milestones 1–10 are implemented
 today**; everything after them is direction, not code. Each milestone lists its
 goal, what is explicitly not included, and how completion is verified.
 
@@ -128,20 +128,46 @@ goal, what is explicitly not included, and how completion is verified.
   image in document order, block stacking, `DrawImage` emission, content-type
   rejection, missing/corrupt image failing clearly).
 
-## Milestone 10: Forms and basic input controls — next
+## Milestone 10: Forms and basic input controls — complete
 
-- **Goal:** parse basic form controls and wire input/change/submit behaviour into
-  the event and (eventually) navigation layers.
-- **Not included:** a full forms/validation model.
-- **Verification:** tests for control parsing and form event/submit behaviour.
+- **Goal:** parse `form`/`input`/`button`/`label`/`textarea`/`select`/`option`;
+  track dynamic control state (value/checked/selected/disabled) outside the DOM
+  in `mocha_forms::FormState`; expose `value`/`checked`/`disabled`/`type`/
+  `name`/`selectedIndex` and `form.submit()` to JavaScript; lay controls out as
+  inline replaced items with simple default sizes; paint `DrawControl`
+  commands; apply click default actions (checkbox toggle, radio group
+  selection, form reset, submit identification) honouring `preventDefault` and
+  `disabled`; and model GET submission (successful-control collection, base-URL
+  action resolution, form-urlencoded query). `--dump-form-state` prints the
+  control state.
+- **Not included:** keyboard text editing, focus/caret/selection/IME,
+  validation, POST bodies / `multipart/form-data`, file/date/color/range/number
+  inputs, `:checked`/`:disabled`/`:focus` pseudo-classes, `<optgroup>` /
+  `<fieldset>` / multiple-select, the `form` attribute, label activation,
+  autofill, real rendered widgets, automatic form navigation. See
+  [forms-and-controls.md](forms-and-controls.md).
+- **Verification:** `mocha_forms` state/default-action/submission tests,
+  `mocha_html` form-parsing tests, `mocha_style`/`mocha_layout`/`mocha_paint`
+  control tests, `mocha_js_dom` form-binding tests, shell pipeline tests, and a
+  `forms_pipeline` integration test (examples render `DrawControl`, JS state
+  changes reach the display list, clicks toggle/select/submit unless prevented,
+  GET URLs build correctly, POST fails clearly, old examples still run).
 
-## Beyond Milestone 10 (direction, not code)
+## Milestone 11: Desktop window shell — next
+
+- **Goal:** a real raster/window surface that draws the existing display list
+  (rectangles, borders, text, images, controls) instead of printing it.
+- **Not included:** tabs, address bar, navigation chrome, OS input wiring beyond
+  the minimum, GPU compositing.
+- **Verification:** to be specified when the milestone starts.
+
+## Beyond Milestone 11 (direction, not code)
 
 - **Multi-process architecture:** a browser process and renderer process(es) with
   typed IPC and crash recovery.
 - **Storage and profile system:** history, bookmarks, settings, session restore.
 - **Security foundation:** an origin model, same-origin checks, mixed content.
-- **Desktop product shell:** tabs, address bar, navigation chrome, and a real
-  raster/window surface to actually draw the display list (including images).
+- **Desktop product shell:** tabs, address bar, and navigation chrome on top of
+  the Milestone 11 window.
 - **Web compatibility hardening:** standards test suites, fuzzing, visual
   regression — without promising full web compatibility.

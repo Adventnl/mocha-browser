@@ -20,12 +20,14 @@ use std::rc::Rc;
 
 use mocha_dom::{Document, NodeId, NodeKind};
 use mocha_error::{MochaError, MochaResult};
+use mocha_forms::{ControlKind, FormState};
 use mocha_js::{HostObject, Interpreter, JsValue};
 
 /// Tags that `document.createElement` is allowed to create. Anything else is a
 /// clear [`MochaError::UnsupportedFeature`] rather than a silently-broken element.
 const CREATABLE_TAGS: &[&str] = &[
-    "html", "body", "h1", "h2", "p", "div", "span", "a", "style", "script", "img", "link",
+    "html", "body", "h1", "h2", "p", "div", "span", "a", "style", "script", "img", "link", "form",
+    "input", "button", "label", "textarea", "select", "option",
 ];
 
 /// Collect the source of every inline `<script>` in document order.
@@ -63,10 +65,17 @@ pub fn collect_inline_scripts(document: &Document) -> MochaResult<Vec<String>> {
 /// Shared, interior-mutable state every host object holds a handle to.
 struct DomBridge {
     doc: Rc<RefCell<Document>>,
+    /// Dynamic form-control state (value/checked/selected/disabled), shared with
+    /// the embedder so layout/paint/submission see JS changes.
+    forms: Rc<RefCell<FormState>>,
     listeners: RefCell<Vec<JsListener>>,
     timers: RefCell<Vec<TimerTask>>,
     next_timer_id: Cell<u64>,
     dirty: Cell<bool>,
+    /// The form a script asked to submit via `form.submit()`. The first request
+    /// wins (a real browser would have navigated away); the embedder takes it
+    /// after scripts run and builds the `FormSubmission`.
+    pending_submission: RefCell<Option<NodeId>>,
 }
 
 impl DomBridge {
@@ -143,10 +152,12 @@ impl DomRuntime {
     pub fn new(document: Rc<RefCell<Document>>) -> DomRuntime {
         let bridge = Rc::new(DomBridge {
             doc: document,
+            forms: Rc::new(RefCell::new(FormState::new())),
             listeners: RefCell::new(Vec::new()),
             timers: RefCell::new(Vec::new()),
             next_timer_id: Cell::new(0),
             dirty: Cell::new(false),
+            pending_submission: RefCell::new(None),
         });
         let mut interp = Interpreter::new();
         // `console` is already a global from the interpreter's built-ins; expose it
@@ -303,6 +314,29 @@ impl DomRuntime {
     pub fn is_dirty(&self) -> bool {
         self.bridge.dirty.get()
     }
+
+    /// The shared form-control state. JS property reads/writes on controls go
+    /// through this state; the embedder uses the same handle for layout, paint,
+    /// and submission.
+    pub fn form_state(&self) -> Rc<RefCell<FormState>> {
+        self.bridge.forms.clone()
+    }
+
+    /// Eagerly initialize form state for every control currently in the
+    /// document. Unsupported control types (e.g. `<input type="date">`) error
+    /// here, before any script runs. Controls created later (e.g. via
+    /// `innerHTML`) are initialized lazily on first access.
+    pub fn init_form_state(&self) -> MochaResult<()> {
+        let doc = self.bridge.doc.borrow();
+        self.bridge.forms.borrow_mut().ensure_document(&doc)
+    }
+
+    /// Take (and clear) the form a script requested to submit via
+    /// `form.submit()`, if any. The first request wins — in a real browser the
+    /// first submission would have navigated away.
+    pub fn take_pending_submission(&mut self) -> Option<NodeId> {
+        self.bridge.pending_submission.borrow_mut().take()
+    }
 }
 
 // === host objects ===========================================================
@@ -428,6 +462,112 @@ struct NodeHost {
 }
 
 impl NodeHost {
+    /// Read a form-control property (`value`, `checked`, `selected`, `disabled`,
+    /// `type`, `name`, `selectedIndex`) from the shared [`FormState`]. Returns
+    /// `Ok(None)` when `name` is not a form property or this node is not a form
+    /// control, so the caller falls through to the generic node properties.
+    fn form_get(&self, name: &str) -> MochaResult<Option<JsValue>> {
+        if !matches!(
+            name,
+            "value" | "checked" | "selected" | "disabled" | "type" | "name" | "selectedIndex"
+        ) {
+            return Ok(None);
+        }
+        let doc = self.bridge.doc.borrow();
+        let mut forms = self.bridge.forms.borrow_mut();
+
+        // A select's value/selectedIndex are derived from its options.
+        if doc.tag_name(self.node)? == Some("select") {
+            match name {
+                "value" => {
+                    let value = mocha_forms::select_value(&doc, &mut forms, self.node)?;
+                    return Ok(Some(JsValue::Str(value.unwrap_or_default())));
+                }
+                "selectedIndex" => {
+                    let index = mocha_forms::selected_index(&doc, &mut forms, self.node)?;
+                    return Ok(Some(JsValue::Number(
+                        index.map(|i| i as f64).unwrap_or(-1.0),
+                    )));
+                }
+                _ => {}
+            }
+        }
+
+        let Some(control) = forms.ensure_control(&doc, self.node)? else {
+            return Ok(None);
+        };
+        Ok(match name {
+            "value" => Some(JsValue::Str(control.value.clone())),
+            "checked" => Some(JsValue::Bool(control.checked)),
+            "selected" => Some(JsValue::Bool(control.selected)),
+            "disabled" => Some(JsValue::Bool(control.disabled)),
+            "type" => Some(JsValue::Str(control.kind.as_str().to_string())),
+            "name" => Some(JsValue::Str(control.name.clone().unwrap_or_default())),
+            // selectedIndex is only meaningful on a select.
+            _ => None,
+        })
+    }
+
+    /// Write a form-control property to the shared [`FormState`]. Returns
+    /// `Ok(true)` when the write was handled (the caller marks the document
+    /// dirty), `Ok(false)` to fall through.
+    fn form_set(&self, name: &str, value: &JsValue) -> MochaResult<bool> {
+        if !matches!(
+            name,
+            "value" | "checked" | "selected" | "disabled" | "selectedIndex"
+        ) {
+            return Ok(false);
+        }
+        let doc = self.bridge.doc.borrow();
+        let mut forms = self.bridge.forms.borrow_mut();
+
+        if doc.tag_name(self.node)? == Some("select") {
+            match name {
+                "value" => {
+                    mocha_forms::set_select_value(&doc, &mut forms, self.node, &value.stringify())?;
+                    return Ok(true);
+                }
+                "selectedIndex" => {
+                    let number = value.to_number();
+                    let index = if number.is_finite() && number >= 0.0 {
+                        Some(number as usize)
+                    } else {
+                        None
+                    };
+                    mocha_forms::set_selected_index(&doc, &mut forms, self.node, index)?;
+                    return Ok(true);
+                }
+                _ => {}
+            }
+        }
+
+        // Setting `checked = true` on a radio also unchecks its group.
+        if name == "checked" {
+            let Some(kind) = forms.ensure_control(&doc, self.node)?.map(|c| c.kind) else {
+                return Ok(false);
+            };
+            let truthy = value.is_truthy();
+            if kind == ControlKind::Radio && truthy {
+                mocha_forms::select_radio(&doc, &mut forms, self.node)?;
+            } else if let Some(control) = forms.control_mut(self.node) {
+                control.checked = truthy;
+            }
+            return Ok(true);
+        }
+
+        let Some(control) = forms.ensure_control(&doc, self.node)? else {
+            return Ok(false);
+        };
+        match name {
+            "value" => control.value = value.stringify(),
+            "selected" => control.selected = value.is_truthy(),
+            "disabled" => control.disabled = value.is_truthy(),
+            // selectedIndex is only meaningful on a select.
+            _ => return Ok(false),
+        }
+        Ok(true)
+    }
+
     fn set_inner_html(&self, html: &str) -> MochaResult<()> {
         let fragment = mocha_html::parse_html(html)?;
         let mut doc = self.bridge.doc.borrow_mut();
@@ -452,6 +592,9 @@ impl HostObject for NodeHost {
         self
     }
     fn get(&self, _: &mut Interpreter, name: &str) -> MochaResult<JsValue> {
+        if let Some(value) = self.form_get(name)? {
+            return Ok(value);
+        }
         let doc = self.bridge.doc.borrow();
         Ok(match name {
             "textContent" => JsValue::Str(doc.text_content(self.node)?),
@@ -472,6 +615,11 @@ impl HostObject for NodeHost {
         })
     }
     fn set(&self, _: &mut Interpreter, name: &str, value: JsValue) -> MochaResult<()> {
+        if self.form_set(name, &value)? {
+            // A control's painted value/checked/disabled state changed.
+            self.bridge.mark_dirty();
+            return Ok(());
+        }
         match name {
             "textContent" => {
                 self.bridge
@@ -506,6 +654,18 @@ impl HostObject for NodeHost {
     }
     fn call(&self, _: &mut Interpreter, name: &str, args: Vec<JsValue>) -> MochaResult<JsValue> {
         match name {
+            "submit" => {
+                if self.bridge.doc.borrow().tag_name(self.node)? != Some("form") {
+                    return Err(MochaError::JavaScript(
+                        "submit() is only supported on <form> elements".to_string(),
+                    ));
+                }
+                let mut pending = self.bridge.pending_submission.borrow_mut();
+                if pending.is_none() {
+                    *pending = Some(self.node);
+                }
+                Ok(JsValue::Undefined)
+            }
             "getAttribute" => {
                 let attr = arg_str(&args, 0);
                 let value = self
@@ -919,6 +1079,182 @@ mod tests {
         assert_eq!(runtime.take_console_output(), vec!["hi 1".to_string()]);
         let p = doc.borrow().get_element_by_id("p").unwrap().unwrap();
         assert_eq!(doc.borrow().text_content(p).unwrap(), "yes");
+    }
+
+    // --- Milestone 10: form bindings -----------------------------------------
+
+    /// Like `run`, but initializes form state eagerly first (the shell pipeline
+    /// order) and returns the runtime for state inspection.
+    fn run_with_forms(html: &str) -> (Rc<RefCell<Document>>, DomRuntime) {
+        let doc = doc_from(html);
+        let scripts = collect_inline_scripts(&doc.borrow()).unwrap();
+        let mut runtime = DomRuntime::new(doc.clone());
+        runtime.init_form_state().unwrap();
+        for source in &scripts {
+            runtime.run_script(source).unwrap();
+        }
+        runtime.run_pending_timers().unwrap();
+        (doc, runtime)
+    }
+
+    #[test]
+    fn js_reads_input_value_type_and_name() {
+        let (doc, _rt) = run_with_forms(
+            r#"<html><body><form><input id="q" name="q" value="mocha"></form><p id="out"></p>
+               <script>
+                 let q = document.getElementById("q");
+                 document.getElementById("out").textContent = q.value + "/" + q.type + "/" + q.name;
+               </script></body></html>"#,
+        );
+        assert_eq!(text_of(&doc, "out"), "mocha/text/q");
+    }
+
+    #[test]
+    fn js_sets_input_value_in_form_state() {
+        let (doc, rt) = run_with_forms(
+            r#"<html><body><form><input id="q" name="q" value="Before"></form>
+               <script>document.getElementById("q").value = "After";</script></body></html>"#,
+        );
+        let node = doc.borrow().get_element_by_id("q").unwrap().unwrap();
+        let forms = rt.form_state();
+        let forms = forms.borrow();
+        assert_eq!(forms.control(node).unwrap().value, "After");
+        // The DOM attribute is untouched; only the dynamic state changed.
+        assert_eq!(
+            doc.borrow()
+                .get_attribute_owned(node, "value")
+                .unwrap()
+                .as_deref(),
+            Some("Before")
+        );
+    }
+
+    #[test]
+    fn js_toggles_checkbox_checked() {
+        let (doc, rt) = run_with_forms(
+            r#"<html><body><form><input id="c" type="checkbox" name="agree"></form>
+               <script>
+                 let c = document.getElementById("c");
+                 c.checked = !c.checked;
+               </script></body></html>"#,
+        );
+        let node = doc.borrow().get_element_by_id("c").unwrap().unwrap();
+        assert!(rt.form_state().borrow().control(node).unwrap().checked);
+    }
+
+    #[test]
+    fn js_radio_checked_setter_unchecks_the_group() {
+        let (doc, rt) = run_with_forms(
+            r#"<html><body><form>
+                 <input id="s" type="radio" name="size" value="small">
+                 <input id="l" type="radio" name="size" value="large" checked>
+               </form>
+               <script>document.getElementById("s").checked = true;</script></body></html>"#,
+        );
+        let small = doc.borrow().get_element_by_id("s").unwrap().unwrap();
+        let large = doc.borrow().get_element_by_id("l").unwrap().unwrap();
+        let forms = rt.form_state();
+        let forms = forms.borrow();
+        assert!(forms.control(small).unwrap().checked);
+        assert!(!forms.control(large).unwrap().checked);
+    }
+
+    #[test]
+    fn js_reads_and_sets_textarea_value() {
+        let (doc, rt) = run_with_forms(
+            r#"<html><body><form><textarea id="m" name="m">Hello Mocha</textarea></form><p id="out"></p>
+               <script>
+                 let m = document.getElementById("m");
+                 document.getElementById("out").textContent = m.value;
+                 m.value = "Edited";
+               </script></body></html>"#,
+        );
+        assert_eq!(text_of(&doc, "out"), "Hello Mocha");
+        let node = doc.borrow().get_element_by_id("m").unwrap().unwrap();
+        assert_eq!(
+            rt.form_state().borrow().control(node).unwrap().value,
+            "Edited"
+        );
+    }
+
+    #[test]
+    fn js_select_value_and_selected_index() {
+        let (doc, _rt) = run_with_forms(
+            r#"<html><body><form><select id="s" name="c">
+                 <option value="a">Alpha</option>
+                 <option value="b" selected>Beta</option>
+               </select></form><p id="out"></p>
+               <script>
+                 let s = document.getElementById("s");
+                 let before = s.value + "/" + s.selectedIndex;
+                 s.value = "a";
+                 let after = s.value + "/" + s.selectedIndex;
+                 s.selectedIndex = 1;
+                 document.getElementById("out").textContent = before + " " + after + " " + s.value;
+               </script></body></html>"#,
+        );
+        assert_eq!(text_of(&doc, "out"), "b/1 a/0 b");
+    }
+
+    #[test]
+    fn js_reads_and_sets_disabled() {
+        let (doc, rt) = run_with_forms(
+            r#"<html><body><form><input id="a" name="a" disabled><input id="b" name="b"></form><p id="out"></p>
+               <script>
+                 document.getElementById("out").textContent = "" + document.getElementById("a").disabled;
+                 document.getElementById("b").disabled = true;
+               </script></body></html>"#,
+        );
+        assert_eq!(text_of(&doc, "out"), "true");
+        let node = doc.borrow().get_element_by_id("b").unwrap().unwrap();
+        assert!(rt.form_state().borrow().control(node).unwrap().disabled);
+    }
+
+    #[test]
+    fn form_submit_records_a_pending_submission() {
+        let (doc, mut rt) = run_with_forms(
+            r#"<html><body><form id="f" action="/go"><input name="q" value="x"></form>
+               <script>document.getElementById("f").submit();</script></body></html>"#,
+        );
+        let form = doc.borrow().get_element_by_id("f").unwrap().unwrap();
+        assert_eq!(rt.take_pending_submission(), Some(form));
+        assert_eq!(
+            rt.take_pending_submission(),
+            None,
+            "take clears the request"
+        );
+    }
+
+    #[test]
+    fn submit_on_a_non_form_node_errors() {
+        let doc = doc_from(r#"<html><body><p id="p">x</p></body></html>"#);
+        let mut runtime = DomRuntime::new(doc);
+        let error = runtime
+            .run_script(r#"document.getElementById("p").submit();"#)
+            .unwrap_err();
+        assert!(matches!(error, MochaError::JavaScript(_)));
+    }
+
+    #[test]
+    fn form_properties_on_non_controls_are_undefined() {
+        let (doc, _rt) = run_with_forms(
+            r#"<html><body><p id="p">x</p><p id="out"></p>
+               <script>
+                 let p = document.getElementById("p");
+                 document.getElementById("out").textContent = "" + p.value + "/" + p.checked;
+               </script></body></html>"#,
+        );
+        assert_eq!(text_of(&doc, "out"), "undefined/undefined");
+    }
+
+    #[test]
+    fn unsupported_input_type_fails_form_state_init() {
+        let doc = doc_from(r#"<html><body><input type="date" name="d"></body></html>"#);
+        let runtime = DomRuntime::new(doc);
+        assert!(matches!(
+            runtime.init_form_state().unwrap_err(),
+            MochaError::UnsupportedFeature(_)
+        ));
     }
 
     #[test]

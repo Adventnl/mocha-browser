@@ -21,16 +21,18 @@ use mocha_error::{MochaError, MochaResult};
 ///
 /// `style` and `script` are accepted so their raw text can be extracted later
 /// (`style` for CSS, `script` for inline JavaScript); their contents are not laid
-/// out or painted. Encountering any other tag (start or end) is an
-/// [`MochaError::UnsupportedFeature`] error, not a silent skip.
+/// out or painted. `textarea` also uses raw text: its content becomes the
+/// control's initial value (Milestone 10). Encountering any other tag (start or
+/// end) is an [`MochaError::UnsupportedFeature`] error, not a silent skip.
 pub const SUPPORTED_TAGS: &[&str] = &[
-    "html", "body", "h1", "h2", "p", "div", "span", "a", "style", "script", "link", "img",
+    "html", "body", "h1", "h2", "p", "div", "span", "a", "style", "script", "link", "img", "form",
+    "input", "button", "label", "textarea", "select", "option",
 ];
 
-/// Void elements have no content and no end tag (e.g. `<link rel="stylesheet">`
-/// and `<img src="...">`). They are appended but never pushed onto the
-/// open-element stack.
-pub const VOID_TAGS: &[&str] = &["link", "img"];
+/// Void elements have no content and no end tag (e.g. `<link rel="stylesheet">`,
+/// `<img src="...">`, and `<input type="text">`). They are appended but never
+/// pushed onto the open-element stack.
+pub const VOID_TAGS: &[&str] = &["link", "img", "input"];
 
 /// Parse an HTML source string into a [`Document`].
 ///
@@ -317,6 +319,101 @@ mod tests {
         assert_eq!(document.get_attribute(link, "href").unwrap(), Some("a.css"));
         // The link did not capture the following <p> as a child (it is void).
         assert!(document.children(link).unwrap().is_empty());
+    }
+
+    #[test]
+    fn parse_form_with_action_and_method() {
+        let document =
+            parse_html(r#"<form action="/search" method="get"><input name="q"></form>"#).unwrap();
+        assert_eq!(collect_tags(&document), vec!["form", "input"]);
+        let order = document.traverse_depth_first(document.root_id()).unwrap();
+        let form = order[1];
+        assert_eq!(
+            document.get_attribute(form, "action").unwrap(),
+            Some("/search")
+        );
+        assert_eq!(document.get_attribute(form, "method").unwrap(), Some("get"));
+    }
+
+    #[test]
+    fn input_parses_as_a_void_element() {
+        // No </input> is required; the following <p> is a sibling, not a child.
+        let document =
+            parse_html(r#"<form><input type="text" name="q" value="mocha"><p>after</p></form>"#)
+                .unwrap();
+        assert_eq!(collect_tags(&document), vec!["form", "input", "p"]);
+        let order = document.traverse_depth_first(document.root_id()).unwrap();
+        let input = order[2];
+        assert_eq!(document.tag_name(input).unwrap(), Some("input"));
+        assert!(document.children(input).unwrap().is_empty());
+        assert_eq!(
+            document.get_attribute(input, "value").unwrap(),
+            Some("mocha")
+        );
+    }
+
+    #[test]
+    fn checkbox_checked_attribute_parses_as_valueless() {
+        let document = parse_html(r#"<input type="checkbox" name="agree" checked>"#).unwrap();
+        let order = document.traverse_depth_first(document.root_id()).unwrap();
+        let input = order[1];
+        assert_eq!(document.get_attribute(input, "checked").unwrap(), Some(""));
+        assert_eq!(
+            document.get_attribute(input, "type").unwrap(),
+            Some("checkbox")
+        );
+    }
+
+    #[test]
+    fn button_and_label_parse_with_attributes() {
+        let document = parse_html(
+            r#"<label for="q">Search</label><button type="submit" name="go">Go</button>"#,
+        )
+        .unwrap();
+        assert_eq!(collect_tags(&document), vec!["label", "button"]);
+        let order = document.traverse_depth_first(document.root_id()).unwrap();
+        let label = order[1];
+        assert_eq!(document.get_attribute(label, "for").unwrap(), Some("q"));
+        let button = order[3];
+        assert_eq!(
+            document.get_attribute(button, "type").unwrap(),
+            Some("submit")
+        );
+        assert_eq!(document.text_content(button).unwrap(), "Go");
+    }
+
+    #[test]
+    fn textarea_content_is_raw_text_with_whitespace_preserved() {
+        // The body must not be tokenized as HTML and must keep its whitespace
+        // verbatim — it becomes the control's initial value.
+        let document =
+            parse_html("<textarea name=\"m\">Hello  <world>\n  line2</textarea>").unwrap();
+        assert_eq!(collect_tags(&document), vec!["textarea"]);
+        assert_eq!(collect_text(&document), vec!["Hello  <world>\n  line2"]);
+    }
+
+    #[test]
+    fn unterminated_textarea_is_rejected() {
+        let error = parse_html("<textarea>oops").unwrap_err();
+        assert!(matches!(error, MochaError::Parse(_)));
+    }
+
+    #[test]
+    fn select_and_options_parse_as_children() {
+        let document = parse_html(
+            r#"<select name="choice"><option value="a">Alpha</option><option value="b" selected>Beta</option></select>"#,
+        )
+        .unwrap();
+        assert_eq!(collect_tags(&document), vec!["select", "option", "option"]);
+        let order = document.traverse_depth_first(document.root_id()).unwrap();
+        let select = order[1];
+        let options: Vec<_> = document.children(select).unwrap().to_vec();
+        assert_eq!(options.len(), 2);
+        assert_eq!(
+            document.get_attribute(options[1], "selected").unwrap(),
+            Some("")
+        );
+        assert_eq!(document.text_content(options[0]).unwrap(), "Alpha");
     }
 
     #[test]

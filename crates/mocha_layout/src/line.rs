@@ -9,7 +9,7 @@
 //! the tallest item on it, so an inline image taller than the text raises the
 //! line height. Baseline / `vertical-align` is not modelled: items are top-aligned.
 
-use mocha_style::{Color, NodeId};
+use mocha_style::{Color, ControlBox, NodeId};
 
 use crate::box_tree::{LayoutBox, LayoutBoxKind};
 use crate::geometry::Rect;
@@ -37,11 +37,21 @@ pub(crate) struct ImageAtom {
     pub node_id: NodeId,
 }
 
+/// One inline form-control atom to place on a line.
+#[derive(Debug, Clone)]
+pub(crate) struct ControlAtom {
+    pub control: ControlBox,
+    pub space_before: bool,
+    /// The source control element.
+    pub node_id: NodeId,
+}
+
 /// An item in an inline formatting context.
 #[derive(Debug, Clone)]
 pub(crate) enum InlineItem {
     Word(Word),
     Image(ImageAtom),
+    Control(ControlAtom),
 }
 
 impl InlineItem {
@@ -49,6 +59,7 @@ impl InlineItem {
         match self {
             InlineItem::Word(w) => w.space_before,
             InlineItem::Image(i) => i.space_before,
+            InlineItem::Control(c) => c.space_before,
         }
     }
 
@@ -57,6 +68,7 @@ impl InlineItem {
         match self {
             InlineItem::Word(w) => word_width(&w.text, w.font_size),
             InlineItem::Image(i) => i.width,
+            InlineItem::Control(c) => c.control.width,
         }
     }
 
@@ -64,9 +76,9 @@ impl InlineItem {
     fn space_width(&self) -> f32 {
         match self {
             InlineItem::Word(w) => space_width(w.font_size),
-            // An image carries no font; approximate the surrounding space with the
-            // base font size.
-            InlineItem::Image(_) => space_width(16.0),
+            // Images and controls carry no font; approximate the surrounding
+            // space with the base font size.
+            InlineItem::Image(_) | InlineItem::Control(_) => space_width(16.0),
         }
     }
 
@@ -75,6 +87,7 @@ impl InlineItem {
         match self {
             InlineItem::Word(w) => line_height(w.font_size),
             InlineItem::Image(i) => i.height,
+            InlineItem::Control(c) => c.control.height,
         }
     }
 
@@ -82,7 +95,7 @@ impl InlineItem {
     fn word_font(&self) -> Option<f32> {
         match self {
             InlineItem::Word(w) => Some(w.font_size),
-            InlineItem::Image(_) => None,
+            InlineItem::Image(_) | InlineItem::Control(_) => None,
         }
     }
 
@@ -107,6 +120,22 @@ impl InlineItem {
             InlineItem::Image(i) => LayoutBox {
                 node_id: Some(i.node_id),
                 kind: LayoutBoxKind::Image(i.image_id),
+                rect: Rect {
+                    x,
+                    y,
+                    width,
+                    height,
+                },
+                font_size: 0.0,
+                color: Color::BLACK,
+                background_color: Color::TRANSPARENT,
+                border_width: 0.0,
+                border_color: Color::BLACK,
+                children: Vec::new(),
+            },
+            InlineItem::Control(c) => LayoutBox {
+                node_id: Some(c.node_id),
+                kind: LayoutBoxKind::Control(c.control.clone()),
                 rect: Rect {
                     x,
                     y,

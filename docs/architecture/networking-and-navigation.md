@@ -91,6 +91,20 @@ back/forward navigation), not across CLI runs.
 `back`/`forward` move only after a successful load; `reload` re-fetches the
 current entry bypassing the cache; a failed load never corrupts history.
 
+## Form submission (Milestone 10)
+
+Form submission is **modelled, not performed**. `mocha_forms::build_submission`
+collects a form's successful controls and produces a `FormSubmission` whose
+`action` is a plain `Url`: the form's `action` attribute resolved against the
+document URL (empty/missing `action` → the document URL itself) with the fields
+serialized as an `application/x-www-form-urlencoded` query. An embedder may pass
+that URL to `NavigationController::navigate` explicitly; nothing in the pipeline
+navigates automatically, and the shell never submits. **Only `method="get"` is
+supported** — `method="post"` returns
+`UnsupportedFeature("POST form submission is not supported in Milestone 10")`,
+and no request body is ever constructed. See
+[forms-and-controls.md](forms-and-controls.md).
+
 ## Security limitations
 
 Networking adds risk; Mocha is **not** safe for general browsing.

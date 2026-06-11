@@ -1,6 +1,6 @@
 //! The layout box tree data model.
 
-use mocha_style::{Color, NodeId};
+use mocha_style::{Color, ControlBox, NodeId};
 
 use crate::geometry::Rect;
 
@@ -26,6 +26,10 @@ pub enum LayoutBoxKind {
     /// A replaced element (`<img>`), carrying the id of its decoded image. The
     /// box's `rect` is where the image is drawn.
     Image(usize),
+    /// A form control (`<input>`, `<button>`, `<textarea>`, `<select>`),
+    /// carrying the resolved control data paint needs. The box's `rect` is where
+    /// the control is drawn.
+    Control(ControlBox),
 }
 
 /// A node in the layout tree with computed geometry and the style fields paint

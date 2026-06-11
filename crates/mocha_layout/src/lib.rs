@@ -27,7 +27,7 @@ pub use box_tree::{LayoutBox, LayoutBoxKind};
 pub use context::{LayoutViewport, DEFAULT_VIEWPORT_HEIGHT, DEFAULT_VIEWPORT_WIDTH};
 pub use debug::format_layout_tree;
 pub use geometry::{EdgeSizes, Rect};
-pub use mocha_style::{Color, NodeId};
+pub use mocha_style::{Color, ControlBox, NodeId};
 
 use mocha_error::{MochaError, MochaResult};
 use mocha_style::{Display, StyledNode};
@@ -91,6 +91,7 @@ mod tests {
             text: None,
             style,
             replaced: None,
+            control: None,
             children,
         }
     }
@@ -105,6 +106,7 @@ mod tests {
             text: Some(content.to_string()),
             style,
             replaced: None,
+            control: None,
             children: Vec::new(),
         }
     }
@@ -124,6 +126,7 @@ mod tests {
             text: None,
             style,
             replaced: None,
+            control: None,
             children,
         }
     }
@@ -500,6 +503,7 @@ mod tests {
                     text: None,
                     style: hidden,
                     replaced: None,
+                    control: None,
                     children: vec![text(4, "INVISIBLE", 16.0, Color::BLACK)],
                 },
                 text(5, "world", 16.0, Color::BLACK),
@@ -509,6 +513,175 @@ mod tests {
         let tree = layout(&root, 800.0);
         let texts: Vec<&str> = text_runs(&tree).iter().map(|r| run_text(r)).collect();
         assert_eq!(texts, vec!["Hello", "world"]);
+    }
+
+    // --- form controls --------------------------------------------------------
+
+    use mocha_style::ControlBox;
+
+    fn control_box(control_type: &str, width: f32, height: f32) -> ControlBox {
+        ControlBox {
+            control_type: control_type.to_string(),
+            value: None,
+            checked: None,
+            disabled: false,
+            width,
+            height,
+        }
+    }
+
+    /// An inline styled node carrying a resolved control box (what the shell
+    /// attaches for `<input>`/`<button>`/`<textarea>`/`<select>`).
+    fn control_node(node_id: usize, control: ControlBox) -> StyledNode {
+        let mut style = ComputedStyle::initial();
+        style.display = Display::Inline;
+        StyledNode {
+            node_id: NodeId(node_id),
+            text: None,
+            style,
+            replaced: None,
+            control: Some(control),
+            children: Vec::new(),
+        }
+    }
+
+    fn find_control(root: &LayoutBox, id: usize) -> Option<&LayoutBox> {
+        all_boxes(root)
+            .into_iter()
+            .find(|b| b.node_id == Some(NodeId(id)) && matches!(b.kind, LayoutBoxKind::Control(_)))
+    }
+
+    #[test]
+    fn inline_control_creates_a_control_box_with_its_resolved_size() {
+        let p = element(
+            1,
+            block_style(),
+            vec![control_node(2, control_box("text", 160.0, 24.0))],
+        );
+        let root = element(0, block_style(), vec![p]);
+        let tree = layout(&root, 800.0);
+        let control = find_control(&tree, 2).expect("control box exists");
+        assert_eq!(control.rect.width, 160.0);
+        assert_eq!(control.rect.height, 24.0);
+    }
+
+    #[test]
+    fn control_shares_a_line_with_text_and_raises_line_height() {
+        // "Search" <input 160x24> on one line: same line box, control taller
+        // than the 16px text (19px line), so the line is 24px high.
+        let p = element(
+            1,
+            block_style(),
+            vec![
+                text(2, "Search ", 16.0, Color::BLACK),
+                control_node(3, control_box("text", 160.0, 24.0)),
+            ],
+        );
+        let root = element(0, block_style(), vec![p]);
+        let tree = layout(&root, 800.0);
+
+        let lines = line_boxes(&tree);
+        assert_eq!(lines.len(), 1, "text and control share a line");
+        assert_eq!(lines[0].rect.height, 24.0, "control raises line height");
+        let run = text_runs(&tree)[0];
+        let control = find_control(&tree, 3).unwrap();
+        assert_eq!(run.rect.y, control.rect.y, "same line top");
+        assert!(
+            run.rect.right() <= control.rect.x,
+            "control placed after text"
+        );
+    }
+
+    #[test]
+    fn controls_wrap_to_the_next_line_when_width_runs_out() {
+        let p = element(
+            1,
+            block_style(),
+            vec![
+                control_node(2, control_box("text", 160.0, 24.0)),
+                control_node(3, control_box("text", 160.0, 24.0)),
+            ],
+        );
+        let root = element(0, block_style(), vec![p]);
+        let tree = layout(&root, 200.0);
+        assert_eq!(line_boxes(&tree).len(), 2, "second control wraps");
+        let first = find_control(&tree, 2).unwrap();
+        let second = find_control(&tree, 3).unwrap();
+        assert!(second.rect.y >= first.rect.bottom());
+    }
+
+    #[test]
+    fn checkbox_control_box_keeps_its_square_size() {
+        let p = element(
+            1,
+            block_style(),
+            vec![control_node(2, control_box("checkbox", 13.0, 13.0))],
+        );
+        let root = element(0, block_style(), vec![p]);
+        let tree = layout(&root, 800.0);
+        let control = find_control(&tree, 2).unwrap();
+        assert_eq!((control.rect.width, control.rect.height), (13.0, 13.0));
+    }
+
+    #[test]
+    fn block_level_control_lays_out_like_a_replaced_block() {
+        let mut style = block_style();
+        style.margin.top = 10.0;
+        let control = StyledNode {
+            node_id: NodeId(1),
+            text: None,
+            style,
+            replaced: None,
+            control: Some(control_box("textarea", 200.0, 80.0)),
+            children: Vec::new(),
+        };
+        let root = element(0, block_style(), vec![control]);
+        let tree = layout(&root, 800.0);
+        let control = find_control(&tree, 1).unwrap();
+        assert_eq!(control.rect.y, 10.0);
+        assert_eq!((control.rect.width, control.rect.height), (200.0, 80.0));
+    }
+
+    #[test]
+    fn display_none_control_produces_no_box() {
+        let mut hidden = ComputedStyle::initial();
+        hidden.display = Display::None;
+        let control = StyledNode {
+            node_id: NodeId(2),
+            text: None,
+            style: hidden,
+            replaced: None,
+            control: Some(control_box("text", 160.0, 24.0)),
+            children: Vec::new(),
+        };
+        let p = element(1, block_style(), vec![control]);
+        let root = element(0, block_style(), vec![p]);
+        let tree = layout(&root, 800.0);
+        assert!(find_control(&tree, 2).is_none());
+    }
+
+    #[test]
+    fn control_is_hit_testable() {
+        let p = element(
+            1,
+            block_style(),
+            vec![control_node(2, control_box("text", 160.0, 24.0))],
+        );
+        let root = element(0, block_style(), vec![p]);
+        let tree = layout(&root, 800.0);
+        assert_eq!(hit_test(&tree, 10.0, 10.0), Some(NodeId(2)));
+    }
+
+    #[test]
+    fn debug_dump_includes_control_kind() {
+        let p = element(
+            1,
+            block_style(),
+            vec![control_node(2, control_box("checkbox", 13.0, 13.0))],
+        );
+        let root = element(0, block_style(), vec![p]);
+        let tree = layout(&root, 800.0);
+        assert!(format_layout_tree(&tree).contains("Control checkbox"));
     }
 
     // --- debug dump ---------------------------------------------------------

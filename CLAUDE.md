@@ -73,12 +73,12 @@ Every crate must have tests.
 
 Every milestone must produce a runnable result.
 
-The current milestone is Milestone 9: images and replaced elements. Milestones 1–9 are implemented. Recent additions:
-- Milestone 7 (JS DOM bindings): `mocha_js` gained a host-object mechanism (`JsValue::Host` + `HostObject`); the `mocha_js_dom` crate wires `window`/`document`/`console`, DOM read/mutate/query, JS event listeners, and a deterministic timer queue, and runs inline `<script>` in document order (coarse invalidation — style/layout/paint run once after scripts).
+The current milestone is Milestone 10: forms and basic input controls. Milestones 1–10 are implemented. Recent additions:
 - Milestone 8 (subresources): the `mocha_resources` crate loads external `<link rel="stylesheet">` CSS against the document base URL (dot-segment normalization in `mocha_url`); document-order cascade.
 - Milestone 9 (images): the `mocha_image` crate decodes PNG/JPEG via the `image` crate (the workspace's only third-party dependency); `<img>` lays out as a replaced element (inline/block) and paints `DrawImage`. Pixels are not rasterized.
+- Milestone 10 (forms): the `mocha_forms` crate owns form-control state (`FormState` keyed by node, initialized from attributes), click default actions (checkbox toggle, radio group, reset, submit identification — honouring `preventDefault`/`disabled`), and a GET-only submission model (form-urlencoded query URLs; POST is `UnsupportedFeature`). `mocha_js_dom` exposes `value`/`checked`/`disabled`/`type`/`name`/`selectedIndex` and `form.submit()` (recorded, never navigated) over the shared state. Controls lay out as inline replaced items (`ControlBox` in `mocha_style`, resolved by the shell like images) and paint `DrawControl`; `--dump-form-state` prints the state. Unsupported `input`/`button` types fail form processing clearly.
 
-The next milestone is Milestone 10: forms and basic input controls. Still out of scope and must return clear errors: HTTPS/TLS, external `<script src>`, CSS `url(...)`, promises/async/await/modules/classes, a real event loop, incremental relayout, image rasterization to a window, responsive images/SVG/canvas, and desktop window rendering. Do not add an existing JS engine/parser or browser engine.
+The next milestone is Milestone 11: a desktop window shell (a real raster surface drawing the existing display list). Still out of scope and must return clear errors: HTTPS/TLS, external `<script src>`, CSS `url(...)`, promises/async/await/modules/classes, a real event loop, incremental relayout, image/control rasterization to a window, responsive images/SVG/canvas, keyboard text editing/focus/caret, form validation, POST form submission, cookies, and desktop window rendering. Do not add an existing JS engine/parser or browser engine.
 
 ## Verification commands
 

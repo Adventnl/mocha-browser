@@ -378,8 +378,11 @@ impl Tokenizer {
 }
 
 /// Whether a tag's body is parsed as raw text (its contents are not HTML).
+/// `textarea`'s raw text becomes the control's initial value, so its whitespace
+/// must survive verbatim (this is a simplification of HTML's RCDATA mode: no
+/// character references are decoded).
 fn is_raw_text_tag(name: &str) -> bool {
-    matches!(name, "style" | "script")
+    matches!(name, "style" | "script" | "textarea")
 }
 
 /// Normalise an HTML text run: collapse internal whitespace to single spaces,

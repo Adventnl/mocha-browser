@@ -12,6 +12,7 @@ members = [
     "crates/mocha_net",
     "crates/mocha_nav",
     "crates/mocha_events",
+    "crates/mocha_forms",
     "crates/mocha_js",
     "crates/mocha_js_dom",
     "crates/mocha_resources",
@@ -37,6 +38,7 @@ mocha_paint = { path = "crates/mocha_paint" }
 mocha_net = { path = "crates/mocha_net" }
 mocha_nav = { path = "crates/mocha_nav" }
 mocha_events = { path = "crates/mocha_events" }
+mocha_forms = { path = "crates/mocha_forms" }
 mocha_js = { path = "crates/mocha_js" }
 mocha_js_dom = { path = "crates/mocha_js_dom" }
 mocha_resources = { path = "crates/mocha_resources" }

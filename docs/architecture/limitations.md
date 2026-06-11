@@ -1,6 +1,6 @@
 # Limitations
 
-Mocha Browser is at **Milestone 9**. It is an engine laboratory, not a usable
+Mocha Browser is at **Milestone 10**. It is an engine laboratory, not a usable
 browser. This document is deliberately explicit about what does not exist so the
 project never overclaims.
 
@@ -25,7 +25,14 @@ project never overclaims.
 - **Incremental invalidation** — scripts mutate the DOM, but style/layout/paint
   re-run **once** over the final DOM (coarse invalidation); there is no
   incremental relayout.
-- **Forms** — no form elements, controls, or submission.
+- **Forms beyond the Milestone 10 basics** — basic controls parse, carry
+  state, lay out, paint as `DrawControl`, and model GET submission (see
+  [forms-and-controls.md](forms-and-controls.md)), but there is **no keyboard
+  text editing, focus, caret, selection, or IME**, no validation, no POST
+  bodies / `multipart/form-data`, no file/date/color/range/number inputs, no
+  `:checked`/`:disabled`/`:focus` pseudo-classes, no `<optgroup>` /
+  `<fieldset>` / multiple-select / `form` attribute, no label activation, no
+  autofill, and no automatic form navigation.
 - **Fonts** — no font loading or shaping; text size is estimated, not measured.
 - **Canvas / accessibility** — not parsed or rendered.
 - **Security sandbox** — no process sandbox, origin model, or permissions.
@@ -65,10 +72,11 @@ Not supported (returns a clear error):
 - **Whitespace-only text nodes** are dropped during tokenization, and the
   whitespace inside retained *HTML* text is collapsed to single spaces. This is a
   simplification, not standards behaviour.
-- **`<style>` raw-text handling is minimal**: the body is captured verbatim
-  (whitespace preserved) until the literal `</style>`. This is **not** the
-  HTML5 raw-text/RCDATA algorithm — there is no handling of escaped or nested
-  edge cases beyond finding the closing tag. A missing `</style>` is an error.
+- **`<style>`/`<script>`/`<textarea>` raw-text handling is minimal**: the body
+  is captured verbatim (whitespace preserved) until the literal close tag. This
+  is **not** the HTML5 raw-text/RCDATA algorithm — there is no handling of
+  escaped or nested edge cases beyond finding the closing tag, and no character
+  references are decoded. A missing close tag is an error.
 - **Comment and doctype nodes** are stored in the DOM but produce no styled or
   layout box, and therefore no display command.
 - **`<style>` element contents** never produce `DrawText`: `style` has a UA
@@ -152,6 +160,30 @@ Block and inline formatting are real but small:
   [images-and-replaced-elements.md](images-and-replaced-elements.md).
 - **No floats, positioning, flexbox, grid, tables, or overflow/scrolling.**
 
+## Form limitations (Milestone 10)
+
+See [forms-and-controls.md](forms-and-controls.md) for detail.
+
+- **No real user input** — no typing, focus, caret, text selection, or IME;
+  control state changes come from JavaScript and programmatic event dispatch.
+- **Unsupported `input`/`button` types fail clearly** (`date`, `file`,
+  `color`, `range`, `number`, …) — never a silent fallback to text.
+- **GET only** — `method="post"` (and any other method) is
+  `UnsupportedFeature`; there are no request bodies and no
+  `multipart/form-data`.
+- **No validation** — `required`/`pattern`/`min`/`max` have no behaviour and
+  no validation UI exists.
+- **No `:checked`/`:disabled`/`:focus` pseudo-classes** — control state does
+  not affect selector matching.
+- **Single-select only** — no `multiple`, no `<optgroup>`; a select with no
+  `selected` option defaults to its **first** option.
+- **Label clicks do not activate controls**; `<fieldset>`/`<legend>` and the
+  `form` attribute are unsupported.
+- **`DrawControl` is not a widget** — controls are display-list commands;
+  nothing is rasterized and no native controls exist.
+- **`form.submit()` never navigates** — it records a request the embedder may
+  inspect; the shell only notes it on stderr.
+
 ## Supported HTML tags
 
 Only these element names are accepted. Any other tag is an `UnsupportedFeature`
@@ -159,11 +191,13 @@ error (it is **not** silently skipped):
 
 ```text
 html  body  h1  h2  p  div  span  a  style  script  link  img
+form  input  button  label  textarea  select  option
 ```
 
-`style` and `script` are raw-text elements; `link` and `img` are void elements.
-Plus doctype declarations and comments. (`<link>` participates only as
-`rel="stylesheet"`; `<script src>` is parsed but not executed.)
+`style`, `script`, and `textarea` are raw-text elements; `link`, `img`, and
+`input` are void elements. Plus doctype declarations and comments. (`<link>`
+participates only as `rel="stylesheet"`; `<script src>` is parsed but not
+executed.)
 
 ## Honesty rule
 

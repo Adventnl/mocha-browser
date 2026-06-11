@@ -25,10 +25,10 @@ the modern web. It must never claim otherwise.
 
 ## Current milestone
 
-**Milestone 9: Images and replaced elements.** The pipeline now loads a document,
+**Milestone 10: Forms and basic input controls.** The pipeline loads a document,
 runs its inline `<script>`s against the DOM, loads its external stylesheets and
-images, and renders text and images to a display list. Building on the
-from-scratch interpreter (`mocha_js`, Milestone 6):
+images, and renders text, images, and form controls to a display list. Building
+on the from-scratch interpreter (`mocha_js`, Milestone 6):
 
 - **Milestone 7 — JavaScript DOM bindings** (`mocha_js_dom`): a real host-object
   mechanism wires the interpreter to the DOM. Inline `<script>` runs in document
@@ -42,10 +42,18 @@ from-scratch interpreter (`mocha_js`, Milestone 6):
   dependency): `<img>` is parsed, loaded, and decoded (PNG/JPEG) for its intrinsic
   size, laid out as a replaced element (inline or block), and painted as a
   `DrawImage` command. **Pixels are not rasterized to a window.**
+- **Milestone 10 — Forms** (`mocha_forms`): form controls carry dynamic
+  value/checked/selected/disabled state outside the DOM, exposed to JavaScript;
+  controls lay out as inline replaced items and paint as `DrawControl` commands;
+  programmatic clicks toggle checkboxes, select radio groups, and identify
+  submissions (honouring `preventDefault`/`disabled`); GET submission builds a
+  form-urlencoded query URL, and **POST is a clear error**. There is still no
+  interactive window — no real typing, focus, or caret.
 
 It uses **no existing browser or JavaScript engine**. See
 [dom-bindings.md](dom-bindings.md), [subresources.md](subresources.md),
 [images-and-replaced-elements.md](images-and-replaced-elements.md),
+[forms-and-controls.md](forms-and-controls.md),
 [rendering-pipeline.md](rendering-pipeline.md), and
 [limitations.md](limitations.md) for detail and what is intentionally absent.
 

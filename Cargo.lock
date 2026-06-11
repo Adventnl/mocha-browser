@@ -118,6 +118,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "mocha_forms"
+version = "0.1.0"
+dependencies = [
+ "mocha_dom",
+ "mocha_error",
+ "mocha_events",
+ "mocha_html",
+ "mocha_url",
+]
+
+[[package]]
 name = "mocha_html"
 version = "0.1.0"
 dependencies = [
@@ -146,6 +157,7 @@ version = "0.1.0"
 dependencies = [
  "mocha_dom",
  "mocha_error",
+ "mocha_forms",
  "mocha_html",
  "mocha_js",
  "mocha_style",
@@ -207,6 +219,7 @@ dependencies = [
  "mocha_dom",
  "mocha_error",
  "mocha_events",
+ "mocha_forms",
  "mocha_html",
  "mocha_image",
  "mocha_js",

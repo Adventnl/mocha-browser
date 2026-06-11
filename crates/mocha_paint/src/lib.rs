@@ -68,6 +68,27 @@ pub enum DisplayCommand {
         /// Draw height.
         height: f32,
     },
+    /// Draw a form control. Like images, controls are **not** rasterized to a
+    /// real widget or window — the command carries everything a future surface
+    /// would need.
+    DrawControl {
+        /// The normalized control type (`"text"`, `"checkbox"`, `"button"`, …).
+        control_type: String,
+        /// Left edge.
+        x: f32,
+        /// Top edge.
+        y: f32,
+        /// Draw width.
+        width: f32,
+        /// Draw height.
+        height: f32,
+        /// The current value (text controls) or visible label (buttons), if any.
+        value: Option<String>,
+        /// The checked state for checkboxes/radios; `None` for other controls.
+        checked: Option<bool>,
+        /// Whether the control is disabled.
+        disabled: bool,
+    },
 }
 
 impl DisplayCommand {
@@ -105,6 +126,28 @@ impl DisplayCommand {
                 width,
                 height,
             } => format!("DrawImage image_id={image_id} x={x} y={y} width={width} height={height}"),
+            DisplayCommand::DrawControl {
+                control_type,
+                x,
+                y,
+                width,
+                height,
+                value,
+                checked,
+                disabled,
+            } => {
+                let mut line = format!(
+                    "DrawControl type={control_type} x={x} y={y} width={width} height={height}"
+                );
+                if let Some(value) = value {
+                    line.push_str(&format!(" value={value:?}"));
+                }
+                if let Some(checked) = checked {
+                    line.push_str(&format!(" checked={checked}"));
+                }
+                line.push_str(&format!(" disabled={disabled}"));
+                line
+            }
         }
     }
 }
@@ -181,6 +224,29 @@ fn paint_box(layout_box: &LayoutBox, commands: &mut Vec<DisplayCommand>) {
                 y: rect.y,
                 width: rect.width,
                 height: rect.height,
+            });
+        }
+        LayoutBoxKind::Control(control) => {
+            // A form control draws like a replaced element: optional
+            // background/border, then the control fills the box.
+            if layout_box.background_color.a != 0 {
+                commands.push(DisplayCommand::DrawRect {
+                    x: rect.x,
+                    y: rect.y,
+                    width: rect.width,
+                    height: rect.height,
+                    color: layout_box.background_color,
+                });
+            }
+            commands.push(DisplayCommand::DrawControl {
+                control_type: control.control_type.clone(),
+                x: rect.x,
+                y: rect.y,
+                width: rect.width,
+                height: rect.height,
+                value: control.value.clone(),
+                checked: control.checked,
+                disabled: control.disabled,
             });
         }
     }
@@ -341,6 +407,91 @@ mod tests {
     fn empty_layout_does_not_panic() {
         let commands = build_display_list(&block_box(Color::TRANSPARENT, 0.0, Vec::new())).unwrap();
         assert!(commands.is_empty());
+    }
+
+    fn control_box(
+        control_type: &str,
+        value: Option<&str>,
+        checked: Option<bool>,
+        disabled: bool,
+    ) -> LayoutBox {
+        LayoutBox {
+            node_id: Some(NodeId(1)),
+            kind: LayoutBoxKind::Control(mocha_layout::ControlBox {
+                control_type: control_type.to_string(),
+                value: value.map(str::to_string),
+                checked,
+                disabled,
+                width: 3.0,
+                height: 4.0,
+            }),
+            rect: rect(),
+            font_size: 0.0,
+            color: Color::BLACK,
+            background_color: Color::TRANSPARENT,
+            border_width: 0.0,
+            border_color: Color::BLACK,
+            children: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn text_input_emits_draw_control_with_value() {
+        let commands =
+            build_display_list(&control_box("text", Some("hello"), None, false)).unwrap();
+        assert_eq!(
+            commands,
+            vec![DisplayCommand::DrawControl {
+                control_type: "text".to_string(),
+                x: 1.0,
+                y: 2.0,
+                width: 3.0,
+                height: 4.0,
+                value: Some("hello".to_string()),
+                checked: None,
+                disabled: false,
+            }]
+        );
+    }
+
+    #[test]
+    fn checkbox_emits_draw_control_with_checked_state() {
+        let commands =
+            build_display_list(&control_box("checkbox", None, Some(true), false)).unwrap();
+        assert!(matches!(
+            &commands[0],
+            DisplayCommand::DrawControl {
+                control_type,
+                checked: Some(true),
+                ..
+            } if control_type == "checkbox"
+        ));
+    }
+
+    #[test]
+    fn disabled_state_is_included_in_draw_control() {
+        let commands = build_display_list(&control_box("button", Some("Go"), None, true)).unwrap();
+        assert!(matches!(
+            &commands[0],
+            DisplayCommand::DrawControl { disabled: true, .. }
+        ));
+    }
+
+    #[test]
+    fn control_debug_line_is_readable() {
+        let checkbox = control_box("checkbox", None, Some(true), false);
+        let commands = build_display_list(&checkbox).unwrap();
+        assert_eq!(
+            commands[0].to_debug_line(),
+            "DrawControl type=checkbox x=1 y=2 width=3 height=4 checked=true disabled=false"
+        );
+
+        let text = control_box("text", Some("hi"), None, true);
+        let commands = build_display_list(&text).unwrap();
+        assert_eq!(
+            commands[0].to_debug_line(),
+            "DrawControl type=text x=1 y=2 width=3 height=4 value=\"hi\" disabled=true"
+        );
     }
 
     #[test]
