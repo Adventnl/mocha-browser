@@ -1,14 +1,13 @@
-//! The `mocha_desktop` binary: a minimal desktop document viewer.
+//! The `mocha_desktop` binary: a minimal desktop browser.
 //!
 //! ```bash
-//! cargo run -p mocha_desktop --features gui -- examples/desktop/interactive-form.html
+//! cargo run -p mocha_desktop --features gui -- examples/basic/index.html
 //! cargo run -p mocha_desktop -- --dump-display-list examples/forms/basic-form.html
 //! ```
 //!
 //! Loads a local file / `file://` / `http://` document and shows it in a native
-//! window (with the `gui` feature) where it can be scrolled and clicked.
-//! Without `gui`, only `--dump-display-list` works (headless). There is **no**
-//! address bar, tabs, or browser chrome. `https://` is unsupported.
+//! window (with the `gui` feature). The window includes a toolbar with back/forward/reload
+//! buttons, an address bar, and the page viewport. `https://` is unsupported.
 
 use std::process::ExitCode;
 

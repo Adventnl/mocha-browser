@@ -1,16 +1,14 @@
-//! The Milestone 11 desktop document shell.
+//! The Milestone 12 desktop browser shell.
 //!
 //! This crate opens a native window (behind the `gui` feature, see `main.rs`),
-//! rasterizes the Mocha display list to it, scrolls, and routes mouse/keyboard
-//! input into the shared engine pipeline. It is a **document viewer**, not a
-//! browser: there is no address bar, tabs, bookmarks, or navigation chrome.
+//! rasterizes the Mocha display list to it, and provides a minimal browser:
+//! toolbar, address bar, back/forward/reload buttons, and a page viewport.
 //!
-//! All interaction logic lives in [`DesktopPageState`], a plain state machine
-//! that is fully testable **without** opening a window. The window/event loop
-//! (`window.rs`) is a thin driver that calls these methods. After any change the
-//! shell uses **coarse full-document rerender** ([`mocha_engine::relayout`]):
-//! it re-runs style/layout/paint over the whole document rather than
-//! invalidating incrementally. See `docs/architecture/desktop-shell.md`.
+//! All interaction logic is testable **without** opening a window. The window/event loop
+//! (`window.rs`) is a thin driver. After any change the shell uses **coarse
+//! full-document rerender** ([`mocha_engine::relayout`]): it re-runs style/layout/paint
+//! over the whole document rather than invalidating incrementally. See
+//! `docs/architecture/desktop-shell.md` and `docs/architecture/browser-chrome.md`.
 
 use mocha_dom::{Document, NodeId};
 use mocha_engine::{relayout, render_html, render_url, RenderOptions, RenderedPage, Stylesheet};
@@ -510,3 +508,11 @@ mod tests {
         );
     }
 }
+
+pub mod chrome;
+pub mod address_bar;
+pub mod browser_app;
+
+pub use address_bar::AddressBarState;
+pub use browser_app::{BrowserAppState, BrowserFocus};
+pub use chrome::{ChromeElement, ChromeLayout, Rect};

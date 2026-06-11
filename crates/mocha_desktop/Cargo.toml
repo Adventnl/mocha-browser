@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Milestone 11 desktop document shell: a native window that rasterizes the Mocha display list, scrolls, and routes mouse/keyboard input into the shared engine. A document viewer, not browser chrome."
+description = "Milestone 12 desktop browser shell: a native window, minimal browser chrome (toolbar, address bar, back/forward/reload buttons), and a single-page document viewer."
 
 [lib]
 name = "mocha_desktop"

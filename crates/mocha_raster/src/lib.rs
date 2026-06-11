@@ -144,6 +144,21 @@ impl Surface {
         cursor - x
     }
 
+    /// Draw a filled rectangle at device coordinates (public for chrome rendering).
+    pub fn draw_rect(&mut self, x: i32, y: i32, w: i32, h: i32, color: Color) {
+        self.fill_rect(x, y, w, h, color);
+    }
+
+    /// Draw a stroked rectangle at device coordinates (public for chrome rendering).
+    pub fn draw_rect_outline(&mut self, x: i32, y: i32, w: i32, h: i32, thickness: i32, color: Color) {
+        self.stroke_rect(x, y, w, h, thickness, color);
+    }
+
+    /// Draw text at device coordinates (public for chrome rendering).
+    pub fn draw_text_at(&mut self, text: &str, x: i32, y: i32, scale: i32, color: Color) -> i32 {
+        self.draw_text(text, x, y, scale, color)
+    }
+
     /// Nearest-neighbour blit of an RGBA image into the device rect `(x, y, w, h)`.
     fn draw_image(&mut self, image: &RasterImage, x: i32, y: i32, w: i32, h: i32) {
         if w <= 0 || h <= 0 || image.width == 0 || image.height == 0 {

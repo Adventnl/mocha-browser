@@ -4,7 +4,7 @@ Mocha Browser is an experimental from-scratch browser engine and desktop browser
 
 Mocha is not based on Chromium, WebKit, Gecko, Servo, Electron, CEF, Tauri WebView, system WebView, V8, SpiderMonkey, JavaScriptCore, QuickJS, Deno, or Node.js.
 
-Current status: Milestone 10 (Forms and basic input controls) implemented.
+Current status: Milestone 12 (Browser chrome) implemented.
 
 Mocha is not safe for general web browsing yet.
 

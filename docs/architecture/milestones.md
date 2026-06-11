@@ -153,15 +153,28 @@ goal, what is explicitly not included, and how completion is verified.
   changes reach the display list, clicks toggle/select/submit unless prevented,
   GET URLs build correctly, POST fails clearly, old examples still run).
 
-## Milestone 11: Desktop window shell — next
+## Milestone 11: Desktop window shell — complete
 
 - **Goal:** a real raster/window surface that draws the existing display list
   (rectangles, borders, text, images, controls) instead of printing it.
 - **Not included:** tabs, address bar, navigation chrome, OS input wiring beyond
   the minimum, GPU compositing.
-- **Verification:** to be specified when the milestone starts.
+- **Verification:** `cargo test -p mocha_desktop` passes; all terminal examples still work; window opens and displays page with scrolling and click input routing.
 
-## Beyond Milestone 11 (direction, not code)
+## Milestone 12: Browser chrome — complete
+
+- **Goal:** minimal browser UI (toolbar, address bar, back/forward/reload buttons)
+  around a single-page document viewer. Testable state machine (`BrowserAppState`)
+  separate from the window loop. Simple navigation history (back/forward).
+- **Not included:** tabs (M13), error pages, loading indicators, page titles,
+  bookmarks, settings, bookmarks database, HTTPS, cookies, keyboard shortcuts,
+  search suggestions.
+- **Verification:** `cargo test -p mocha_desktop` passes (all tests including chrome
+  layout, address bar, history); terminal examples work unchanged; desktop window
+  shows simple chrome (colored buttons, address bar text field), address bar accepts
+  input, back/forward/reload buttons work.
+
+## Beyond Milestone 12 (direction, not code)
 
 - **Multi-process architecture:** a browser process and renderer process(es) with
   typed IPC and crash recovery.
