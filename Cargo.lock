@@ -494,6 +494,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mocha_cookie"
+version = "0.1.0"
+dependencies = [
+ "mocha_error",
+ "mocha_origin",
+ "mocha_url",
+]
+
+[[package]]
 name = "mocha_css"
 version = "0.1.0"
 dependencies = [
@@ -597,12 +606,14 @@ dependencies = [
 name = "mocha_js_dom"
 version = "0.1.0"
 dependencies = [
+ "mocha_cookie",
  "mocha_dom",
  "mocha_error",
  "mocha_forms",
  "mocha_html",
  "mocha_js",
  "mocha_style",
+ "mocha_url",
 ]
 
 [[package]]
@@ -626,6 +637,15 @@ dependencies = [
 
 [[package]]
 name = "mocha_net"
+version = "0.1.0"
+dependencies = [
+ "mocha_cookie",
+ "mocha_error",
+ "mocha_url",
+]
+
+[[package]]
+name = "mocha_origin"
 version = "0.1.0"
 dependencies = [
  "mocha_error",
@@ -687,7 +707,9 @@ dependencies = [
 name = "mocha_storage"
 version = "0.1.0"
 dependencies = [
+ "mocha_cookie",
  "mocha_error",
+ "mocha_origin",
  "mocha_url",
  "rusqlite",
 ]

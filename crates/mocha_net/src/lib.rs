@@ -108,6 +108,24 @@ pub trait ResourceLoader {
     fn load(&mut self, request: LoadRequest) -> MochaResult<ResourceResponse>;
 }
 
+/// A cookie jar the HTTP client consults around a request (Milestone 15).
+///
+/// `mocha_net` does **not** depend on the storage layer: an embedder implements
+/// this trait (e.g. over a `mocha_cookie::CookieJar` or `mocha_storage`'s cookie
+/// store) and passes it to [`DefaultLoader::load_with_cookies`]. Cookies apply
+/// only to `http`/`https` requests; `file://` never uses cookies.
+pub trait CookieProvider {
+    /// The `Cookie` request-header value to send for `url` (or `None`).
+    fn cookie_header_for_request(&mut self, url: &Url, now_ms: i64) -> MochaResult<Option<String>>;
+    /// Store any `Set-Cookie` response headers from a response to `url`.
+    fn store_response_cookies(
+        &mut self,
+        url: &Url,
+        headers: &[Header],
+        now_ms: i64,
+    ) -> MochaResult<()>;
+}
+
 /// The default loader: handles `file`/`http`, with an in-memory cache for HTTP.
 #[derive(Debug, Default)]
 pub struct DefaultLoader {
@@ -137,6 +155,25 @@ impl DefaultLoader {
                 .insert(response.final_url.normalized(), response.clone());
         }
         Ok(response)
+    }
+
+    /// Load `request`, consulting `cookies` to attach a `Cookie` header and store
+    /// any `Set-Cookie` responses (Milestone 15). This path **bypasses the cache**
+    /// (so the live `Cookie` header is always sent) and applies cookies per
+    /// redirect hop. `file://` loads ignore cookies; `https://` is unsupported.
+    pub fn load_with_cookies(
+        &mut self,
+        request: LoadRequest,
+        cookies: &mut dyn CookieProvider,
+        now_ms: i64,
+    ) -> MochaResult<ResourceResponse> {
+        match request.url.scheme {
+            Scheme::File => file::load_file(&request.url),
+            Scheme::Http => http::fetch_with_redirects_cookies(&request.url, Some(cookies), now_ms),
+            Scheme::Https => Err(MochaError::UnsupportedFeature(
+                "https loading is not implemented in Milestone 4".to_string(),
+            )),
+        }
     }
 }
 
@@ -343,5 +380,141 @@ mod tests {
         assert!(second.from_cache, "second load should be cached");
         let bypass = loader.load(LoadRequest::get_no_cache(url)).unwrap();
         assert!(!bypass.from_cache, "no-cache should bypass the cache");
+    }
+}
+
+#[cfg(test)]
+mod cookie_tests {
+    use super::test_server::{Reply, TestServer};
+    use super::*;
+    use mocha_cookie::CookieJar;
+
+    /// A `CookieProvider` over an in-memory `mocha_cookie::CookieJar`.
+    struct JarProvider(CookieJar);
+
+    impl CookieProvider for JarProvider {
+        fn cookie_header_for_request(
+            &mut self,
+            url: &Url,
+            now_ms: i64,
+        ) -> MochaResult<Option<String>> {
+            Ok(self.0.cookie_header_for_request(url, now_ms))
+        }
+
+        fn store_response_cookies(
+            &mut self,
+            url: &Url,
+            headers: &[Header],
+            now_ms: i64,
+        ) -> MochaResult<()> {
+            for header in headers {
+                if header.name.eq_ignore_ascii_case("set-cookie") {
+                    // Ignore a single malformed Set-Cookie rather than aborting.
+                    let _ = self.0.store_set_cookie(&header.value, url, now_ms);
+                }
+            }
+            Ok(())
+        }
+    }
+
+    fn get(loader: &mut DefaultLoader, jar: &mut JarProvider, url: &str, now_ms: i64) -> String {
+        let request = LoadRequest::get(Url::parse(url).unwrap());
+        let response = loader.load_with_cookies(request, jar, now_ms).unwrap();
+        String::from_utf8_lossy(&response.body).into_owned()
+    }
+
+    #[test]
+    fn server_sets_cookie_and_second_request_sends_it() {
+        let server = TestServer::start(vec![
+            (
+                "/set".to_string(),
+                Reply::SetCookies {
+                    set_cookie: vec!["sid=abc; Path=/".to_string()],
+                    body: "ok".to_string(),
+                },
+            ),
+            ("/echo".to_string(), Reply::EchoCookie),
+        ]);
+        let mut loader = DefaultLoader::new();
+        let mut jar = JarProvider(CookieJar::new());
+
+        // First request: server sets the cookie.
+        get(&mut loader, &mut jar, &server.url("/set"), 0);
+        // Second request: the client sends the stored cookie back.
+        let echoed = get(&mut loader, &mut jar, &server.url("/echo"), 0);
+        assert_eq!(echoed, "sid=abc");
+    }
+
+    #[test]
+    fn multiple_set_cookie_headers_are_stored() {
+        let server = TestServer::start(vec![
+            (
+                "/set".to_string(),
+                Reply::SetCookies {
+                    set_cookie: vec!["a=1; Path=/".to_string(), "b=2; Path=/".to_string()],
+                    body: "ok".to_string(),
+                },
+            ),
+            ("/echo".to_string(), Reply::EchoCookie),
+        ]);
+        let mut loader = DefaultLoader::new();
+        let mut jar = JarProvider(CookieJar::new());
+        get(&mut loader, &mut jar, &server.url("/set"), 0);
+        let echoed = get(&mut loader, &mut jar, &server.url("/echo"), 0);
+        // Both cookies are sent (path-equal → ordered by name).
+        assert_eq!(echoed, "a=1; b=2");
+    }
+
+    #[test]
+    fn expired_cookie_is_not_sent() {
+        let server = TestServer::start(vec![
+            (
+                "/set".to_string(),
+                Reply::SetCookies {
+                    set_cookie: vec!["a=1; Max-Age=10".to_string()],
+                    body: "ok".to_string(),
+                },
+            ),
+            ("/echo".to_string(), Reply::EchoCookie),
+        ]);
+        let mut loader = DefaultLoader::new();
+        let mut jar = JarProvider(CookieJar::new());
+        get(&mut loader, &mut jar, &server.url("/set"), 1000);
+        // Long after expiry: no Cookie header.
+        let echoed = get(&mut loader, &mut jar, &server.url("/echo"), 999_999);
+        assert_eq!(echoed, "");
+    }
+
+    #[test]
+    fn secure_cookie_not_sent_over_http() {
+        let server = TestServer::start(vec![
+            (
+                "/set".to_string(),
+                Reply::SetCookies {
+                    set_cookie: vec!["a=1; Secure".to_string()],
+                    body: "ok".to_string(),
+                },
+            ),
+            ("/echo".to_string(), Reply::EchoCookie),
+        ]);
+        let mut loader = DefaultLoader::new();
+        let mut jar = JarProvider(CookieJar::new());
+        get(&mut loader, &mut jar, &server.url("/set"), 0);
+        let echoed = get(&mut loader, &mut jar, &server.url("/echo"), 0);
+        assert_eq!(echoed, "", "Secure cookie is not sent over http");
+    }
+
+    #[test]
+    fn file_url_does_not_use_cookies() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../examples/basic/index.html"
+        );
+        let mut loader = DefaultLoader::new();
+        let mut jar = JarProvider(CookieJar::new());
+        // A file:// load works and simply ignores the cookie provider.
+        let request = LoadRequest::get(Url::parse(path).unwrap());
+        let response = loader.load_with_cookies(request, &mut jar, 0).unwrap();
+        assert!(!response.body.is_empty());
     }
 }

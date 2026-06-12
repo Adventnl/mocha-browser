@@ -13,17 +13,34 @@ use std::time::Duration;
 use mocha_error::{MochaError, MochaResult};
 use mocha_url::{Scheme, Url};
 
-use crate::{Header, ResourceResponse, MAX_REDIRECTS};
+use crate::{CookieProvider, Header, ResourceResponse, MAX_REDIRECTS};
 
 const TIMEOUT: Duration = Duration::from_secs(15);
 
-/// Fetch `start`, following redirects (up to [`MAX_REDIRECTS`]).
+/// Fetch `start`, following redirects (up to [`MAX_REDIRECTS`]), with no cookies.
 pub(crate) fn fetch_with_redirects(start: &Url) -> MochaResult<ResourceResponse> {
+    fetch_with_redirects_cookies(start, None, 0)
+}
+
+/// Fetch `start`, following redirects, optionally attaching a `Cookie` header and
+/// storing `Set-Cookie` responses through `cookies` (per hop).
+pub(crate) fn fetch_with_redirects_cookies(
+    start: &Url,
+    mut cookies: Option<&mut dyn CookieProvider>,
+    now_ms: i64,
+) -> MochaResult<ResourceResponse> {
     let mut current = start.clone();
     let mut redirects = 0;
 
     loop {
-        let raw = fetch_once(&current)?;
+        let cookie_header = match cookies.as_deref_mut() {
+            Some(provider) => provider.cookie_header_for_request(&current, now_ms)?,
+            None => None,
+        };
+        let raw = fetch_once(&current, cookie_header.as_deref())?;
+        if let Some(provider) = cookies.as_deref_mut() {
+            provider.store_response_cookies(&current, &raw.headers, now_ms)?;
+        }
         if is_redirect(raw.status) {
             redirects += 1;
             if redirects > MAX_REDIRECTS {
@@ -70,8 +87,9 @@ struct RawResponse {
     body: Vec<u8>,
 }
 
-/// Perform a single GET (no redirect following).
-fn fetch_once(url: &Url) -> MochaResult<RawResponse> {
+/// Perform a single GET (no redirect following), optionally sending a `Cookie`
+/// request header.
+fn fetch_once(url: &Url, cookie_header: Option<&str>) -> MochaResult<RawResponse> {
     let host = url
         .host
         .as_deref()
@@ -79,11 +97,16 @@ fn fetch_once(url: &Url) -> MochaResult<RawResponse> {
     let port = url.effective_port().unwrap_or(80);
     let authority = url.authority().unwrap_or_else(|| host.to_string());
 
+    let cookie_line = match cookie_header {
+        Some(value) => format!("Cookie: {value}\r\n"),
+        None => String::new(),
+    };
     let request = format!(
         "GET {target} HTTP/1.1\r\n\
          Host: {authority}\r\n\
          User-Agent: mocha-browser/0.1\r\n\
          Accept: */*\r\n\
+         {cookie_line}\
          Connection: close\r\n\
          \r\n",
         target = url.request_target(),

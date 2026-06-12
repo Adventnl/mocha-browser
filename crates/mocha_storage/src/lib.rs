@@ -20,16 +20,22 @@ use mocha_error::{MochaError, MochaResult};
 use rusqlite::Connection;
 
 pub mod bookmarks;
+pub mod cookies;
 pub mod downloads;
 pub mod history;
+pub mod local_storage;
 pub mod migrations;
 pub mod session;
+pub mod session_storage;
 pub mod settings;
 
 pub use bookmarks::{BookmarkEntry, BookmarkStore};
+pub use cookies::CookieStore;
 pub use downloads::{DownloadEntry, DownloadStatus, DownloadStore};
 pub use history::{HistoryEntry, HistoryStore};
+pub use local_storage::LocalStorageStore;
 pub use session::{SessionStore, StoredSession, StoredTab};
+pub use session_storage::SessionStorage;
 pub use settings::SettingsStore;
 
 /// The file name of the SQLite database inside a persistent profile directory.
@@ -151,6 +157,16 @@ impl Profile {
     /// The persisted-session store.
     pub fn session(&self) -> SessionStore<'_> {
         SessionStore::new(&self.conn)
+    }
+
+    /// The persistent cookie store (Milestone 15).
+    pub fn cookies(&self) -> CookieStore<'_> {
+        CookieStore::new(&self.conn)
+    }
+
+    /// The persistent, origin-keyed `localStorage` store (Milestone 15).
+    pub fn local_storage(&self) -> LocalStorageStore<'_> {
+        LocalStorageStore::new(&self.conn)
     }
 }
 

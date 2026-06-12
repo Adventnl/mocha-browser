@@ -1,0 +1,15 @@
+[package]
+name = "mocha_origin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Milestone 15 minimal web origin model: URL-to-origin, same-origin comparison, and an origin storage key, with a conservative file:// policy."
+
+[lib]
+name = "mocha_origin"
+path = "src/lib.rs"
+
+[dependencies]
+mocha_error.workspace = true
+mocha_url.workspace = true

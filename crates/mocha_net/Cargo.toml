@@ -13,3 +13,7 @@ test-util = []
 [dependencies]
 mocha_error.workspace = true
 mocha_url.workspace = true
+
+[dev-dependencies]
+# Used only by cookie-integration tests to supply a CookieProvider over a jar.
+mocha_cookie.workspace = true

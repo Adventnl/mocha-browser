@@ -17,6 +17,8 @@ members = [
     "crates/mocha_js_dom",
     "crates/mocha_resources",
     "crates/mocha_image",
+    "crates/mocha_origin",
+    "crates/mocha_cookie",
     "crates/mocha_storage",
     "crates/mocha_engine",
     "crates/mocha_raster",
@@ -47,6 +49,8 @@ mocha_js = { path = "crates/mocha_js" }
 mocha_js_dom = { path = "crates/mocha_js_dom" }
 mocha_resources = { path = "crates/mocha_resources" }
 mocha_image = { path = "crates/mocha_image" }
+mocha_origin = { path = "crates/mocha_origin" }
+mocha_cookie = { path = "crates/mocha_cookie" }
 mocha_storage = { path = "crates/mocha_storage" }
 mocha_engine = { path = "crates/mocha_engine" }
 mocha_raster = { path = "crates/mocha_raster" }

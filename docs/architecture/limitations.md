@@ -1,10 +1,9 @@
 # Limitations
 
-Mocha Browser is at **Milestone 14** (multi-tab desktop shell with a SQLite
-profile: history, bookmarks, settings, downloads metadata, and persistent
-sessions). It is an experimental engine with a minimal desktop frontend, not a
-usable browser. This document is deliberately explicit about what does not exist
-so the project never overclaims.
+Mocha Browser is at **Milestone 15** (multi-tab desktop shell with a SQLite
+profile and minimal cookies + origin-aware web storage). It is an experimental
+engine with a minimal desktop frontend, not a usable browser. This document is
+deliberately explicit about what does not exist so the project never overclaims.
 
 ## Not supported
 
@@ -39,7 +38,10 @@ so the project never overclaims.
   / multiple-select / `form` attribute, no label activation, and no autofill.
 - **Fonts** — no font loading or shaping; text size is estimated, not measured.
 - **Canvas / accessibility** — not parsed or rendered.
-- **Security sandbox** — no process sandbox, origin model, or permissions.
+- **Security sandbox** — no process sandbox or permissions. A **minimal origin
+  model** exists (Milestone 15, `mocha_origin`) for scoping cookies/web storage,
+  but it is **not** a security boundary (no same-origin enforcement, CSP, or
+  mixed-content policy).
 - **Multi-process architecture** — single process only.
 - **Profile / sessions** — the desktop shell has tabs (M13) and a SQLite profile
   (M14): history, bookmarks, settings, download metadata, and persistent session
@@ -142,12 +144,18 @@ See [networking-and-navigation.md](networking-and-navigation.md) for detail.
 - **`http://` only** — a hand-written blocking HTTP/1.1 `GET` over TCP; no
   HTTPS/TLS, HTTP/2, or HTTP/3; no keep-alive, chunked-transfer decoding, or
   compression.
-- **No cookies, authentication, credentials, or proxy support.**
+- **Cookies are minimal** (Milestone 15): a jar with `Set-Cookie`/`Cookie`
+  HTTP integration (`CookieProvider`) and profile persistence, but **not** full
+  RFC 6265bis — no public-suffix list, no third-party/partitioned policy, no real
+  `SameSite` enforcement, and `Secure` cookies need HTTPS. **No authentication,
+  credentials, or proxy support.** See
+  [cookies-and-web-storage.md](cookies-and-web-storage.md).
 - **The in-memory cache is not an HTTP cache** — no `Cache-Control`, validation,
   or expiration; only `200` responses are stored, for the process lifetime.
 - **Only HTML documents render**; other content types return a clear error.
 - **UTF-8 only** — no charset detection or decoding; invalid UTF-8 is rejected.
-- **No origin model**, same-origin checks, mixed-content handling, or CSP.
+- A **minimal origin model** exists (`mocha_origin`) for storage/cookie scoping,
+  but there are **no same-origin checks, mixed-content handling, or CSP**.
 - Redirects are followed (limit 10); redirects to `file://` and unsupported
   schemes are rejected. Dot-segments (`.`/`..`) in relative references *are*
   normalized for URL/POSIX paths (used for subresource resolution); Windows file

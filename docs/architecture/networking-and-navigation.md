@@ -111,10 +111,16 @@ Networking adds risk; Mocha is **not** safe for general browsing.
 
 - No TLS (no HTTPS); TLS verification is never disabled because TLS is not
   implemented at all.
-- **No cookies** — none are stored or sent. Cookies need a jar, domain/path
-  scoping, `Secure`/`HttpOnly`, and expiry, which are out of scope here.
+- **Cookies (Milestone 15):** `mocha_net` exposes a `CookieProvider` trait and
+  `DefaultLoader::load_with_cookies`, which attach a `Cookie` header and store
+  `Set-Cookie` responses per redirect hop (cache-bypassing). The jar/matching/
+  persistence live in `mocha_cookie`/`mocha_storage`; `mocha_net` stays storage-
+  agnostic. The default `load`/navigation path still sends no cookies — wiring
+  page loads through the jar automatically is deferred. See
+  [cookies-and-web-storage.md](cookies-and-web-storage.md).
 - No authentication, credentials, or proxy support.
-- No origin model, same-origin checks, mixed-content handling, or CSP.
+- A **minimal origin model** exists (`mocha_origin`) for storage/cookie scoping;
+  there are no same-origin checks, mixed-content handling, or CSP.
 - Subresource loading (Milestones 8–9) is layered on top of `mocha_net` by
   `mocha_resources`/`mocha_image`, not by `mocha_net` itself: external
   `<link rel="stylesheet">` CSS and `<img>` images are loaded against the document

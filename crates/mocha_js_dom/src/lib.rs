@@ -16,12 +16,18 @@
 
 use std::any::Any;
 use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::rc::Rc;
 
+use mocha_cookie::CookieJar;
 use mocha_dom::{Document, NodeId, NodeKind};
 use mocha_error::{MochaError, MochaResult};
 use mocha_forms::{ControlKind, FormState};
 use mocha_js::{HostObject, Interpreter, JsValue};
+use mocha_url::{Scheme, Url};
+
+/// JavaScript has no clock; cookie operations from script use a fixed time.
+const JS_NOW_MS: i64 = 0;
 
 /// Tags that `document.createElement` is allowed to create. Anything else is a
 /// clear [`MochaError::UnsupportedFeature`] rather than a silently-broken element.
@@ -76,6 +82,88 @@ struct DomBridge {
     /// wins (a real browser would have navigated away); the embedder takes it
     /// after scripts run and builds the `FormSubmission`.
     pending_submission: RefCell<Option<NodeId>>,
+    /// The document URL (for `document.cookie` and web-storage origin). `None` for
+    /// in-memory documents; `file://` URLs have an opaque origin (web state is
+    /// unavailable). See [`crate::DomRuntime::with_url`].
+    url: Option<Url>,
+    /// Per-render cookie jar backing `document.cookie` (Milestone 15). Not wired
+    /// to the network jar or the persistent profile (single-render, in-memory).
+    cookies: RefCell<CookieJar>,
+    /// In-memory `localStorage` for the document's origin (not persisted here).
+    local_storage: RefCell<HashMap<String, String>>,
+    /// In-memory `sessionStorage` for the document's origin.
+    session_storage: RefCell<HashMap<String, String>>,
+}
+
+/// Which web-storage area a [`StorageHost`] backs.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum StorageKind {
+    Local,
+    Session,
+}
+
+impl DomBridge {
+    /// Whether the document has an http(s) origin (web state is available).
+    fn has_web_origin(&self) -> bool {
+        matches!(&self.url, Some(u) if u.scheme != Scheme::File && u.host.is_some())
+    }
+
+    fn require_web_origin(&self) -> MochaResult<&Url> {
+        match &self.url {
+            Some(url) if url.scheme != Scheme::File && url.host.is_some() => Ok(url),
+            _ => Err(MochaError::Security(
+                "web storage / cookies are unavailable without an http(s) origin".to_string(),
+            )),
+        }
+    }
+
+    /// `document.cookie` getter: non-`HttpOnly` cookies for the document URL.
+    fn cookie_string(&self) -> JsValue {
+        if !self.has_web_origin() {
+            return JsValue::Str(String::new());
+        }
+        let url = self
+            .url
+            .as_ref()
+            .expect("has_web_origin implies a document URL");
+        let jar = self.cookies.borrow();
+        let pairs = jar
+            .cookies_for_request(url, JS_NOW_MS)
+            .into_iter()
+            .filter(|c| !c.http_only)
+            .map(|c| format!("{}={}", c.name, c.value))
+            .collect::<Vec<_>>()
+            .join("; ");
+        JsValue::Str(pairs)
+    }
+
+    /// `document.cookie` setter: stores one cookie. `HttpOnly` from script is
+    /// ignored (scripts cannot create HttpOnly cookies). An unparseable value is
+    /// silently ignored, like real browsers.
+    fn set_cookie_string(&self, value: &str) -> MochaResult<()> {
+        let url = self.require_web_origin()?;
+        if let Ok(mut cookie) = mocha_cookie::parse_set_cookie(value, url, JS_NOW_MS) {
+            cookie.http_only = false;
+            self.cookies.borrow_mut().set_cookie(cookie, JS_NOW_MS);
+        }
+        Ok(())
+    }
+
+    /// Store a server `Set-Cookie` header for the document (e.g. an `HttpOnly`
+    /// cookie that JS must not see). Used by an embedder / tests.
+    fn store_response_set_cookie(&self, header: &str) -> MochaResult<()> {
+        let url = self.require_web_origin()?;
+        self.cookies
+            .borrow_mut()
+            .store_set_cookie(header, url, JS_NOW_MS)
+    }
+
+    fn storage_map(&self, kind: StorageKind) -> &RefCell<HashMap<String, String>> {
+        match kind {
+            StorageKind::Local => &self.local_storage,
+            StorageKind::Session => &self.session_storage,
+        }
+    }
 }
 
 impl DomBridge {
@@ -146,10 +234,19 @@ pub struct DomRuntime {
 }
 
 impl DomRuntime {
-    /// Build a runtime over the shared `document`, installing `window`/`document`/
-    /// `console` globals. The caller keeps its own clone of the `Rc<RefCell<…>>`
-    /// to read the (mutated) document after scripts run.
+    /// Build a runtime over the shared `document` with no document URL (so
+    /// `document.cookie` and web storage are unavailable). See [`Self::with_url`].
     pub fn new(document: Rc<RefCell<Document>>) -> DomRuntime {
+        DomRuntime::with_url(document, None)
+    }
+
+    /// Build a runtime over the shared `document`, installing `window`/`document`/
+    /// `console` globals plus `localStorage`/`sessionStorage`. `url` is the
+    /// document URL: `document.cookie` and origin-keyed web storage require an
+    /// `http(s)` origin (a `file://` or absent URL makes them unavailable). The
+    /// caller keeps its own clone of the `Rc<RefCell<…>>` to read the (mutated)
+    /// document after scripts run.
+    pub fn with_url(document: Rc<RefCell<Document>>, url: Option<Url>) -> DomRuntime {
         let bridge = Rc::new(DomBridge {
             doc: document,
             forms: Rc::new(RefCell::new(FormState::new())),
@@ -158,6 +255,10 @@ impl DomRuntime {
             next_timer_id: Cell::new(0),
             dirty: Cell::new(false),
             pending_submission: RefCell::new(None),
+            url,
+            cookies: RefCell::new(CookieJar::new()),
+            local_storage: RefCell::new(HashMap::new()),
+            session_storage: RefCell::new(HashMap::new()),
         });
         let mut interp = Interpreter::new();
         // `console` is already a global from the interpreter's built-ins; expose it
@@ -173,6 +274,22 @@ impl DomRuntime {
         }));
         interp.define_global("document", document);
         interp.define_global("window", window);
+
+        // Web storage (Milestone 15): origin-keyed for the document's origin.
+        interp.define_global(
+            "localStorage",
+            JsValue::Host(Rc::new(StorageHost {
+                bridge: bridge.clone(),
+                kind: StorageKind::Local,
+            })),
+        );
+        interp.define_global(
+            "sessionStorage",
+            JsValue::Host(Rc::new(StorageHost {
+                bridge: bridge.clone(),
+                kind: StorageKind::Session,
+            })),
+        );
 
         // `setTimeout`/`clearTimeout` are also bare globals (not just `window`
         // methods). They capture the bridge through a native closure.
@@ -337,6 +454,14 @@ impl DomRuntime {
     pub fn take_pending_submission(&mut self) -> Option<NodeId> {
         self.bridge.pending_submission.borrow_mut().take()
     }
+
+    /// Store a server `Set-Cookie` header for the document (Milestone 15). An
+    /// embedder calls this for the document response's cookies; it also lets an
+    /// `HttpOnly` cookie exist that `document.cookie` must not expose. Errors if
+    /// the document has no http(s) origin.
+    pub fn store_response_set_cookie(&self, header: &str) -> MochaResult<()> {
+        self.bridge.store_response_set_cookie(header)
+    }
 }
 
 // === host objects ===========================================================
@@ -395,6 +520,9 @@ impl HostObject for DocumentHost {
         self
     }
     fn get(&self, _: &mut Interpreter, name: &str) -> MochaResult<JsValue> {
+        if name == "cookie" {
+            return Ok(self.bridge.cookie_string());
+        }
         let found = match name {
             "body" => mocha_style::query_selector(&self.bridge.doc.borrow(), "body")?,
             "documentElement" => mocha_style::query_selector(&self.bridge.doc.borrow(), "html")?,
@@ -404,7 +532,10 @@ impl HostObject for DocumentHost {
             .map(|node| node_host(&self.bridge, node))
             .unwrap_or(JsValue::Null))
     }
-    fn set(&self, _: &mut Interpreter, _: &str, _: JsValue) -> MochaResult<()> {
+    fn set(&self, _: &mut Interpreter, name: &str, value: JsValue) -> MochaResult<()> {
+        if name == "cookie" {
+            return self.bridge.set_cookie_string(&value.stringify());
+        }
         Ok(())
     }
     fn call(&self, _: &mut Interpreter, name: &str, args: Vec<JsValue>) -> MochaResult<JsValue> {
@@ -793,6 +924,63 @@ impl HostObject for EventHost {
             }
         }
         Ok(JsValue::Undefined)
+    }
+}
+
+/// `localStorage` / `sessionStorage` (Milestone 15).
+struct StorageHost {
+    bridge: Rc<DomBridge>,
+    kind: StorageKind,
+}
+
+impl HostObject for StorageHost {
+    fn class_name(&self) -> &str {
+        "Storage"
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn get(&self, _: &mut Interpreter, name: &str) -> MochaResult<JsValue> {
+        if name == "length" {
+            self.bridge.require_web_origin()?;
+            let len = self.bridge.storage_map(self.kind).borrow().len();
+            return Ok(JsValue::Number(len as f64));
+        }
+        Ok(JsValue::Undefined)
+    }
+    fn set(&self, _: &mut Interpreter, _: &str, _: JsValue) -> MochaResult<()> {
+        Ok(())
+    }
+    fn call(&self, _: &mut Interpreter, name: &str, args: Vec<JsValue>) -> MochaResult<JsValue> {
+        // Origin-keyed: a document without an http(s) origin cannot use storage.
+        self.bridge.require_web_origin()?;
+        let map = self.bridge.storage_map(self.kind);
+        match name {
+            "getItem" => {
+                let key = arg_str(&args, 0);
+                Ok(map
+                    .borrow()
+                    .get(&key)
+                    .map(|v| JsValue::Str(v.clone()))
+                    .unwrap_or(JsValue::Null))
+            }
+            "setItem" => {
+                map.borrow_mut()
+                    .insert(arg_str(&args, 0), arg_str(&args, 1));
+                Ok(JsValue::Undefined)
+            }
+            "removeItem" => {
+                map.borrow_mut().remove(&arg_str(&args, 0));
+                Ok(JsValue::Undefined)
+            }
+            "clear" => {
+                map.borrow_mut().clear();
+                Ok(JsValue::Undefined)
+            }
+            other => Err(MochaError::JavaScript(format!(
+                "storage has no method '{other}'"
+            ))),
+        }
     }
 }
 
@@ -1277,5 +1465,106 @@ mod tests {
             .run_script(r#"document.createElement("marquee");"#)
             .unwrap_err();
         assert!(matches!(error, MochaError::UnsupportedFeature(_)));
+    }
+
+    // === Milestone 15: document.cookie + web storage bindings ===============
+
+    /// Parse + run scripts with a document URL (so cookies/storage have an origin).
+    fn run_with_url(html: &str, url: &str) -> (Rc<RefCell<Document>>, DomRuntime) {
+        let doc = doc_from(html);
+        let scripts = collect_inline_scripts(&doc.borrow()).unwrap();
+        let mut runtime = DomRuntime::with_url(doc.clone(), Some(Url::parse(url).unwrap()));
+        for source in &scripts {
+            runtime.run_script(source).unwrap();
+        }
+        runtime.run_pending_timers().unwrap();
+        (doc, runtime)
+    }
+
+    #[test]
+    fn document_cookie_setter_then_getter() {
+        let (doc, _rt) = run_with_url(
+            r#"<html><body><p id="out"></p>
+               <script>document.cookie = "sid=abc";
+               document.getElementById("out").textContent = document.cookie;</script>
+               </body></html>"#,
+            "http://example.com/",
+        );
+        assert_eq!(text_of(&doc, "out"), "sid=abc");
+    }
+
+    #[test]
+    fn document_cookie_hides_http_only() {
+        let doc = doc_from(
+            r#"<html><body><p id="out"></p>
+               <script>document.cookie = "vis=1";
+               document.getElementById("out").textContent = document.cookie;</script>
+               </body></html>"#,
+        );
+        let scripts = collect_inline_scripts(&doc.borrow()).unwrap();
+        let mut rt = DomRuntime::with_url(
+            doc.clone(),
+            Some(Url::parse("http://example.com/").unwrap()),
+        );
+        // A server-set HttpOnly cookie must not be visible to document.cookie.
+        rt.store_response_set_cookie("secret=top; HttpOnly")
+            .unwrap();
+        for source in &scripts {
+            rt.run_script(source).unwrap();
+        }
+        assert_eq!(text_of(&doc, "out"), "vis=1");
+    }
+
+    #[test]
+    fn document_cookie_unavailable_without_origin() {
+        // In-memory document (no URL): setting document.cookie is a clear error.
+        let doc = doc_from(r#"<html><body></body></html>"#);
+        let mut rt = DomRuntime::new(doc);
+        let err = rt.run_script(r#"document.cookie = "a=b";"#).unwrap_err();
+        assert!(matches!(err, MochaError::Security(_)));
+    }
+
+    #[test]
+    fn local_storage_set_get_and_missing_is_null() {
+        let (doc, _rt) = run_with_url(
+            r#"<html><body><p id="a"></p><p id="b"></p>
+               <script>localStorage.setItem("k", "v");
+               document.getElementById("a").textContent = localStorage.getItem("k");
+               if (localStorage.getItem("nope") === null) {
+                 document.getElementById("b").textContent = "null";
+               }</script>
+               </body></html>"#,
+            "http://example.com/",
+        );
+        assert_eq!(text_of(&doc, "a"), "v");
+        assert_eq!(text_of(&doc, "b"), "null");
+    }
+
+    #[test]
+    fn session_storage_is_not_shared_across_runtimes() {
+        // Tab 1 writes sessionStorage.
+        let _ = run_with_url(
+            r#"<html><body><script>sessionStorage.setItem("s", "1");</script></body></html>"#,
+            "http://example.com/",
+        );
+        // Tab 2 (a separate runtime) does not see it.
+        let (doc2, _rt) = run_with_url(
+            r#"<html><body><p id="out"></p>
+               <script>if (sessionStorage.getItem("s") === null) {
+                 document.getElementById("out").textContent = "empty";
+               }</script></body></html>"#,
+            "http://example.com/",
+        );
+        assert_eq!(text_of(&doc2, "out"), "empty");
+    }
+
+    #[test]
+    fn web_storage_unavailable_without_origin() {
+        let doc = doc_from(r#"<html><body></body></html>"#);
+        let mut rt = DomRuntime::new(doc);
+        let err = rt
+            .run_script(r#"localStorage.setItem("k", "v");"#)
+            .unwrap_err();
+        assert!(matches!(err, MochaError::Security(_)));
     }
 }

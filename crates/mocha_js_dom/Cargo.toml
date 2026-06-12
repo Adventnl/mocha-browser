@@ -13,3 +13,5 @@ mocha_dom.workspace = true
 mocha_forms.workspace = true
 mocha_html.workspace = true
 mocha_style.workspace = true
+mocha_url.workspace = true
+mocha_cookie.workspace = true

@@ -204,9 +204,29 @@ goal, what is explicitly not included, and how completion is verified.
   `--profile DIR --dump-session` desktop command. See
   [profile-storage.md](profile-storage.md).
 
-## Beyond Milestone 14 (direction, not code)
+## Milestone 15: Cookies and origin-aware storage — complete
 
-- **Web state (next, M15):** cookies and origin-aware `localStorage`/`sessionStorage`.
+- **Goal:** browser web-state foundations — a minimal origin model
+  (`mocha_origin`), a cookie model/jar (`mocha_cookie`), cookie + `localStorage`
+  persistence in `mocha_storage` (migration 2), an `http` cookie integration in
+  `mocha_net` (a `CookieProvider` trait), and `document.cookie` /
+  `localStorage` / `sessionStorage` JS bindings.
+- **Not included:** full RFC 6265bis, third-party/partitioned-cookie policy,
+  cookie UI, real `SameSite` enforcement, IndexedDB/Cache API/quotas/StorageEvent,
+  a complete security model. JS-side `localStorage` persistence and automatic
+  page-load cookie wiring are deferred.
+- **Verification:** `cargo test -p mocha_origin -p mocha_cookie -p mocha_storage`
+  (origin equality/normalization/file policy; cookie parse/match/order; cookie +
+  localStorage persistence and private non-persistence) and `cargo test -p
+  mocha_net` (local-test-server cookie round-trips) and `cargo test -p
+  mocha_js_dom` (document.cookie + web storage bindings). See
+  [cookies-and-web-storage.md](cookies-and-web-storage.md) and
+  [origin-model.md](origin-model.md).
+
+## Beyond Milestone 15 (direction, not code)
+
+- **Origin model and security foundation (next, M16):** same-origin checks,
+  mixed-content awareness, and a real security boundary.
 - **Multi-process architecture:** a browser process and renderer process(es) with
   typed IPC and crash recovery.
 - **Security foundation:** an origin model, same-origin checks, mixed content.

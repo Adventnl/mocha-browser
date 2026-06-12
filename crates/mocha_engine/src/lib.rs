@@ -183,7 +183,7 @@ fn render_html_with_base(
         mut form_state,
         console_output,
         submitted_form,
-    } = run_document_scripts(mocha_html::parse_html(html)?)?;
+    } = run_document_scripts(mocha_html::parse_html(html)?, base)?;
 
     let stylesheets = collect_stylesheets(&document, base)?;
     let images = load_images(&document, base)?;
@@ -247,7 +247,7 @@ struct ScriptOutcome {
 /// output, and any `form.submit()` request. Coarse invalidation: scripts run
 /// once before style/layout. Unsupported control types error during init; a
 /// script (parse/runtime) error aborts the render.
-fn run_document_scripts(document: Document) -> MochaResult<ScriptOutcome> {
+fn run_document_scripts(document: Document, base: Option<&Url>) -> MochaResult<ScriptOutcome> {
     let scripts = mocha_js_dom::collect_inline_scripts(&document)?;
     if scripts.is_empty() {
         let form_state = mocha_forms::build_form_state(&document)?;
@@ -259,7 +259,9 @@ fn run_document_scripts(document: Document) -> MochaResult<ScriptOutcome> {
         });
     }
     let shared = Rc::new(RefCell::new(document));
-    let mut runtime = mocha_js_dom::DomRuntime::new(shared.clone());
+    // The document URL gives scripts an origin for `document.cookie` and web
+    // storage (Milestone 15); `None` for in-memory HTML leaves them unavailable.
+    let mut runtime = mocha_js_dom::DomRuntime::with_url(shared.clone(), base.cloned());
     runtime.init_form_state()?;
     for source in &scripts {
         runtime.run_script(source)?;

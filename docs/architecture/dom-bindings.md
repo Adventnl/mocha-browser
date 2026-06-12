@@ -35,6 +35,24 @@ return a clear `MochaError::JavaScript` error.
 - `document` — a host object backing the shared DOM.
 - `console` — the interpreter's built-in console (its `log` output is captured).
 - `setTimeout` / `clearTimeout` are also bare globals (native closures).
+- `localStorage` / `sessionStorage` — host objects exposing
+  `getItem`/`setItem`/`removeItem`/`clear`/`length` (Milestone 15).
+
+### Web state (Milestone 15)
+
+`DomRuntime::with_url(document, url)` gives scripts the document URL, so
+`document.cookie` and web storage have an origin:
+
+- **`document.cookie`** — getter returns the non-`HttpOnly` cookies for the
+  document URL (`n1=v1; n2=v2`); setter stores one cookie (ignoring an `HttpOnly`
+  attribute from script). Backed by a per-render in-memory `mocha_cookie::CookieJar`.
+- **`localStorage` / `sessionStorage`** — origin-keyed string storage (missing
+  key → `null`). Per-render in-memory backends (JS-side persistence and the
+  tab-scoped `sessionStorage` wiring are deferred).
+- All three require an **http(s) origin**: on a `file://` or in-memory document
+  they return a clear `MochaError::Security`.
+
+See [cookies-and-web-storage.md](cookies-and-web-storage.md).
 
 ## DOM API surface
 

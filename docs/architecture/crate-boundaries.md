@@ -50,8 +50,11 @@ mocha_paint
 
 mocha_net
 - resource loading: file + http (no TLS), redirects, content-type, memory cache
+- M15: a `CookieProvider` trait + `load_with_cookies` (attaches Cookie, stores
+  Set-Cookie per hop) so the HTTP client uses cookies without depending on the
+  storage layer (an embedder supplies the provider)
 - no navigation history, no HTML/CSS/layout/paint
-- depends on: mocha_error, mocha_url
+- depends on: mocha_error, mocha_url (dev: mocha_cookie, for integration tests)
 
 mocha_events
 - internal DOM event model and dispatch (capture/target/bubble)
@@ -79,24 +82,36 @@ mocha_image
 - no network/HTML/layout/DOM knowledge
 - depends on: mocha_error, image (external)
 
-mocha_storage (M14)
+mocha_origin (M15)
+- minimal (scheme, host, port) web origin: URL→origin, same-origin, storage key;
+  conservative file:// policy (opaque → web storage unsupported)
+- depends on: mocha_error, mocha_url
+
+mocha_cookie (M15)
+- Set-Cookie parsing, an in-memory cookie jar (domain/path/secure/expiry
+  matching), and deterministic Cookie request headers; not full RFC 6265bis
+- depends on: mocha_error, mocha_url, mocha_origin
+
+mocha_storage (M14–M15)
 - persistent browser profile: SQLite-backed history, bookmarks, settings,
-  download metadata, and session snapshot; private (in-memory) profile mode;
-  versioned schema migrations
+  download metadata, session snapshot, cookies, and origin-keyed localStorage;
+  an in-memory sessionStorage; private (in-memory) profile mode; versioned
+  schema migrations (M14: migration 1; M15: migration 2 adds cookies/local_storage)
 - third-party dependency: `rusqlite` (bundled SQLite). No ORM/async/network.
 - no HTML/layout/DOM/desktop knowledge; never depends on mocha_desktop (it owns
   StoredSession/StoredTab DTOs the desktop crate converts to/from)
-- depends on: mocha_error, mocha_url, rusqlite (external)
+- depends on: mocha_error, mocha_url, mocha_origin, mocha_cookie, rusqlite (external)
 
 mocha_js_dom
 - bridges mocha_js to mocha_dom: window/document/console globals, DOM
   read/mutate/query, JS event listeners, a deterministic timer queue, inline
   script execution against a shared Document, and form-control properties
   (value/checked/disabled/…, form.submit()) backed by a shared
-  mocha_forms::FormState
+  mocha_forms::FormState; plus document.cookie and localStorage/sessionStorage
+  bindings over a per-render in-memory backend keyed by the document URL (M15)
 - no layout/paint/network knowledge
 - depends on: mocha_error, mocha_js, mocha_dom, mocha_forms, mocha_html,
-  mocha_style
+  mocha_style, mocha_url, mocha_cookie
 
 mocha_resources
 - subresource discovery + loading (external <link> CSS, <img> images) resolved

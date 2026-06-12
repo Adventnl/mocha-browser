@@ -13,4 +13,6 @@ path = "src/lib.rs"
 [dependencies]
 mocha_error.workspace = true
 mocha_url.workspace = true
+mocha_origin.workspace = true
+mocha_cookie.workspace = true
 rusqlite.workspace = true

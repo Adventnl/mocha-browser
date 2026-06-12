@@ -55,7 +55,8 @@ database is a no-op. **Migration 1** creates the Milestone 14 tables:
 | `session_tabs` | one row per tab: `position`, `url`, `title`, `scroll_y`, `history_json`, `current_history_index` |
 | `session_meta` | `key` → `value` (the active-tab index) |
 
-(Milestone 15 adds `cookies` and `local_storage` tables via a later migration.)
+(Milestone 15 added `cookies` and `local_storage` tables via migration 2 — see
+[cookies-and-web-storage.md](cookies-and-web-storage.md).)
 
 ## Stores
 
@@ -102,14 +103,16 @@ bookmarks, or auto-restore — that UI wiring is deferred.
 - A **private** profile keeps everything in memory and writes **no files**; a new
   private profile is always empty. The non-persistence is covered by tests for
   every store.
-- Not stored: **cookies** and **origin-keyed `localStorage`/`sessionStorage`**
-  (Milestone 15), passwords/credentials, form autofill, full page content, the
-  DOM/layout/display list, and favicons.
+- Cookies and origin-keyed `localStorage` are stored as of Milestone 15 (see
+  [cookies-and-web-storage.md](cookies-and-web-storage.md)). Still not stored:
+  passwords/credentials, form autofill, full page content, the DOM/layout/display
+  list, and favicons.
 
 ## Limitations (M14)
 
 - Not a full or secure browser profile: no encryption, no integrity protection,
-  no multi-process access, no schema for cookies/web storage yet.
+  no multi-process access. (Cookies and origin-keyed `localStorage` were added in
+  Milestone 15.)
 - Single SQLite connection; not designed for concurrent writers.
 - The desktop UI integration is intentionally minimal (one headless command);
   the interactive shell does not yet record history or restore sessions.

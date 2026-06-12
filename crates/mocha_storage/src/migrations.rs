@@ -12,7 +12,7 @@ use rusqlite::Connection;
 use crate::storage_err;
 
 /// The latest schema version this build knows how to produce.
-pub const LATEST_VERSION: i64 = 1;
+pub const LATEST_VERSION: i64 = 2;
 
 /// Read the current schema version (0 if the database is brand new).
 pub fn current_version(conn: &Connection) -> MochaResult<i64> {
@@ -46,6 +46,7 @@ pub fn migrate(conn: &Connection) -> MochaResult<()> {
 fn apply(conn: &Connection, target: i64) -> MochaResult<()> {
     match target {
         1 => migration_1(conn)?,
+        2 => migration_2(conn)?,
         other => {
             return Err(mocha_error::MochaError::Storage(format!(
                 "no migration for schema version {other}"
@@ -119,6 +120,37 @@ fn migration_1(conn: &Connection) -> MochaResult<()> {
     .map_err(storage_err)
 }
 
+/// Migration 2: cookies and origin-keyed localStorage (Milestone 15).
+fn migration_2(conn: &Connection) -> MochaResult<()> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS cookies (
+            name        TEXT NOT NULL,
+            value       TEXT NOT NULL,
+            domain      TEXT NOT NULL,
+            path        TEXT NOT NULL,
+            expires_ms  INTEGER,
+            secure      INTEGER NOT NULL,
+            http_only   INTEGER NOT NULL,
+            same_site   TEXT NOT NULL,
+            host_only   INTEGER NOT NULL,
+            created_ms  INTEGER NOT NULL,
+            updated_ms  INTEGER NOT NULL,
+            PRIMARY KEY (name, domain, path)
+        );
+
+        CREATE TABLE IF NOT EXISTS local_storage (
+            origin     TEXT NOT NULL,
+            key        TEXT NOT NULL,
+            value      TEXT NOT NULL,
+            updated_ms INTEGER NOT NULL,
+            PRIMARY KEY (origin, key)
+        );
+        "#,
+    )
+    .map_err(storage_err)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -158,6 +190,8 @@ mod tests {
             "downloads",
             "session_tabs",
             "session_meta",
+            "cookies",
+            "local_storage",
         ] {
             let count: i64 = conn
                 .query_row(

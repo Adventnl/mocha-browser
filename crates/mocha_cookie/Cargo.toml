@@ -1,0 +1,16 @@
+[package]
+name = "mocha_cookie"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Milestone 15 minimal HTTP cookie model: Set-Cookie parsing, an in-memory jar with domain/path/secure/expiry matching, and deterministic Cookie request headers. Not full RFC 6265bis."
+
+[lib]
+name = "mocha_cookie"
+path = "src/lib.rs"
+
+[dependencies]
+mocha_error.workspace = true
+mocha_url.workspace = true
+mocha_origin.workspace = true

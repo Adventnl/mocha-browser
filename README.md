@@ -4,8 +4,8 @@ Mocha Browser is an experimental from-scratch browser engine and desktop browser
 
 Mocha is not based on Chromium, WebKit, Gecko, Servo, Electron, CEF, Tauri WebView, system WebView, V8, SpiderMonkey, JavaScriptCore, QuickJS, Deno, or Node.js.
 
-Current status: Milestone 14 (Profile storage) implemented.
-Next milestone: Milestone 15 — cookies and origin-aware storage.
+Current status: Milestone 15 (Cookies and origin-aware storage) implemented.
+Next milestone: Milestone 16 — origin model and security foundation.
 
 Mocha is not safe for general web browsing yet.
 
@@ -19,13 +19,24 @@ with a clear error rather than being faked.
 
 ## Current milestone
 
-**Milestone 14: Profile storage.** A new `mocha_storage` crate adds a persistent
-browser-profile foundation backed by embedded SQLite (`rusqlite` with `bundled`):
-visit history, bookmarks, settings, download metadata, and a persisted session
-snapshot, with versioned schema migrations and a **private** (in-memory) profile
-mode that writes no files. The desktop shell can open a profile and save/restore a
-session (`--profile DIR --dump-session`). This is **not** a full or secure browser
-profile, and cookies / origin-keyed web storage are still deferred (Milestone 15).
+**Milestone 15: Cookies and origin-aware storage.** Two new crates — `mocha_origin`
+(a minimal `(scheme, host, port)` origin with a conservative `file://` policy) and
+`mocha_cookie` (`Set-Cookie` parsing and an in-memory jar with domain/path/secure/
+expiry matching and deterministic `Cookie` headers) — plus persistence in
+`mocha_storage` (a `cookies` table and an origin-keyed `local_storage` table via
+schema migration 2). `mocha_net` gains a `CookieProvider` trait so the HTTP client
+can attach `Cookie` and store `Set-Cookie` without depending on storage. The JS
+runtime exposes `document.cookie` and `localStorage`/`sessionStorage` (origin-keyed;
+unavailable without an http(s) origin). See
+[cookies-and-web-storage.md](docs/architecture/cookies-and-web-storage.md) and
+[origin-model.md](docs/architecture/origin-model.md). This is **not** a complete
+cookie or security model.
+
+**Milestone 14: Profile storage.** The `mocha_storage` crate is the persistent
+browser-profile foundation backed by embedded SQLite (`rusqlite` `bundled`): visit
+history, bookmarks, settings, download metadata, and a persisted session snapshot,
+with versioned migrations and a **private** (in-memory) profile mode. The desktop
+shell can open a profile and save/restore a session (`--profile DIR --dump-session`).
 See [docs/architecture/profile-storage.md](docs/architecture/profile-storage.md).
 
 **Milestone 13 (tabs and in-memory session)** remains the desktop model: a
@@ -116,8 +127,11 @@ exists for terminal output mode.
 Not implemented (see [docs/architecture/limitations.md](docs/architecture/limitations.md)
 and [networking-and-navigation.md](docs/architecture/networking-and-navigation.md)):
 
-- **`https://`** (no TLS — returns a clear error), cookies, authentication,
-  proxies, HTTP/2-3, real HTTP cache semantics, charset decoding beyond UTF-8.
+- **`https://`** (no TLS — returns a clear error), authentication, proxies,
+  HTTP/2-3, real HTTP cache semantics, charset decoding beyond UTF-8. **Cookies**
+  are now supported as a minimal jar with `Set-Cookie`/`Cookie` HTTP integration
+  and profile persistence (Milestone 15) — but not full RFC 6265bis, no
+  third-party/partitioned-cookie policy, and `Secure` cookies need HTTPS.
 - Subresource loading beyond external CSS and images: external `<script src>`,
   CSS `url(...)` resources, web fonts, and a `<base>` element are unsupported.
 - **JavaScript**: a small custom subset, **not** ECMAScript-compliant. No live
@@ -131,13 +145,14 @@ and [networking-and-navigation.md](docs/architecture/networking-and-navigation.m
 - Mature window input: no keyboard text editing (address bar only), focus/caret/text
   selection, IME, or pointer/touch/wheel gesture handling. Hit testing does not
   account for z-index/transforms/scrolling/clipping.
-- **Tabs (M13) + a SQLite profile (M14):** history, bookmarks, settings,
-  download metadata, and persistent session snapshots, plus a private in-memory
-  profile. But the interactive shell does not yet surface history/bookmarks UI or
-  auto-restore sessions; there are no **cookies** or origin-keyed
-  `localStorage`/`sessionStorage` yet (Milestone 15), no passwords, no encryption,
-  no tab drag/reorder, pinned tabs, tab groups, crash recovery, or multiprocess
-  isolation.
+- **Tabs (M13) + a SQLite profile (M14) + cookies/web storage (M15):** history,
+  bookmarks, settings, download metadata, persistent session snapshots, a cookie
+  jar/store, and origin-keyed `localStorage`/`sessionStorage`, plus a private
+  in-memory profile. But the interactive shell does not yet surface
+  history/bookmarks UI, auto-restore sessions, or drive page loads through the
+  cookie jar automatically; JS `localStorage` is not yet wired to the persistent
+  store; and there are no passwords, encryption, tab drag/reorder, pinned tabs,
+  tab groups, crash recovery, or multiprocess isolation.
 - The real HTML5 parsing algorithm and real CSS error recovery.
 - `!important`, media queries, pseudo-classes/elements, attribute selectors, the
   `>`/`+`/`~` combinators, `em`/`rem`/`%` units, `rgb()`/`calc()`/`var()`.
@@ -255,7 +270,9 @@ mocha-browser/
     mocha_js_dom/   bridge: JS host objects for window/document/DOM, events, timers, forms
     mocha_resources/ subresource discovery + loading (external CSS, images)
     mocha_image/    image format detection + PNG/JPEG decoding (uses the image crate)
-    mocha_storage/  SQLite profile: history/bookmarks/settings/downloads/session (uses rusqlite)
+    mocha_origin/   minimal (scheme, host, port) web origin model
+    mocha_cookie/   Set-Cookie parsing + in-memory cookie jar/matching
+    mocha_storage/  SQLite profile: history/bookmarks/settings/downloads/session/cookies/localStorage (uses rusqlite)
     mocha_engine/   high-level document loading/rendering pipeline
     mocha_raster/   display list + images to pixel buffer rasterization
     mocha_desktop/  desktop shell, browser chrome, tabs, address bar, navigation controls
@@ -297,7 +314,8 @@ The full roadmap lives in [docs/architecture/milestones.md](docs/architecture/mi
 12. Browser chrome and desktop shell (done)
 13. Tabs and in-memory session model (done)
 14. Profile storage — SQLite-backed history/bookmarks/settings/downloads/session (done)
-15. Cookies and origin-aware storage (next)
+15. Cookies and origin-aware storage — cookie jar, persistence, localStorage/sessionStorage (done)
+16. Origin model and security foundation (next)
 
 Longer-term direction (not code yet): multi-process architecture, persistent
 storage and profiles, a security/origin foundation, and web-compatibility hardening.

@@ -44,6 +44,16 @@ pub enum Reply {
     },
     /// Send these exact bytes verbatim (for malformed/edge-case responses).
     Raw(Vec<u8>),
+    /// `200 text/html` with one or more `Set-Cookie` response headers.
+    SetCookies {
+        /// Each `Set-Cookie` header value.
+        set_cookie: Vec<String>,
+        /// The response body.
+        body: String,
+    },
+    /// `200 text/plain` whose body is the request's `Cookie` header value (empty
+    /// if none was sent). Lets a test observe what the client sent.
+    EchoCookie,
 }
 
 /// A running test server. Drop it to leak the background thread (fine for tests;
@@ -97,15 +107,23 @@ fn handle(mut stream: TcpStream, routes: &[(String, Reply)], authority: &str) {
         .map(|target| target.split('?').next().unwrap_or(target))
         .unwrap_or("/")
         .to_string();
+    // The request's Cookie header value (if any), for Reply::EchoCookie.
+    let cookie_header = request
+        .lines()
+        .find_map(|line| {
+            line.split_once(':')
+                .filter(|(n, _)| n.trim().eq_ignore_ascii_case("cookie"))
+        })
+        .map(|(_, value)| value.trim().to_string());
 
     let response = match routes.iter().find(|(route, _)| *route == path) {
-        Some((_, reply)) => render(reply, authority),
+        Some((_, reply)) => render(reply, authority, cookie_header.as_deref()),
         None => http_response(404, "Not Found", Some("text/plain"), &[], b"not found"),
     };
     let _ = stream.write_all(&response);
 }
 
-fn render(reply: &Reply, authority: &str) -> Vec<u8> {
+fn render(reply: &Reply, authority: &str, cookie_header: Option<&str>) -> Vec<u8> {
     match reply {
         Reply::Html(body) => http_response(
             200,
@@ -138,6 +156,26 @@ fn render(reply: &Reply, authority: &str) -> Vec<u8> {
             )
         }
         Reply::Raw(bytes) => bytes.clone(),
+        Reply::SetCookies { set_cookie, body } => {
+            let headers: Vec<(&str, &str)> = set_cookie
+                .iter()
+                .map(|value| ("Set-Cookie", value.as_str()))
+                .collect();
+            http_response(
+                200,
+                "OK",
+                Some("text/html; charset=utf-8"),
+                &headers,
+                body.as_bytes(),
+            )
+        }
+        Reply::EchoCookie => http_response(
+            200,
+            "OK",
+            Some("text/plain"),
+            &[],
+            cookie_header.unwrap_or("").as_bytes(),
+        ),
     }
 }
 
