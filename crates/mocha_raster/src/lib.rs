@@ -1,9 +1,14 @@
 //! A small, pure-Rust software rasterizer for Mocha Browser (Milestone 11).
 //!
 //! It turns a [`DisplayCommand`] list plus the document's decoded images into an
-//! RGBA pixel [`Surface`]. There is **no** GPU, no compositor, no anti-aliasing,
-//! and text is drawn with a crude built-in debug font (see [`font`]). It applies
-//! a vertical scroll offset and clips every write to the surface bounds.
+//! RGBA pixel [`Surface`]. There is **no** GPU and no compositor; page text is
+//! drawn with a crude built-in debug font (see [`font`]). It applies a vertical
+//! scroll offset and clips every write to the surface bounds.
+//!
+//! For the desktop browser chrome, [`Surface`] also offers anti-aliased
+//! geometry helpers (rounded rectangles, pills, lines) and coverage blending
+//! ([`Surface::blend_pixel`]) so the shell can draw smooth UI shapes and
+//! glyphs. Page content rendering itself remains un-anti-aliased.
 //!
 //! This crate knows nothing about windowing, layout, the DOM, or networking — it
 //! consumes the engine's output and writes pixels.
@@ -165,6 +170,159 @@ impl Surface {
     /// Draw text at device coordinates (public for chrome rendering).
     pub fn draw_text_at(&mut self, text: &str, x: i32, y: i32, scale: i32, color: Color) -> i32 {
         self.draw_text(text, x, y, scale, color)
+    }
+
+    /// Blend `color` at `(x, y)` scaled by `coverage` (0 = none, 255 = the
+    /// colour's own alpha). Out-of-bounds coordinates are ignored. Public so
+    /// the desktop shell can draw anti-aliased glyphs and shapes.
+    pub fn blend_pixel(&mut self, x: i32, y: i32, color: Color, coverage: u8) {
+        if coverage == 0 {
+            return;
+        }
+        let alpha = ((color.a as u32 * coverage as u32) / 255) as u8;
+        self.blend(
+            x,
+            y,
+            Color {
+                r: color.r,
+                g: color.g,
+                b: color.b,
+                a: alpha,
+            },
+        );
+    }
+
+    /// Fill a rectangle with anti-aliased rounded corners. `radii` is
+    /// `[top-left, top-right, bottom-right, bottom-left]` in device pixels;
+    /// each is clamped to half the rectangle's smaller side.
+    fn fill_rounded(&mut self, x: f32, y: f32, w: f32, h: f32, radii: [f32; 4], color: Color) {
+        if w <= 0.0 || h <= 0.0 || color.a == 0 {
+            return;
+        }
+        let max_radius = (w.min(h)) / 2.0;
+        let radii = radii.map(|r| r.clamp(0.0, max_radius));
+        let x0 = x.floor() as i32;
+        let y0 = y.floor() as i32;
+        let x1 = (x + w).ceil() as i32;
+        let y1 = (y + h).ceil() as i32;
+        for py in y0..y1 {
+            for px in x0..x1 {
+                let coverage = rounded_rect_coverage(
+                    px as f32 + 0.5,
+                    py as f32 + 0.5,
+                    x,
+                    y,
+                    w,
+                    h,
+                    radii,
+                );
+                if coverage > 0.0 {
+                    self.blend_pixel(px, py, color, (coverage * 255.0) as u8);
+                }
+            }
+        }
+    }
+
+    /// Fill an anti-aliased rounded rectangle (uniform corner radius).
+    pub fn draw_rounded_rect(&mut self, x: f32, y: f32, w: f32, h: f32, radius: f32, color: Color) {
+        self.fill_rounded(x, y, w, h, [radius; 4], color);
+    }
+
+    /// Fill a rectangle whose **top** corners are rounded (browser tabs).
+    pub fn draw_rounded_rect_top(
+        &mut self,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        radius: f32,
+        color: Color,
+    ) {
+        self.fill_rounded(x, y, w, h, [radius, radius, 0.0, 0.0], color);
+    }
+
+    /// Stroke an anti-aliased rounded-rectangle outline of `thickness` pixels
+    /// (drawn inward from the rectangle edge).
+    pub fn draw_rounded_rect_outline(
+        &mut self,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        radius: f32,
+        thickness: f32,
+        color: Color,
+    ) {
+        if w <= 0.0 || h <= 0.0 || thickness <= 0.0 || color.a == 0 {
+            return;
+        }
+        let max_radius = (w.min(h)) / 2.0;
+        let radius = radius.clamp(0.0, max_radius);
+        let t = thickness.min(max_radius.max(1.0));
+        let x0 = x.floor() as i32;
+        let y0 = y.floor() as i32;
+        let x1 = (x + w).ceil() as i32;
+        let y1 = (y + h).ceil() as i32;
+        for py in y0..y1 {
+            for px in x0..x1 {
+                let cx = px as f32 + 0.5;
+                let cy = py as f32 + 0.5;
+                let outer = rounded_rect_coverage(cx, cy, x, y, w, h, [radius; 4]);
+                let inner = rounded_rect_coverage(
+                    cx,
+                    cy,
+                    x + t,
+                    y + t,
+                    w - 2.0 * t,
+                    h - 2.0 * t,
+                    [(radius - t).max(0.0); 4],
+                );
+                let coverage = (outer - inner).max(0.0);
+                if coverage > 0.0 {
+                    self.blend_pixel(px, py, color, (coverage * 255.0) as u8);
+                }
+            }
+        }
+    }
+
+    /// Fill an anti-aliased pill (a rounded rect whose radius is half its
+    /// height — the classic browser address-bar shape).
+    pub fn draw_pill(&mut self, x: f32, y: f32, w: f32, h: f32, color: Color) {
+        self.fill_rounded(x, y, w, h, [h / 2.0; 4], color);
+    }
+
+    /// Stroke an anti-aliased pill outline of `thickness` pixels.
+    pub fn draw_pill_outline(&mut self, x: f32, y: f32, w: f32, h: f32, thickness: f32, color: Color) {
+        self.draw_rounded_rect_outline(x, y, w, h, h / 2.0, thickness, color);
+    }
+
+    /// Draw an anti-aliased line segment of `thickness` device pixels between
+    /// `(x0, y0)` and `(x1, y1)` (used for the chrome's vector icons).
+    pub fn draw_line(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, thickness: f32, color: Color) {
+        if thickness <= 0.0 || color.a == 0 {
+            return;
+        }
+        let half = thickness / 2.0;
+        let min_x = (x0.min(x1) - half).floor() as i32;
+        let max_x = (x0.max(x1) + half).ceil() as i32;
+        let min_y = (y0.min(y1) - half).floor() as i32;
+        let max_y = (y0.max(y1) + half).ceil() as i32;
+        for py in min_y..=max_y {
+            for px in min_x..=max_x {
+                let distance = point_segment_distance(
+                    px as f32 + 0.5,
+                    py as f32 + 0.5,
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                );
+                let coverage = (half + 0.5 - distance).clamp(0.0, 1.0);
+                if coverage > 0.0 {
+                    self.blend_pixel(px, py, color, (coverage * 255.0) as u8);
+                }
+            }
+        }
     }
 
     /// Nearest-neighbour blit of an RGBA image into the device rect `(x, y, w, h)`.
@@ -371,6 +529,50 @@ fn draw_control(
             }
         }
     }
+}
+
+/// Coverage (0.0..=1.0) of the point `(cx, cy)` inside the rounded rectangle
+/// `(x, y, w, h)` with per-corner radii, using a signed-distance estimate for
+/// a one-pixel anti-aliased edge.
+fn rounded_rect_coverage(cx: f32, cy: f32, x: f32, y: f32, w: f32, h: f32, radii: [f32; 4]) -> f32 {
+    if w <= 0.0 || h <= 0.0 {
+        return 0.0;
+    }
+    // Pick the radius of the corner quadrant this point falls in
+    // (radii = [top-left, top-right, bottom-right, bottom-left]).
+    let right = cx >= x + w / 2.0;
+    let bottom = cy >= y + h / 2.0;
+    let radius = match (right, bottom) {
+        (false, false) => radii[0],
+        (true, false) => radii[1],
+        (true, true) => radii[2],
+        (false, true) => radii[3],
+    };
+    // The canonical rounded-box signed distance: negative inside, zero on the
+    // edge, positive outside. One pixel of smoothing gives the anti-aliasing.
+    let qx = (cx - (x + w / 2.0)).abs() - (w / 2.0 - radius);
+    let qy = (cy - (y + h / 2.0)).abs() - (h / 2.0 - radius);
+    let outside = (qx.max(0.0) * qx.max(0.0) + qy.max(0.0) * qy.max(0.0)).sqrt();
+    let inside = qx.max(qy).min(0.0);
+    let distance = outside + inside - radius;
+    (0.5 - distance).clamp(0.0, 1.0)
+}
+
+/// Distance from point `(px, py)` to the segment `(x0, y0)`–`(x1, y1)`.
+fn point_segment_distance(px: f32, py: f32, x0: f32, y0: f32, x1: f32, y1: f32) -> f32 {
+    let vx = x1 - x0;
+    let vy = y1 - y0;
+    let length_squared = vx * vx + vy * vy;
+    let t = if length_squared == 0.0 {
+        0.0
+    } else {
+        (((px - x0) * vx + (py - y0) * vy) / length_squared).clamp(0.0, 1.0)
+    };
+    let nearest_x = x0 + t * vx;
+    let nearest_y = y0 + t * vy;
+    let dx = px - nearest_x;
+    let dy = py - nearest_y;
+    (dx * dx + dy * dy).sqrt()
 }
 
 /// Round a CSS px float to a device pixel.
@@ -583,5 +785,83 @@ mod tests {
         let mut surface = Surface::new(8, 8);
         rasterize(&mut surface, &[rect(0.0, 0.0, 4.0, 4.0, red())], &[], 100.0);
         assert_eq!(count_non_background(&surface), 0);
+    }
+
+    // --- rounded/anti-aliased chrome drawing ---------------------------------
+
+    #[test]
+    fn rounded_rect_draws_non_empty_pixels() {
+        let mut surface = Surface::new(40, 40);
+        surface.draw_rounded_rect(4.0, 4.0, 32.0, 24.0, 8.0, red());
+        assert!(count_non_background(&surface) > 0);
+        // The center is fully covered.
+        assert_eq!(surface.pixel(20, 16), Some(pack(red())));
+    }
+
+    #[test]
+    fn rounded_rect_corners_differ_from_square_corners() {
+        let mut rounded = Surface::new(40, 40);
+        rounded.draw_rounded_rect(0.0, 0.0, 32.0, 32.0, 10.0, red());
+        let mut square = Surface::new(40, 40);
+        square.draw_rect(0, 0, 32, 32, red());
+        // The square's corner pixel is solid; the rounded one stays background.
+        assert_eq!(square.pixel(0, 0), Some(pack(red())));
+        assert_eq!(rounded.pixel(0, 0), Some(pack(BACKGROUND)));
+        // Straight edges still painted on both.
+        assert_eq!(rounded.pixel(16, 0), Some(pack(red())));
+    }
+
+    #[test]
+    fn rounded_rect_top_keeps_square_bottom_corners() {
+        let mut surface = Surface::new(40, 40);
+        surface.draw_rounded_rect_top(0.0, 0.0, 32.0, 32.0, 10.0, red());
+        assert_eq!(surface.pixel(0, 0), Some(pack(BACKGROUND)), "top corner rounded");
+        assert_eq!(surface.pixel(0, 31), Some(pack(red())), "bottom corner square");
+    }
+
+    #[test]
+    fn rounded_outline_draws_border_not_interior() {
+        let mut surface = Surface::new(40, 40);
+        surface.draw_rounded_rect_outline(2.0, 2.0, 30.0, 30.0, 8.0, 2.0, red());
+        // Top edge midpoint is stroked; the interior stays background.
+        assert_eq!(surface.pixel(17, 2), Some(pack(red())));
+        assert_eq!(surface.pixel(17, 17), Some(pack(BACKGROUND)));
+        // The far corner pixel outside the radius stays background.
+        assert_eq!(surface.pixel(2, 2), Some(pack(BACKGROUND)));
+    }
+
+    #[test]
+    fn pill_rounds_to_half_height() {
+        let mut surface = Surface::new(60, 20);
+        surface.draw_pill(0.0, 0.0, 56.0, 16.0, red());
+        // Center solid, extreme corners empty (radius = 8).
+        assert_eq!(surface.pixel(28, 8), Some(pack(red())));
+        assert_eq!(surface.pixel(0, 0), Some(pack(BACKGROUND)));
+        assert_eq!(surface.pixel(55, 15), Some(pack(BACKGROUND)));
+    }
+
+    #[test]
+    fn line_draws_along_its_path_with_thickness() {
+        let mut surface = Surface::new(30, 30);
+        surface.draw_line(4.0, 15.0, 26.0, 15.0, 3.0, red());
+        assert_eq!(surface.pixel(15, 14), Some(pack(red())), "on the line");
+        assert_eq!(surface.pixel(15, 4), Some(pack(BACKGROUND)), "far from line");
+        // Diagonals draw too (anti-aliased, so just require non-background).
+        let mut diagonal = Surface::new(30, 30);
+        diagonal.draw_line(4.0, 4.0, 26.0, 26.0, 2.0, red());
+        assert!(diagonal.pixel(15, 15) != Some(pack(BACKGROUND)));
+    }
+
+    #[test]
+    fn blend_pixel_coverage_mixes_with_background() {
+        let mut surface = Surface::new(4, 4);
+        surface.blend_pixel(1, 1, red(), 128);
+        let pixel = surface.pixel(1, 1).unwrap();
+        assert_ne!(pixel, pack(red()), "half coverage is not solid");
+        assert_ne!(pixel, pack(BACKGROUND), "half coverage is not background");
+        // Out of bounds is clipped, zero coverage is a no-op.
+        surface.blend_pixel(-1, 99, red(), 255);
+        surface.blend_pixel(2, 2, red(), 0);
+        assert_eq!(surface.pixel(2, 2), Some(pack(BACKGROUND)));
     }
 }

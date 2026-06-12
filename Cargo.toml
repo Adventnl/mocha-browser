@@ -91,6 +91,13 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 webpki-roots = "1"
 
+# Sans-serif glyph rasterization for the desktop browser CHROME (tabs, toolbar,
+# address bar, native new-tab/error views). fontdue is a font rasterizer, not a
+# browser/text engine; web page content still renders through Mocha's own
+# pipeline with the debug font (real page text quality is Milestone 22). Fonts
+# are loaded from the OS at runtime (e.g. Segoe UI) — none are bundled.
+fontdue = "0.9"
+
 # Desktop window (Milestone 11): a cross-platform window + event loop via minifb.
 # This is optional and behind mocha_desktop's non-default `gui` feature. The
 # default `cargo build/test --all` pulls it (since clippy tests --all-features),

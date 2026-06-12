@@ -35,4 +35,6 @@ mocha_nav.workspace = true
 mocha_engine.workspace = true
 mocha_raster.workspace = true
 mocha_storage.workspace = true
+# Chrome text rasterization (UI only; page text still uses the debug font).
+fontdue.workspace = true
 minifb = { workspace = true, optional = true }

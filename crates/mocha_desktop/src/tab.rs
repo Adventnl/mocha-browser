@@ -20,6 +20,23 @@ use crate::DesktopPageState;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TabId(pub u64);
 
+/// A native (non-web) view shown in a tab's viewport instead of rendered page
+/// content. These are drawn directly by the desktop shell (`crate::views`) —
+/// no HTML, no network.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InternalView {
+    /// The new-tab / home start page.
+    NewTab,
+    /// A document failed to load or render; shows the attempted input and the
+    /// real error message.
+    LoadError {
+        /// What the user tried to open (path or URL).
+        input: String,
+        /// The failure, exactly as reported by the engine.
+        message: String,
+    },
+}
+
 /// A single browser tab: an independent page plus its own history/title/url.
 pub struct BrowserTab {
     /// Stable unique id.
@@ -37,10 +54,12 @@ pub struct BrowserTab {
     needs_reload: bool,
     /// Scroll offset to reapply after a lazy (re)load (session restore).
     pending_scroll: Option<f32>,
+    /// When set, the viewport shows this native view instead of the page.
+    internal_view: Option<InternalView>,
 }
 
 impl BrowserTab {
-    /// A fresh tab showing the internal new-tab page (no network).
+    /// A fresh tab showing the native new-tab (home) view. No network.
     fn new_tab_page(id: TabId, width: u32, height: u32) -> MochaResult<Self> {
         let page = DesktopPageState::from_html(InternalPage::NewTab.html(), width, height)?;
         Ok(BrowserTab {
@@ -53,10 +72,11 @@ impl BrowserTab {
             history_index: None,
             needs_reload: false,
             pending_scroll: None,
+            internal_view: Some(InternalView::NewTab),
         })
     }
 
-    /// A tab showing the internal load-error page for a failed `input` load
+    /// A tab showing the native load-error view for a failed `input` load
     /// (no URL, no history — like a new-tab page with explanatory content).
     fn load_error_page(
         id: TabId,
@@ -65,8 +85,7 @@ impl BrowserTab {
         width: u32,
         height: u32,
     ) -> MochaResult<Self> {
-        let html = crate::new_tab::load_error_html(input, message);
-        let page = DesktopPageState::from_html(&html, width, height)?;
+        let page = DesktopPageState::from_html(InternalPage::NewTab.html(), width, height)?;
         Ok(BrowserTab {
             id,
             page,
@@ -77,6 +96,10 @@ impl BrowserTab {
             history_index: None,
             needs_reload: false,
             pending_scroll: None,
+            internal_view: Some(InternalView::LoadError {
+                input: input.to_string(),
+                message: message.to_string(),
+            }),
         })
     }
 
@@ -102,10 +125,16 @@ impl BrowserTab {
             history_index,
             needs_reload: false,
             pending_scroll: None,
+            internal_view: None,
         })
     }
 
     // --- read-only accessors -------------------------------------------------
+
+    /// The native view shown instead of page content, if any.
+    pub fn internal_view(&self) -> Option<&InternalView> {
+        self.internal_view.as_ref()
+    }
 
     /// The tab's title (derived from its URL, or "New Tab").
     pub fn title(&self) -> &str {
@@ -250,6 +279,41 @@ impl BrowserTab {
     fn set_current(&mut self, url: Url) {
         self.title = tab_title(&url);
         self.url = Some(url);
+        // A successfully rendered document replaces any native view.
+        self.internal_view = None;
+    }
+
+    /// Replace this tab's content with the native load-error view (the page,
+    /// URL, and title reset; navigation history is left untouched so Back
+    /// still works after a failed navigation).
+    pub(crate) fn show_load_error(
+        &mut self,
+        input: &str,
+        message: &str,
+        width: u32,
+        height: u32,
+    ) -> MochaResult<()> {
+        self.page = DesktopPageState::from_html(InternalPage::NewTab.html(), width, height)?;
+        self.title = crate::new_tab::LOAD_ERROR_TITLE.to_string();
+        self.url = None;
+        self.internal_view = Some(InternalView::LoadError {
+            input: input.to_string(),
+            message: message.to_string(),
+        });
+        Ok(())
+    }
+
+    /// Reset this tab to the native new-tab (home) view, clearing its history
+    /// (Mocha's internal pages have no history entries).
+    pub(crate) fn show_new_tab_page(&mut self, width: u32, height: u32) -> MochaResult<()> {
+        self.page = DesktopPageState::from_html(InternalPage::NewTab.html(), width, height)?;
+        self.title = InternalPage::NewTab.title().to_string();
+        self.url = None;
+        self.history.clear();
+        self.history_index = None;
+        self.needs_reload = false;
+        self.internal_view = Some(InternalView::NewTab);
+        Ok(())
     }
 }
 
@@ -383,6 +447,9 @@ impl TabManager {
             history_index,
             needs_reload,
             pending_scroll: Some(scroll_y),
+            // Until the lazy load happens the tab shows the home view; the
+            // first successful (re)load clears it via `set_current`.
+            internal_view: Some(InternalView::NewTab),
         })
     }
 
@@ -528,6 +595,19 @@ impl TabManager {
     /// Reload the active tab.
     pub fn reload_active(&mut self) -> MochaResult<()> {
         self.active_mut().reload()
+    }
+
+    /// Show the native load-error view in the active tab (after a failed
+    /// navigation); existing history is kept so Back still works.
+    pub fn show_error_on_active(&mut self, input: &str, message: &str) -> MochaResult<()> {
+        let (width, height) = (self.viewport_width, self.viewport_height);
+        self.active_mut().show_load_error(input, message, width, height)
+    }
+
+    /// Reset the active tab to the new-tab (home) view.
+    pub fn home_active(&mut self) -> MochaResult<()> {
+        let (width, height) = (self.viewport_width, self.viewport_height);
+        self.active_mut().show_new_tab_page(width, height)
     }
 }
 
