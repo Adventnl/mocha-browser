@@ -1,0 +1,37 @@
+# Visual regression cases (Milestone 20).
+#
+# Each case is rendered through mocha_engine and rasterized with mocha_raster's
+# built-in debug font (no OS fonts) into a fixed-size RGBA surface; the test
+# compares a checksum of that surface against tests/visual/expected/<name>.txt.
+# Regenerate expected checksums with:
+#   MOCHA_BLESS=1 cargo test -p mocha_compat --test visual_regression
+
+[[case]]
+name = "article"
+path = "article.html"
+width = 800
+height = 1200
+
+[[case]]
+name = "inline-wrap"
+path = "inline-wrap.html"
+width = 240
+height = 600
+
+[[case]]
+name = "box-model"
+path = "box-model.html"
+width = 800
+height = 600
+
+[[case]]
+name = "image"
+path = "image.html"
+width = 400
+height = 400
+
+[[case]]
+name = "form-controls"
+path = "form-controls.html"
+width = 600
+height = 400

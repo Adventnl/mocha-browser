@@ -1,0 +1,28 @@
+[package]
+name = "mocha_perf"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Mocha Browser's render performance baseline tool: times the parse/style/layout/paint/raster (and inline-JS) phases of a local document and reports phase timings plus node/box/command counts. A rough baseline, not a benchmark suite; timings are not asserted in CI."
+
+[[bin]]
+name = "mocha_perf"
+path = "src/main.rs"
+
+[lib]
+name = "mocha_perf"
+path = "src/lib.rs"
+
+[dependencies]
+mocha_error.workspace = true
+mocha_dom.workspace = true
+mocha_html.workspace = true
+mocha_css.workspace = true
+mocha_style.workspace = true
+mocha_layout.workspace = true
+mocha_paint.workspace = true
+mocha_raster.workspace = true
+mocha_resources.workspace = true
+mocha_js_dom.workspace = true
+mocha_engine.workspace = true

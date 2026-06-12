@@ -39,7 +39,13 @@ permissions, certificate error data, and future renderer capabilities.
 process prototype for typed IPC, renderer lifecycle, crash detection, and
 respawn. **Milestone 18** adds `mocha_sandbox` and a capability-restricted
 prepared-document path. **Milestone 19** adds `mocha_devtools` and a headless
-snapshot/log foundation exposed through `mocha_shell --devtools-snapshot`. See
+snapshot/log foundation exposed through `mocha_shell --devtools-snapshot`.
+**Milestone 20** adds `mocha_compat` (a local Compatibility Level 1 test harness
+with snapshot normalization), `mocha_perf` (a render performance baseline), a
+malformed-input crash corpus, and raster-checksum visual regression — measuring
+and hardening the existing subset without claiming full web compatibility (see
+[compatibility-level-1.md](compatibility-level-1.md) and
+[compatibility-testing.md](compatibility-testing.md)). See
 [tabs-and-session.md](tabs-and-session.md),
 [profile-storage.md](profile-storage.md), and
 [cookies-and-web-storage.md](cookies-and-web-storage.md), plus

@@ -1,11 +1,18 @@
 # Limitations
 
-Mocha Browser is at **Milestone 19** (multi-tab desktop shell with a SQLite
+Mocha Browser is at **Milestone 20** (multi-tab desktop shell with a SQLite
 profile, minimal cookies + origin-aware web storage, a security policy
-foundation, a multi-process prototype, a sandbox prototype, and a headless
-DevTools snapshot foundation). It is an
+foundation, a multi-process prototype, a sandbox prototype, a headless
+DevTools snapshot foundation, and a compatibility test harness, crash corpus,
+visual regression, and performance baseline). It is an
 experimental engine with a minimal desktop frontend, not a usable browser. This document is deliberately
 explicit about what does not exist so the project never overclaims.
+
+The supported subset is enumerated precisely in
+[compatibility-level-1.md](compatibility-level-1.md) and held in place by the
+`mocha_compat` harness (see [compatibility-testing.md](compatibility-testing.md)).
+That harness tests Mocha's own small subset; it is **not** web-platform-tests and
+says nothing about modern-web compatibility.
 
 ## Not supported
 

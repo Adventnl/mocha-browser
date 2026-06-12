@@ -29,6 +29,8 @@ members = [
     "crates/mocha_raster",
     "crates/mocha_desktop",
     "crates/mocha_shell",
+    "crates/mocha_compat",
+    "crates/mocha_perf",
 ]
 
 [workspace.package]
@@ -66,6 +68,8 @@ mocha_engine = { path = "crates/mocha_engine" }
 mocha_raster = { path = "crates/mocha_raster" }
 mocha_desktop = { path = "crates/mocha_desktop" }
 mocha_shell = { path = "crates/mocha_shell" }
+mocha_compat = { path = "crates/mocha_compat" }
+mocha_perf = { path = "crates/mocha_perf" }
 
 # Image decoder (Milestone 9): used by mocha_image for PNG/JPEG intrinsic
 # dimensions. Only PNG and JPEG codecs are enabled (no GIF/WebP/TIFF/etc.).

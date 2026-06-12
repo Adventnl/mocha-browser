@@ -1,0 +1,13 @@
+
+   
+http://
+http://[::::]/
+://nohost
+file://
+file:///
+ht!tp://bad scheme/x
+http://exa mple.com/with spaces
+http://example.com:notaport/
+https://example.com/
+foo://bar/baz
+http://example.com/../../../../etc/passwd

@@ -1,0 +1,2 @@
+DrawText "one" x=8 y=8 font_size=16 color=#000000
+DrawText "two" x=8 y=27 font_size=16 color=#000000

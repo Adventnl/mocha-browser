@@ -4,10 +4,29 @@ Mocha Browser is an experimental from-scratch browser engine and desktop browser
 
 Mocha is not based on Chromium, WebKit, Gecko, Servo, Electron, CEF, Tauri WebView, system WebView, V8, SpiderMonkey, JavaScriptCore, QuickJS, Deno, or Node.js.
 
-Current status: Milestone 19 (DevTools foundation) implemented.
-Next milestone: Milestone 20 — web compatibility hardening.
+Current status: Milestone 20 (web compatibility hardening) implemented. Mocha is a
+functioning **experimental** browser, not a production browser and **not
+Chromium-compatible**.
 
 Mocha is not safe for general web browsing yet.
+
+| Subsystem | Status | Notes |
+| --- | --- | --- |
+| HTML | Basic subset | Not HTML5-complete; no `<head>`/`<title>`, error recovery, or tag soup |
+| CSS | Basic subset | No flex/grid/positioning/float/media queries |
+| Layout | Basic block/inline | No tables/flex/grid; fixed-advance debug font |
+| JS | Tiny custom interpreter | Not ECMAScript-compliant; no classes/promises/modules |
+| DOM | Basic bindings | Not the full Web API surface; no real event loop |
+| Network | HTTP/file | HTTPS/TLS unsupported |
+| Storage | Profile/cookies/localStorage foundations | Needs an http(s) origin; minimal |
+| Security | Policy/sandbox/process prototypes | Not production-secure; not site isolation |
+| Desktop | Basic browser UI + tabs | Experimental |
+| DevTools | Headless snapshots | Not Chrome DevTools / CDP |
+| Compatibility | Local harness (Level 1) | Experimental subset; not web-platform-tests |
+
+See [docs/architecture/compatibility-level-1.md](docs/architecture/compatibility-level-1.md)
+for the precise supported subset and [docs/release-readiness.md](docs/release-readiness.md)
+for how to run everything.
 
 ## Project goals
 
@@ -43,6 +62,19 @@ of a file path or URL to load. This is **not** a production OS sandbox, not site
 isolation, and not secure for general browsing. See
 [security-sandbox.md](docs/architecture/security-sandbox.md) and
 [resource-broker.md](docs/architecture/resource-broker.md).
+
+**Milestone 20: Web compatibility hardening and standards test harness.** Two
+crates — `mocha_compat` (a local compatibility test harness: a hand-parsed
+manifest, snapshot normalization, and a pass/fail/skip/unsupported runner over
+`mocha_engine`) and `mocha_perf` (a render performance baseline) — plus a 90-case
+[Compatibility Level 1](docs/architecture/compatibility-level-1.md) suite, a
+malformed-input crash corpus (`tests/crash`/`tests/corpus`), and raster-checksum
+visual regression (`tests/visual`). This defines and measures a small, honest
+compatibility baseline and hardens the engine. It is **not** web-platform-tests,
+**not** Chromium-level compatibility, and proves nothing about modern web pages.
+See [compatibility-testing.md](docs/architecture/compatibility-testing.md),
+[performance-baselines.md](docs/architecture/performance-baselines.md), and
+[release-readiness.md](docs/release-readiness.md).
 
 **Milestone 19: DevTools foundation.** The `mocha_devtools` crate adds a
 deterministic headless snapshot model for the final DOM, computed styles, layout
@@ -323,10 +355,17 @@ mocha-browser/
     mocha_origin/   minimal (scheme, host, port) web origin model
     mocha_cookie/   Set-Cookie parsing + in-memory cookie jar/matching
     mocha_storage/  SQLite profile: history/bookmarks/settings/downloads/session/cookies/localStorage (uses rusqlite)
+    mocha_security/ origin/security policy helpers + tiny CSP parser/evaluator
+    mocha_sandbox/  capability-based renderer policy + sandbox status (prototype)
+    mocha_ipc/      versioned typed browser<->renderer IPC protocol
+    mocha_process/  multi-process prototype: renderer child + browser-side manager
+    mocha_devtools/ deterministic headless inspector snapshots
     mocha_engine/   high-level document loading/rendering pipeline
     mocha_raster/   display list + images to pixel buffer rasterization
     mocha_desktop/  desktop shell, browser chrome, tabs, address bar, navigation controls
     mocha_shell/    CLI that wires the pipeline together
+    mocha_compat/   compatibility test harness (manifest + normalization + runner)
+    mocha_perf/     render performance baseline tool
   docs/architecture/  overview, pipeline, milestones, boundaries, limitations,
                       networking-and-navigation, events, javascript-interpreter,
                       dom-bindings, subresources, images-and-replaced-elements,
@@ -340,7 +379,10 @@ mocha-browser/
   examples/forms/     form / checkbox-radio / textarea-select / js-state / submit examples
   examples/assets/    mocha-test.png (tiny PNG asset)
   tests/integration/  rendering + navigation + events + js-dom + subresource + image + forms pipelines
-  tests/visual/       future render targets (no image comparison yet)
+  tests/compat/       Compatibility Level 1 cases + manifests (run by mocha_compat)
+  tests/corpus/       malformed HTML/CSS/JS/URL inputs for the crash corpus
+  tests/crash/        crash-corpus test target (no-panic robustness checks)
+  tests/visual/       raster-checksum visual regression cases + expected checksums
 ```
 
 See [docs/architecture/crate-boundaries.md](docs/architecture/crate-boundaries.md) for
@@ -365,10 +407,15 @@ The full roadmap lives in [docs/architecture/milestones.md](docs/architecture/mi
 13. Tabs and in-memory session model (done)
 14. Profile storage — SQLite-backed history/bookmarks/settings/downloads/session (done)
 15. Cookies and origin-aware storage — cookie jar, persistence, localStorage/sessionStorage (done)
-16. Origin model and security foundation (next)
+16. Origin model and security foundation (done)
+17. Multi-process architecture prototype (done)
+18. Security sandbox prototype (done)
+19. DevTools foundation — headless snapshots (done)
+20. Web compatibility hardening and standards test harness (done)
 
-Longer-term direction (not code yet): multi-process architecture, persistent
-storage and profiles, a security/origin foundation, and web-compatibility hardening.
+Post-Milestone-20 direction (not code yet): expand compatibility test coverage,
+decide the HTTPS/TLS approach, improve JS/DOM and CSS/layout compatibility,
+strengthen sandboxing and performance, add accessibility, and grow DevTools.
 
 ## Safety warning
 

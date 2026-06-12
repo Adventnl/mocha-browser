@@ -272,7 +272,32 @@ goal, what is explicitly not included, and how completion is verified.
 - **Verification:** `cargo test -p mocha_devtools`, the shell snapshot smoke
   test, and the full workspace gate. See [devtools.md](devtools.md).
 
-## Beyond Milestone 19 (direction, not code)
+## Milestone 20: Web compatibility hardening and standards test harness — complete
 
-- **Web compatibility hardening:** standards test suites, fuzzing, visual
-  regression — without promising full web compatibility.
+- **Goal:** turn Mocha into a more testable, honest experimental browser by
+  defining a measurable [Compatibility Level 1](compatibility-level-1.md) target
+  and building the infrastructure to hold the engine to it: the `mocha_compat`
+  harness (hand-parsed manifest, snapshot normalization, pass/fail/skip/
+  unsupported/xfail runner over `mocha_engine`), a 90-case local compatibility
+  suite under `tests/compat`, a malformed-input crash corpus
+  (`tests/crash`/`tests/corpus`), raster-checksum visual regression
+  (`tests/visual`), and the `mocha_perf` render performance baseline.
+- **Not included:** full web compatibility, Chromium-level behaviour,
+  web-platform-tests, production security, HTTPS/TLS, or any new web feature.
+  The harness measures and protects the existing subset; it does not grow it.
+- **Verification:** `cargo run -p mocha_compat -- tests/compat/manifest.toml`
+  (no unexpected failures → exit 0), `cargo test --test crash_corpus`,
+  `cargo test --test visual_regression`,
+  `cargo run -p mocha_perf -- examples/layout/article.html`, and the full
+  workspace gate. See [compatibility-testing.md](compatibility-testing.md),
+  [performance-baselines.md](performance-baselines.md), and
+  [../release-readiness.md](../release-readiness.md).
+
+## Beyond Milestone 20 (direction, not code)
+
+- **Expand compatibility coverage:** more cases, a server-backed compat mode for
+  cookies/storage/CSP, and broader categories — without promising full web
+  compatibility or importing web-platform-tests.
+- **HTTPS/TLS decision**, **JS/DOM and CSS/layout improvements**, **stronger
+  sandboxing**, **performance work**, **accessibility**, and **DevTools growth** —
+  each a separate, honest milestone.

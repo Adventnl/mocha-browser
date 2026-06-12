@@ -43,3 +43,13 @@ jobs:
 
       - name: Test
         run: cargo test --all
+
+      # Milestone 20: run the stable compatibility core subset. The full suite
+      # lives in tests/compat/manifest.toml; this keeps CI fast and green. Exits
+      # non-zero on any unexpected failure.
+      - name: Compatibility (core subset)
+        run: cargo run -p mocha_compat -- tests/compat/ci-manifest.toml
+
+      # Smoke-check the performance baseline tool runs (timings are not asserted).
+      - name: Performance baseline (smoke)
+        run: cargo run -p mocha_perf -- examples/layout/article.html

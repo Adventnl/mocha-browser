@@ -1,0 +1,8 @@
+Block node=#0 rect=(0,0 800x59)
+  Block node=#1 rect=(0,0 800x59)
+    Block node=#2 rect=(8,8 784x43)
+      Block node=#3 rect=(8,8 784x43)
+        Block node=#4 rect=(20,20 760x19)
+          LineBox rect=(20,20 760x19)
+            TextRun "x" node=#5 rect=(20,20 10x19)
+

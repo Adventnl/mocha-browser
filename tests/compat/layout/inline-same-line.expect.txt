@@ -1,0 +1,2 @@
+DrawText "alpha" x=8 y=8 font_size=16 color=#000000
+DrawText "beta" x=66 y=8 font_size=16 color=#000000

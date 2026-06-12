@@ -270,6 +270,13 @@ mocha_shell
 - `mocha_shell` is now a pure frontend (no pipeline logic); it uses `mocha_engine`
   and prints the display list as text. Both `mocha_shell` and `mocha_desktop`
   use the same engine, ensuring they render identically (except for output format).
+- `mocha_compat` (M20) is a test/tooling crate: it drives `mocha_engine` to run the
+  Compatibility Level 1 suite and normalizes snapshots for comparison. The
+  repository-root crash corpus and visual-regression test targets are compiled as
+  part of it. Nothing in the engine depends on `mocha_compat`.
+- `mocha_perf` (M20) is a test/tooling crate that times render phases through the
+  lower-level crates plus `mocha_engine`. Nothing depends on it. Like
+  `mocha_compat`, it is a leaf consumer, never a dependency of the pipeline.
 - Future crates (`mocha_gpu`, `mocha_security`, …) are intentionally **not**
   created yet. They are described in [milestones.md](milestones.md) as
   direction only.

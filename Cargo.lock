@@ -494,6 +494,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "mocha_compat"
+version = "0.1.0"
+dependencies = [
+ "mocha_css",
+ "mocha_devtools",
+ "mocha_engine",
+ "mocha_error",
+ "mocha_html",
+ "mocha_image",
+ "mocha_js",
+ "mocha_layout",
+ "mocha_paint",
+ "mocha_raster",
+ "mocha_url",
+]
+
+[[package]]
 name = "mocha_cookie"
 version = "0.1.0"
 dependencies = [
@@ -680,6 +697,23 @@ version = "0.1.0"
 dependencies = [
  "mocha_error",
  "mocha_layout",
+]
+
+[[package]]
+name = "mocha_perf"
+version = "0.1.0"
+dependencies = [
+ "mocha_css",
+ "mocha_dom",
+ "mocha_engine",
+ "mocha_error",
+ "mocha_html",
+ "mocha_js_dom",
+ "mocha_layout",
+ "mocha_paint",
+ "mocha_raster",
+ "mocha_resources",
+ "mocha_style",
 ]
 
 [[package]]

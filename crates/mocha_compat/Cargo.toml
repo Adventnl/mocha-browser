@@ -1,0 +1,44 @@
+[package]
+name = "mocha_compat"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Mocha Browser's local compatibility test harness: runs HTML/CSS/JS/DOM/layout/forms cases through mocha_engine and compares normalized display-list/layout/devtools snapshots, reporting pass/fail/skip/unsupported. Not web-platform-tests; not a Chromium-level conformance suite."
+
+[[bin]]
+name = "mocha_compat"
+path = "src/main.rs"
+
+[lib]
+name = "mocha_compat"
+path = "src/lib.rs"
+
+# The crash corpus is driven from the repository-root `tests/crash` directory but
+# is compiled and run as this crate's test target (so `cargo test --test
+# crash_corpus` works and the whole gate stays in `cargo test --all`).
+[[test]]
+name = "crash_corpus"
+path = "../../tests/crash/crash_corpus.rs"
+
+# The raster visual-regression checks live at the repository root too.
+[[test]]
+name = "visual_regression"
+path = "../../tests/visual/visual_regression.rs"
+
+[dependencies]
+mocha_error.workspace = true
+mocha_engine.workspace = true
+mocha_paint.workspace = true
+mocha_layout.workspace = true
+mocha_devtools.workspace = true
+
+# Used only by the crash-corpus and visual-regression test targets (which drive
+# the parsers and rasterizer directly), not by the harness library itself.
+[dev-dependencies]
+mocha_html.workspace = true
+mocha_css.workspace = true
+mocha_js.workspace = true
+mocha_url.workspace = true
+mocha_image.workspace = true
+mocha_raster.workspace = true

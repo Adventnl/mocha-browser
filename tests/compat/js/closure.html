@@ -1,0 +1,1 @@
+<html><body><p id="t">a</p><script>function counter() { var n = 0; return function () { n = n + 1; return n; }; } var c = counter(); c(); c(); document.getElementById("t").textContent = c();</script></body></html>

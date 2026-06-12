@@ -1,0 +1,611 @@
+# Mocha Browser — Compatibility Level 1 test manifest (Milestone 20).
+#
+# Run with:   cargo run -p mocha_compat -- tests/compat/manifest.toml
+# Re-bless:   MOCHA_BLESS=1 cargo run -p mocha_compat -- tests/compat/manifest.toml
+#
+# Each [[test]] renders an HTML case through mocha_engine and compares a
+# normalized snapshot (mode = display | layout | devtools | form-state) against
+# exactly one of: expect (a blessed file), expect_contains, or
+# expect_error_contains. status defaults to "pass"; "unsupported" expects a clear
+# render error; "skip"/"xfail" require a reason. See
+# docs/architecture/compatibility-testing.md and compatibility-level-1.md.
+
+# ======================= HTML =======================
+
+[[test]]
+name = "html_basic_document"
+path = "html/basic-document.html"
+category = "html"
+expect = "html/basic-document.expect.txt"
+
+[[test]]
+name = "html_comment_ignored"
+path = "html/comment-ignored.html"
+category = "html"
+expect_contains = "DrawText \"Visible\""
+
+[[test]]
+name = "html_nested_blocks"
+path = "html/nested-blocks.html"
+category = "html"
+expect_contains = "DrawText \"Deep\""
+
+[[test]]
+name = "html_inline_spans"
+path = "html/inline-spans.html"
+category = "html"
+expect_contains = "DrawText \"inline\""
+
+[[test]]
+name = "html_raw_text_style"
+path = "html/raw-text-style.html"
+category = "html"
+expect_contains = "color=#ff0000"
+
+[[test]]
+name = "html_raw_text_script"
+path = "html/raw-text-script.html"
+category = "html"
+expect_contains = "DrawText \"After\""
+
+[[test]]
+name = "html_void_link"
+path = "html/void-link.html"
+category = "html"
+expect_contains = "DrawText \"Link\""
+
+[[test]]
+name = "html_unsupported_title_tag"
+path = "html/title.html"
+category = "html"
+status = "unsupported"
+expect_error_contains = "unsupported"
+
+[[test]]
+name = "html_mismatched_tag_errors"
+path = "html/mismatched-tag.html"
+category = "html"
+expect_error_contains = "mismatched closing tag"
+
+[[test]]
+name = "html_unsupported_tag"
+path = "html/unsupported-tag.html"
+category = "html"
+status = "unsupported"
+expect_error_contains = "unsupported"
+
+# ======================= CSS =======================
+
+[[test]]
+name = "css_type_selector"
+path = "css/type-selector.html"
+category = "css"
+expect_contains = "color=#008000"
+
+[[test]]
+name = "css_class_selector"
+path = "css/class-selector.html"
+category = "css"
+expect_contains = "color=#008000"
+
+[[test]]
+name = "css_id_selector"
+path = "css/id-selector.html"
+category = "css"
+expect_contains = "color=#008000"
+
+[[test]]
+name = "css_universal_selector"
+path = "css/universal-selector.html"
+category = "css"
+expect_contains = "color=#008000"
+
+[[test]]
+name = "css_descendant_selector"
+path = "css/descendant-selector.html"
+category = "css"
+expect_contains = "color=#008000"
+
+[[test]]
+name = "css_compound_selector"
+path = "css/compound-selector.html"
+category = "css"
+expect_contains = "color=#008000"
+
+[[test]]
+name = "css_selector_list"
+path = "css/selector-list.html"
+category = "css"
+expect_contains = "color=#008000"
+
+[[test]]
+name = "css_specificity_id_beats_class"
+path = "css/specificity-id-beats-class.html"
+category = "css"
+expect_contains = "color=#008000"
+
+[[test]]
+name = "css_inline_beats_stylesheet"
+path = "css/inline-beats-stylesheet.html"
+category = "css"
+expect_contains = "color=#008000"
+
+[[test]]
+name = "css_inheritance_color"
+path = "css/inheritance-color.html"
+category = "css"
+expect_contains = "color=#008000"
+
+[[test]]
+name = "css_external_stylesheet"
+path = "css/external-stylesheet.html"
+category = "css"
+expect_contains = "color=#ff0000"
+
+[[test]]
+name = "css_unsupported_media_query"
+path = "css/unsupported-media-query.html"
+category = "css"
+status = "unsupported"
+expect_error_contains = "unsupported"
+
+[[test]]
+name = "css_unsupported_pseudo_class"
+path = "css/unsupported-pseudo-class.html"
+category = "css"
+status = "unsupported"
+expect_error_contains = "unsupported"
+
+[[test]]
+name = "css_unsupported_attribute_selector"
+path = "css/unsupported-attribute-selector.html"
+category = "css"
+status = "unsupported"
+expect_error_contains = "unsupported"
+
+[[test]]
+name = "css_unsupported_rgb_function"
+path = "css/unsupported-rgb-function.html"
+category = "css"
+status = "unsupported"
+expect_error_contains = "unsupported"
+
+[[test]]
+name = "css_unsupported_calc"
+path = "css/unsupported-calc.html"
+category = "css"
+status = "unsupported"
+expect_error_contains = "unsupported"
+
+[[test]]
+name = "css_unsupported_var"
+path = "css/unsupported-var.html"
+category = "css"
+status = "unsupported"
+expect_error_contains = "unsupported"
+
+# ======================= Layout =======================
+
+[[test]]
+name = "layout_block_stacking"
+path = "layout/block-stacking.html"
+category = "layout"
+expect = "layout/block-stacking.expect.txt"
+
+[[test]]
+name = "layout_inline_same_line"
+path = "layout/inline-same-line.html"
+category = "layout"
+expect = "layout/inline-same-line.expect.txt"
+
+[[test]]
+name = "layout_inline_wrapping"
+path = "layout/inline-wrapping.html"
+category = "layout"
+mode = "layout"
+viewport_width = 120
+expect = "layout/inline-wrapping.expect.txt"
+
+[[test]]
+name = "layout_nested_spans"
+path = "layout/nested-spans.html"
+category = "layout"
+expect_contains = "DrawText \"c\""
+
+[[test]]
+name = "layout_anonymous_block"
+path = "layout/anonymous-block.html"
+category = "layout"
+mode = "layout"
+expect_contains = "AnonymousBlock"
+
+[[test]]
+name = "layout_padding_border_offset"
+path = "layout/padding-border-offset.html"
+category = "layout"
+mode = "layout"
+expect = "layout/padding-border-offset.expect.txt"
+
+[[test]]
+name = "layout_explicit_width_wrapping"
+path = "layout/explicit-width-wrapping.html"
+category = "layout"
+mode = "layout"
+expect = "layout/explicit-width-wrapping.expect.txt"
+
+[[test]]
+name = "layout_display_none_removes_subtree"
+path = "layout/display-none-removes-subtree.html"
+category = "layout"
+expect = "layout/display-none.expect.txt"
+
+# ======================= JavaScript =======================
+
+[[test]]
+name = "js_arithmetic_precedence"
+path = "js/arithmetic-precedence.html"
+category = "js"
+expect_contains = "DrawText \"7\""
+
+[[test]]
+name = "js_variables"
+path = "js/variables.html"
+category = "js"
+expect_contains = "DrawText \"6\""
+
+[[test]]
+name = "js_function_call"
+path = "js/function-call.html"
+category = "js"
+expect_contains = "DrawText \"5\""
+
+[[test]]
+name = "js_closure"
+path = "js/closure.html"
+category = "js"
+expect_contains = "DrawText \"3\""
+
+[[test]]
+name = "js_if_else"
+path = "js/if-else.html"
+category = "js"
+expect_contains = "DrawText \"yes\""
+
+[[test]]
+name = "js_while_loop"
+path = "js/while-loop.html"
+category = "js"
+expect_contains = "DrawText \"6\""
+
+[[test]]
+name = "js_for_loop"
+path = "js/for-loop.html"
+category = "js"
+expect_contains = "DrawText \"6\""
+
+[[test]]
+name = "js_object_property"
+path = "js/object-property.html"
+category = "js"
+expect_contains = "DrawText \"9\""
+
+[[test]]
+name = "js_array_push_length"
+path = "js/array-push-length.html"
+category = "js"
+expect_contains = "DrawText \"3\""
+
+[[test]]
+name = "js_math_builtin"
+path = "js/math-builtin.html"
+category = "js"
+expect_contains = "DrawText \"7\""
+
+[[test]]
+name = "js_console_log_capture"
+path = "js/console-log-capture.html"
+category = "js"
+mode = "devtools"
+expect_contains = "log hello 42"
+
+[[test]]
+name = "js_step_limit_stops_infinite_loop"
+path = "js/step-limit.html"
+category = "js"
+expect_error_contains = "step limit"
+
+[[test]]
+name = "js_unsupported_class"
+path = "js/unsupported-class.html"
+category = "js"
+status = "unsupported"
+expect_error_contains = "javascript error"
+
+[[test]]
+name = "js_unsupported_try_catch"
+path = "js/unsupported-try-catch.html"
+category = "js"
+status = "unsupported"
+expect_error_contains = "javascript error"
+
+# ======================= DOM =======================
+
+[[test]]
+name = "dom_get_element_by_id"
+path = "dom/get-element-by-id.html"
+category = "dom"
+expect_contains = "DrawText \"After\""
+
+[[test]]
+name = "dom_query_selector"
+path = "dom/query-selector.html"
+category = "dom"
+expect_contains = "DrawText \"After\""
+
+[[test]]
+name = "dom_query_selector_all"
+path = "dom/query-selector-all.html"
+category = "dom"
+expect_contains = "DrawText \"2\""
+
+[[test]]
+name = "dom_text_content_mutation"
+path = "dom/text-content-mutation.html"
+category = "dom"
+expect_contains = "DrawText \"After\""
+
+[[test]]
+name = "dom_set_attribute_style"
+path = "dom/set-attribute-style.html"
+category = "dom"
+expect_contains = "color=#ff0000"
+
+[[test]]
+name = "dom_create_element_append"
+path = "dom/create-element-append.html"
+category = "dom"
+expect_contains = "DrawText \"Made\""
+
+[[test]]
+name = "dom_remove_child"
+path = "dom/remove-child.html"
+category = "dom"
+expect = "dom/remove-child.expect.txt"
+
+[[test]]
+name = "dom_inner_html"
+path = "dom/inner-html.html"
+category = "dom"
+expect_contains = "DrawText \"Inj\""
+
+[[test]]
+name = "dom_script_error_aborts_render"
+path = "dom/script-error-aborts.html"
+category = "dom"
+expect_error_contains = "javascript error"
+
+# ======================= Events =======================
+
+[[test]]
+name = "events_add_event_listener_callable"
+path = "events/add-event-listener.html"
+category = "events"
+expect_contains = "DrawText \"registered\""
+
+[[test]]
+name = "events_preventdefault_anchor"
+path = "events/preventdefault-anchor.html"
+category = "events"
+status = "skip"
+reason = "click dispatch and default-action prevention are exercised by tests/integration/events_pipeline.rs; the static compat harness does not synthesize input events"
+
+[[test]]
+name = "events_checkbox_default_toggle"
+path = "events/checkbox-default-toggle.html"
+category = "events"
+status = "skip"
+reason = "checkbox toggle is a click default action; covered by tests/integration/events_pipeline.rs (no input dispatch in the static harness)"
+
+[[test]]
+name = "events_radio_group"
+path = "events/radio-group.html"
+category = "events"
+status = "skip"
+reason = "radio-group selection is a click default action; covered by tests/integration/events_pipeline.rs"
+
+[[test]]
+name = "events_submit_get_model"
+path = "events/submit-get-model.html"
+category = "events"
+status = "skip"
+reason = "GET submission is driven by a submit click; covered by tests/integration/forms_pipeline.rs"
+
+# ======================= Forms =======================
+
+[[test]]
+name = "forms_text_input_value"
+path = "forms/text-input-value.html"
+category = "forms"
+mode = "form-state"
+expect_contains = "value=\"mocha\""
+
+[[test]]
+name = "forms_checkbox_initial_checked"
+path = "forms/checkbox-initial-checked.html"
+category = "forms"
+mode = "form-state"
+expect_contains = "checked=true"
+
+[[test]]
+name = "forms_input_value_js"
+path = "forms/input-value-js.html"
+category = "forms"
+mode = "form-state"
+expect_contains = "value=\"After\""
+
+[[test]]
+name = "forms_select_value"
+path = "forms/select-value.html"
+category = "forms"
+expect_contains = "value=\"b\""
+
+[[test]]
+name = "forms_textarea_value"
+path = "forms/textarea-value.html"
+category = "forms"
+expect_contains = "type=textarea"
+
+[[test]]
+name = "forms_disabled_control"
+path = "forms/disabled-control.html"
+category = "forms"
+mode = "form-state"
+expect_contains = "disabled=true"
+
+[[test]]
+name = "forms_hidden_input_not_painted"
+path = "forms/hidden-input.html"
+category = "forms"
+expect_contains = "DrawText \"visible\""
+
+[[test]]
+name = "forms_unsupported_input_type"
+path = "forms/unsupported-input-type.html"
+category = "forms"
+status = "unsupported"
+expect_error_contains = "unsupported"
+
+# ======================= Images =======================
+
+[[test]]
+name = "images_local_image"
+path = "images/local-image.html"
+category = "images"
+expect_contains = "DrawImage image_id=0"
+
+[[test]]
+name = "images_sized_image"
+path = "images/sized-image.html"
+category = "images"
+expect_contains = "width=20 height=10"
+
+[[test]]
+name = "images_block_image"
+path = "images/block-image.html"
+category = "images"
+expect_contains = "DrawImage"
+
+[[test]]
+name = "images_missing_image_errors"
+path = "images/missing-image.html"
+category = "images"
+expect_error_contains = "cannot read"
+
+# ======================= Storage =======================
+
+[[test]]
+name = "storage_localstorage_requires_origin"
+path = "storage/localstorage-requires-origin.html"
+category = "storage"
+expect_error_contains = "web storage"
+
+[[test]]
+name = "storage_cookie_requires_origin"
+path = "storage/cookie-requires-origin.html"
+category = "storage"
+expect_error_contains = "web storage"
+
+[[test]]
+name = "storage_localstorage_set_get"
+path = "storage/localstorage-set-get.html"
+category = "storage"
+status = "skip"
+reason = "localStorage set/get needs an http(s) origin; the static file harness runs no server. Covered by mocha_storage unit tests. TODO: add a server-backed compat mode"
+
+[[test]]
+name = "storage_sessionstorage_tab_isolation"
+path = "storage/sessionstorage-tab-isolation.html"
+category = "storage"
+status = "skip"
+reason = "sessionStorage tab isolation needs the tab/session model; covered by mocha_storage/session tests. TODO: server-backed compat mode"
+
+[[test]]
+name = "storage_cookie_httponly_hidden"
+path = "storage/cookie-httponly-hidden.html"
+category = "storage"
+status = "skip"
+reason = "HttpOnly hiding needs an http(s) origin and Set-Cookie; covered by mocha_cookie unit tests. TODO: server-backed compat mode"
+
+# ======================= Security =======================
+
+[[test]]
+name = "security_https_unsupported"
+path = "https://example.com/"
+category = "security"
+status = "unsupported"
+expect_error_contains = "https"
+
+[[test]]
+name = "security_text_plain_unsupported"
+path = "security/note.txt"
+category = "security"
+status = "unsupported"
+expect_error_contains = "text/html"
+
+[[test]]
+name = "security_external_script_src_unsupported"
+path = "security/external-script-src.html"
+category = "security"
+status = "unsupported"
+expect_error_contains = "unsupported"
+
+[[test]]
+name = "security_csp_style_src"
+path = "security/csp-style-src.html"
+category = "security"
+status = "skip"
+reason = "CSP is not enforced in the render pipeline; mocha_security has parser/evaluator unit tests. TODO: wire CSP into subresource loading"
+
+[[test]]
+name = "security_same_origin"
+path = "security/same-origin.html"
+category = "security"
+status = "skip"
+reason = "same-origin helpers are covered by mocha_origin unit tests and are not exposed through the render pipeline"
+
+# ======================= Browser shell / DevTools =======================
+
+[[test]]
+name = "browser_devtools_dom"
+path = "browser/devtools-dom.html"
+category = "browser"
+mode = "devtools"
+expect_contains = "DOM\n"
+
+[[test]]
+name = "browser_devtools_layout"
+path = "browser/devtools-layout.html"
+category = "browser"
+mode = "devtools"
+expect_contains = "Layout\n"
+
+[[test]]
+name = "browser_devtools_network"
+path = "browser/devtools-network.html"
+category = "browser"
+mode = "devtools"
+expect_contains = "document request="
+
+[[test]]
+name = "browser_devtools_console"
+path = "browser/devtools-console.html"
+category = "browser"
+mode = "devtools"
+expect_contains = "log ready"
+
+[[test]]
+name = "browser_tab_session_snapshot"
+path = "browser/tab-session-snapshot.html"
+category = "browser"
+status = "skip"
+reason = "tab/session snapshots are a desktop-shell concern; covered by mocha_desktop and tabs-and-session tests, not exposed by the file harness"

@@ -1,0 +1,122 @@
+# Mocha Browser — compatibility CI core subset (Milestone 20).
+#
+# A small, fast, stable spread across categories that the CI gate runs on every
+# push:  cargo run -p mocha_compat -- tests/compat/ci-manifest.toml
+#
+# The full suite (tests/compat/manifest.toml) is broader and can be run locally.
+# Keep this subset green and quick; add to the full manifest first.
+
+[[test]]
+name = "html_basic_document"
+path = "html/basic-document.html"
+category = "html"
+expect = "html/basic-document.expect.txt"
+
+[[test]]
+name = "html_comment_ignored"
+path = "html/comment-ignored.html"
+category = "html"
+expect_contains = "DrawText \"Visible\""
+
+[[test]]
+name = "html_unsupported_tag"
+path = "html/unsupported-tag.html"
+category = "html"
+status = "unsupported"
+expect_error_contains = "unsupported"
+
+[[test]]
+name = "css_type_selector"
+path = "css/type-selector.html"
+category = "css"
+expect_contains = "color=#008000"
+
+[[test]]
+name = "css_specificity_id_beats_class"
+path = "css/specificity-id-beats-class.html"
+category = "css"
+expect_contains = "color=#008000"
+
+[[test]]
+name = "css_unsupported_calc"
+path = "css/unsupported-calc.html"
+category = "css"
+status = "unsupported"
+expect_error_contains = "unsupported"
+
+[[test]]
+name = "layout_block_stacking"
+path = "layout/block-stacking.html"
+category = "layout"
+expect = "layout/block-stacking.expect.txt"
+
+[[test]]
+name = "layout_anonymous_block"
+path = "layout/anonymous-block.html"
+category = "layout"
+mode = "layout"
+expect_contains = "AnonymousBlock"
+
+[[test]]
+name = "js_arithmetic_precedence"
+path = "js/arithmetic-precedence.html"
+category = "js"
+expect_contains = "DrawText \"7\""
+
+[[test]]
+name = "js_function_call"
+path = "js/function-call.html"
+category = "js"
+expect_contains = "DrawText \"5\""
+
+[[test]]
+name = "js_step_limit_stops_infinite_loop"
+path = "js/step-limit.html"
+category = "js"
+expect_error_contains = "step limit"
+
+[[test]]
+name = "dom_get_element_by_id"
+path = "dom/get-element-by-id.html"
+category = "dom"
+expect_contains = "DrawText \"After\""
+
+[[test]]
+name = "dom_script_error_aborts_render"
+path = "dom/script-error-aborts.html"
+category = "dom"
+expect_error_contains = "javascript error"
+
+[[test]]
+name = "forms_text_input_value"
+path = "forms/text-input-value.html"
+category = "forms"
+mode = "form-state"
+expect_contains = "value=\"mocha\""
+
+[[test]]
+name = "forms_unsupported_input_type"
+path = "forms/unsupported-input-type.html"
+category = "forms"
+status = "unsupported"
+expect_error_contains = "unsupported"
+
+[[test]]
+name = "images_local_image"
+path = "images/local-image.html"
+category = "images"
+expect_contains = "DrawImage image_id=0"
+
+[[test]]
+name = "security_https_unsupported"
+path = "https://example.com/"
+category = "security"
+status = "unsupported"
+expect_error_contains = "https"
+
+[[test]]
+name = "browser_devtools_dom"
+path = "browser/devtools-dom.html"
+category = "browser"
+mode = "devtools"
+expect_contains = "DOM\n"

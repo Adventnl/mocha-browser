@@ -1,0 +1,2 @@
+DrawText "Hello" x=8 y=8 font_size=32 color=#000000
+DrawText "World" x=8 y=46 font_size=16 color=#000000
