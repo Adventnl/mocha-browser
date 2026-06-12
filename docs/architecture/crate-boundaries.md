@@ -75,9 +75,18 @@ mocha_js
 
 mocha_image
 - image format detection + PNG/JPEG decoding (intrinsic dimensions only)
-- the ONLY crate with a third-party dependency: the `image` crate (png+jpeg)
+- third-party dependency: the `image` crate (png+jpeg)
 - no network/HTML/layout/DOM knowledge
 - depends on: mocha_error, image (external)
+
+mocha_storage (M14)
+- persistent browser profile: SQLite-backed history, bookmarks, settings,
+  download metadata, and session snapshot; private (in-memory) profile mode;
+  versioned schema migrations
+- third-party dependency: `rusqlite` (bundled SQLite). No ORM/async/network.
+- no HTML/layout/DOM/desktop knowledge; never depends on mocha_desktop (it owns
+  StoredSession/StoredTab DTOs the desktop crate converts to/from)
+- depends on: mocha_error, mocha_url, rusqlite (external)
 
 mocha_js_dom
 - bridges mocha_js to mocha_dom: window/document/console globals, DOM
@@ -125,15 +134,18 @@ mocha_desktop
 - BrowserAppState: state machine over a TabManager + chrome + address-bar + focus
 - TabManager / BrowserTab / TabId: tab list, active-tab invariant, per-tab
   page/history/scroll/focus (M13)
-- SessionSnapshot / SessionTab: in-memory, metadata-only session capture/restore (M13)
+- SessionSnapshot / SessionTab: in-memory, metadata-only session capture/restore (M13);
+  converts to/from mocha_storage's StoredSession/StoredTab (M14)
 - InternalPage::NewTab: offline new-tab page
 - DesktopPageState: per-tab document loading/rendering (calls mocha_engine)
 - ChromeLayout: tab-strip/toolbar/button/address-bar positioning and hit testing
 - AddressBarState: address bar editing (app-level draft)
 - window.rs: native window event loop (thin, untestable layer using minifb)
+- `--profile DIR --dump-session`: minimal M14 profile integration (history + session)
 - fully testable without a window; window.rs is intentionally untestable
 - optional `gui` feature: enables minifb for visible windowing
-- depends on: mocha_error, mocha_url, mocha_engine, mocha_raster, minifb (optional)
+- depends on: mocha_error, mocha_url, mocha_engine, mocha_raster, mocha_storage,
+  minifb (optional)
 
 mocha_shell
 - command-line executable (library + binary)

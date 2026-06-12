@@ -1,0 +1,16 @@
+[package]
+name = "mocha_storage"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Milestone 14 profile storage: SQLite-backed history, bookmarks, settings, downloads metadata, and session persistence, plus a private (in-memory) profile mode."
+
+[lib]
+name = "mocha_storage"
+path = "src/lib.rs"
+
+[dependencies]
+mocha_error.workspace = true
+mocha_url.workspace = true
+rusqlite.workspace = true

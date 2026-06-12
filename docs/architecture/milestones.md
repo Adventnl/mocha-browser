@@ -189,11 +189,24 @@ goal, what is explicitly not included, and how completion is verified.
   navigation/back/forward affect the active tab only); all terminal examples and
   `--dump-display-list` still work. See [tabs-and-session.md](tabs-and-session.md).
 
-## Beyond Milestone 13 (direction, not code)
+## Milestone 14: Profile storage — complete
 
-- **Profile and storage system (next, M14):** a profile directory, schema
-  migrations, and history/bookmarks/settings/downloads/session persistence.
-- **Web state (M15):** cookies and origin-aware `localStorage`/`sessionStorage`.
+- **Goal:** a persistent browser-profile foundation: the `mocha_storage` crate
+  (embedded SQLite via `rusqlite` `bundled`) with a profile directory, versioned
+  schema migrations, and history/bookmarks/settings/downloads/session stores, plus
+  a private (in-memory) profile mode.
+- **Not included:** cookies and origin-keyed web storage (M15), encryption, sync,
+  passwords, full UI surfacing (the desktop integration is one headless command),
+  multi-process access.
+- **Verification:** `cargo test -p mocha_storage` (profile dir creation + file
+  rejection; migration version/idempotency/tables; history/bookmarks/settings/
+  downloads/session CRUD; persistent-reopen vs. private non-persistence) and the
+  `--profile DIR --dump-session` desktop command. See
+  [profile-storage.md](profile-storage.md).
+
+## Beyond Milestone 14 (direction, not code)
+
+- **Web state (next, M15):** cookies and origin-aware `localStorage`/`sessionStorage`.
 - **Multi-process architecture:** a browser process and renderer process(es) with
   typed IPC and crash recovery.
 - **Security foundation:** an origin model, same-origin checks, mixed content.

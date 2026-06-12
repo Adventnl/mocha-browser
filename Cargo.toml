@@ -17,6 +17,7 @@ members = [
     "crates/mocha_js_dom",
     "crates/mocha_resources",
     "crates/mocha_image",
+    "crates/mocha_storage",
     "crates/mocha_engine",
     "crates/mocha_raster",
     "crates/mocha_desktop",
@@ -46,6 +47,7 @@ mocha_js = { path = "crates/mocha_js" }
 mocha_js_dom = { path = "crates/mocha_js_dom" }
 mocha_resources = { path = "crates/mocha_resources" }
 mocha_image = { path = "crates/mocha_image" }
+mocha_storage = { path = "crates/mocha_storage" }
 mocha_engine = { path = "crates/mocha_engine" }
 mocha_raster = { path = "crates/mocha_raster" }
 mocha_desktop = { path = "crates/mocha_desktop" }
@@ -54,6 +56,12 @@ mocha_shell = { path = "crates/mocha_shell" }
 # Image decoder (Milestone 9): used by mocha_image for PNG/JPEG intrinsic
 # dimensions. Only PNG and JPEG codecs are enabled (no GIF/WebP/TIFF/etc.).
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+
+# Embedded SQLite (Milestone 14): the storage backend for mocha_storage (profile
+# history/bookmarks/settings/downloads/session). `bundled` compiles SQLite from
+# source so there is no system-library or network dependency at runtime. No ORM,
+# no async runtime, no remote/network database.
+rusqlite = { version = "0.40", features = ["bundled"] }
 
 # Desktop window (Milestone 11): a cross-platform window + event loop via minifb.
 # This is optional and behind mocha_desktop's non-default `gui` feature. The

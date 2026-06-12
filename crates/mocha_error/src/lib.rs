@@ -42,6 +42,10 @@ pub enum MochaError {
     Navigation(String),
     /// A JavaScript runtime error (undefined variable, bad call, step limit, …).
     JavaScript(String),
+    /// A profile/storage failure (database, migration, or persistence).
+    Storage(String),
+    /// A security/origin-policy failure (e.g. storage on an opaque origin).
+    Security(String),
     /// A failure in the command-line shell that wires the pipeline together.
     Shell(String),
 }
@@ -65,6 +69,8 @@ impl fmt::Display for MochaError {
             MochaError::Network(message) => write!(f, "network error: {message}"),
             MochaError::Navigation(message) => write!(f, "navigation error: {message}"),
             MochaError::JavaScript(message) => write!(f, "javascript error: {message}"),
+            MochaError::Storage(message) => write!(f, "storage error: {message}"),
+            MochaError::Security(message) => write!(f, "security error: {message}"),
             MochaError::Shell(message) => write!(f, "shell error: {message}"),
         }
     }

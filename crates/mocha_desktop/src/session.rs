@@ -11,6 +11,7 @@
 //! the new-tab page.
 
 use mocha_error::MochaResult;
+use mocha_storage::{StoredSession, StoredTab};
 use mocha_url::Url;
 
 use crate::tab::TabManager;
@@ -37,6 +38,53 @@ pub struct SessionTab {
     pub history: Vec<String>,
     /// Index of the current entry in `history`.
     pub current_history_index: Option<usize>,
+}
+
+// --- conversions to/from the persistent storage DTOs (Milestone 14) ----------
+//
+// `mocha_storage` owns DTOs of the same shape so it never depends on
+// `mocha_desktop`; the desktop crate converts here. The fields line up 1:1.
+
+impl From<&SessionSnapshot> for StoredSession {
+    fn from(snapshot: &SessionSnapshot) -> StoredSession {
+        StoredSession {
+            tabs: snapshot.tabs.iter().map(StoredTab::from).collect(),
+            active_tab_index: snapshot.active_tab_index,
+        }
+    }
+}
+
+impl From<&SessionTab> for StoredTab {
+    fn from(tab: &SessionTab) -> StoredTab {
+        StoredTab {
+            url: tab.url.clone(),
+            title: tab.title.clone(),
+            scroll_y: tab.scroll_y,
+            history: tab.history.clone(),
+            current_history_index: tab.current_history_index,
+        }
+    }
+}
+
+impl From<StoredSession> for SessionSnapshot {
+    fn from(stored: StoredSession) -> SessionSnapshot {
+        SessionSnapshot {
+            tabs: stored.tabs.into_iter().map(SessionTab::from).collect(),
+            active_tab_index: stored.active_tab_index,
+        }
+    }
+}
+
+impl From<StoredTab> for SessionTab {
+    fn from(stored: StoredTab) -> SessionTab {
+        SessionTab {
+            url: stored.url,
+            title: stored.title,
+            scroll_y: stored.scroll_y,
+            history: stored.history,
+            current_history_index: stored.current_history_index,
+        }
+    }
 }
 
 impl TabManager {
@@ -197,5 +245,17 @@ mod tests {
         let restored = TabManager::restore(&snap, 800, 600).unwrap();
         assert_eq!(restored.len(), 1);
         assert_eq!(restored.active().title(), "New Tab");
+    }
+
+    #[test]
+    fn snapshot_round_trips_through_storage_dtos() {
+        use mocha_storage::StoredSession;
+        let (mut m, _path) = loaded_manager();
+        m.new_tab().unwrap();
+        let snap = m.snapshot();
+        // SessionSnapshot -> StoredSession -> SessionSnapshot is lossless.
+        let stored: StoredSession = (&snap).into();
+        let back: SessionSnapshot = stored.into();
+        assert_eq!(back, snap);
     }
 }
