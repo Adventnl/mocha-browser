@@ -1,14 +1,21 @@
-//! The `mocha_desktop` binary: a minimal desktop browser.
+//! The `mocha_desktop` binary: a minimal desktop browser (packaged for
+//! Windows release as `Mocha.exe`; see `docs/release/windows-exe.md`).
 //!
 //! ```bash
+//! cargo run -p mocha_desktop --features gui                                  # home page
 //! cargo run -p mocha_desktop --features gui -- examples/basic/index.html
 //! cargo run -p mocha_desktop -- --dump-display-list examples/forms/basic-form.html
 //! ```
 //!
-//! Loads a local file / `file://` / `http://` / `https://` document and shows it in a native
-//! window (with the `gui` feature). The window includes a toolbar with back/forward/reload
-//! buttons, an address bar, and the page viewport.
+//! With no argument the window opens on the internal home/new-tab page. With a
+//! local file / `file://` / `http://` / `https://` argument it loads that
+//! document; if the load fails, the window opens on an internal error page
+//! instead of exiting. The window (behind the `gui` feature) includes a
+//! toolbar with back/forward/reload buttons, an address bar, and the page
+//! viewport.
 
+#[cfg(feature = "gui")]
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -22,7 +29,7 @@ mod window;
 const DEFAULT_WIDTH: u32 = 800;
 const DEFAULT_HEIGHT: u32 = 600;
 
-const USAGE: &str = "usage: mocha_desktop [--width W] [--height H] [--dump-display-list]\n                     [--profile DIR] [--dump-session] <path-or-url>\n       (file paths, file://, http://, and https:// URLs)\n       --profile DIR opens a persistent profile (history + session persistence)\n       --dump-session loads <path>, records history, saves + prints the session\n       the visible window needs the `gui` feature: cargo run -p mocha_desktop --features gui -- <path>";
+const USAGE: &str = "usage: mocha_desktop [--width W] [--height H] [--dump-display-list]\n                     [--profile DIR] [--dump-session] [path-or-url]\n       (file paths, file://, http://, and https:// URLs; with no argument the\n        window opens on the internal home page)\n       --profile DIR uses DIR as the profile directory (default:\n                     %APPDATA%\\MochaBrowser\\profile, or .\\profile without APPDATA)\n       --dump-session loads <path>, records history, saves + prints the session\n                      (requires --profile DIR and a path)\n       the visible window needs the `gui` feature: cargo run -p mocha_desktop --features gui";
 
 fn main() -> ExitCode {
     match real_main() {
@@ -66,19 +73,23 @@ fn real_main() -> MochaResult<()> {
         }
     }
 
-    let target = target.ok_or_else(|| MochaError::Shell(USAGE.to_string()))?;
-
     if dump_session {
         // Headless: load into a tab, record history + save the session in a
         // persistent profile, then print the session loaded back from storage.
         let dir = profile_dir.ok_or_else(|| {
             MochaError::Shell(format!("--dump-session requires --profile DIR\n{USAGE}"))
         })?;
+        let target = target.ok_or_else(|| {
+            MochaError::Shell(format!("--dump-session needs a path or URL\n{USAGE}"))
+        })?;
         return run_dump_session(&dir, &target, width, height);
     }
 
     if dump_display_list {
         // Headless: render and print the display list (works without `gui`).
+        let target = target.ok_or_else(|| {
+            MochaError::Shell(format!("--dump-display-list needs a path or URL\n{USAGE}"))
+        })?;
         let state = DesktopPageState::load(&target, width, height)?;
         for line in state.console_output() {
             eprintln!("{line}");
@@ -87,7 +98,32 @@ fn real_main() -> MochaResult<()> {
         return Ok(());
     }
 
-    run_window(&target, width, height)
+    run_window(target.as_deref(), profile_dir.as_deref(), width, height)
+}
+
+/// Prepare the app-data directories (profile + logs) and initialize the
+/// profile store. Best-effort by design: when Mocha runs as a desktop app, a
+/// failure here (for example a read-only location) must not stop the browser
+/// from opening, so problems are reported as warnings.
+#[cfg(feature = "gui")]
+fn prepare_app_data(profile_flag: Option<&str>) {
+    let profile_dir = profile_flag
+        .map(PathBuf::from)
+        .unwrap_or_else(mocha_desktop::default_profile_dir);
+    let logs_dir = mocha_desktop::default_logs_dir();
+    for dir in [&profile_dir, &logs_dir] {
+        if let Err(error) = std::fs::create_dir_all(dir) {
+            eprintln!("mocha: warning: cannot create {}: {error}", dir.display());
+        }
+    }
+    // Open (and create/migrate) the profile store so the directory is a real,
+    // writable profile; the GUI does not record history or sessions yet.
+    if let Err(error) = Profile::persistent(&profile_dir) {
+        eprintln!(
+            "mocha: warning: cannot open the profile at {}: {error}",
+            profile_dir.display()
+        );
+    }
 }
 
 /// The current wall-clock time in epoch milliseconds (for CLI use; the storage
@@ -157,15 +193,34 @@ fn parse_dimension(args: &mut impl Iterator<Item = String>, flag: &str) -> Mocha
 }
 
 #[cfg(feature = "gui")]
-fn run_window(target: &str, width: u32, height: u32) -> MochaResult<()> {
-    window::run(target, width, height)
+fn run_window(
+    target: Option<&str>,
+    profile_dir: Option<&str>,
+    width: u32,
+    height: u32,
+) -> MochaResult<()> {
+    use mocha_desktop::BrowserAppState;
+
+    prepare_app_data(profile_dir);
+    let app = match target {
+        // A failed load opens the browser on an internal error page rather
+        // than exiting (app behavior, not CLI behavior).
+        Some(input) => BrowserAppState::load_or_error_page(input, width, height)?,
+        None => BrowserAppState::start(width, height)?,
+    };
+    window::run(app, width, height)
 }
 
 #[cfg(not(feature = "gui"))]
-fn run_window(_target: &str, _width: u32, _height: u32) -> MochaResult<()> {
+fn run_window(
+    _target: Option<&str>,
+    _profile_dir: Option<&str>,
+    _width: u32,
+    _height: u32,
+) -> MochaResult<()> {
     Err(MochaError::Shell(
         "the desktop window needs the `gui` feature; rebuild with \
-         `cargo run -p mocha_desktop --features gui -- <path>` \
+         `cargo run -p mocha_desktop --features gui -- [path]` \
          (or use --dump-display-list for headless output)"
             .to_string(),
     ))

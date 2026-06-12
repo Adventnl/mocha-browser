@@ -521,6 +521,7 @@ mod tests {
 }
 
 pub mod address_bar;
+pub mod app_dirs;
 pub mod browser_app;
 pub mod chrome;
 pub mod new_tab;
@@ -528,6 +529,7 @@ pub mod session;
 pub mod tab;
 
 pub use address_bar::AddressBarState;
+pub use app_dirs::{default_app_data_root, default_logs_dir, default_profile_dir};
 pub use browser_app::{BrowserAction, BrowserAppState, BrowserFocus};
 pub use chrome::{ChromeElement, ChromeLayout, Rect};
 pub use new_tab::InternalPage;

@@ -350,7 +350,26 @@ cargo run -p mocha_shell -- --hit-test 20,40 examples/layout/inline-wrap.html
 cargo run -p mocha_shell -- --eval-js "let x = 1 + 2 * 3; x;"
 ```
 
-`https://` is not implemented and exits with a clear error.
+`https://` loads over TLS since Milestone 21 (e.g.
+`cargo run -p mocha_shell -- https://example.com/` — the network layer works;
+rendering stops at the first unsupported HTML feature with a clear error).
+
+### Windows release (`Mocha.exe`)
+
+Package the desktop GUI as a double-clickable Windows folder:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/package-windows.ps1
+.\dist\MochaBrowser\Mocha.exe
+.\dist\MochaBrowser\Mocha.exe examples\basic\index.html
+.\dist\MochaBrowser\Mocha.exe https://example.com/
+```
+
+With no argument, `Mocha.exe` opens the internal home/new-tab page. A page
+that fails to load shows an internal error page instead of exiting. The
+default profile directory is `%APPDATA%\MochaBrowser\profile` (override with
+`--profile <dir>`). No installer, auto-update, or code signing — see
+[docs/release/windows-exe.md](docs/release/windows-exe.md).
 
 ## Repository structure
 

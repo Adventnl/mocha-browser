@@ -2,3 +2,6 @@
 **/*.rs.bk
 Cargo.lock.orig
 .DS_Store
+
+# Windows release packaging output (scripts/package-windows.ps1)
+/dist

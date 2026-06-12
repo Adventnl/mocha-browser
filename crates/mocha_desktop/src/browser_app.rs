@@ -56,13 +56,49 @@ impl BrowserAppState {
     /// Load a page into the first tab and initialize the browser state.
     pub fn load(input: &str, viewport_width: u32, viewport_height: u32) -> MochaResult<Self> {
         let tabs = TabManager::with_loaded(input, viewport_width, viewport_height)?;
+        Ok(Self::from_tabs(tabs, viewport_width, viewport_height))
+    }
+
+    /// Start with the internal new-tab (home) page — used when the app is
+    /// launched without a document argument. Needs no network.
+    pub fn start(viewport_width: u32, viewport_height: u32) -> MochaResult<Self> {
+        let tabs = TabManager::new(viewport_width, viewport_height)?;
+        Ok(Self::from_tabs(tabs, viewport_width, viewport_height))
+    }
+
+    /// Load `input` into the first tab; if the load fails, open the browser
+    /// anyway showing an internal error page with the failure message, and
+    /// keep the attempted input in the address bar so it can be corrected.
+    /// Only errors if even the internal page cannot render.
+    pub fn load_or_error_page(
+        input: &str,
+        viewport_width: u32,
+        viewport_height: u32,
+    ) -> MochaResult<Self> {
+        match Self::load(input, viewport_width, viewport_height) {
+            Ok(app) => Ok(app),
+            Err(error) => {
+                let tabs = TabManager::with_load_error(
+                    input,
+                    &error.to_string(),
+                    viewport_width,
+                    viewport_height,
+                )?;
+                let mut app = Self::from_tabs(tabs, viewport_width, viewport_height);
+                app.address_bar.draft_text = input.to_string();
+                Ok(app)
+            }
+        }
+    }
+
+    fn from_tabs(tabs: TabManager, viewport_width: u32, viewport_height: u32) -> Self {
         let url = tabs.active().url().cloned();
-        Ok(Self {
+        Self {
             tabs,
             chrome: ChromeLayout::new(viewport_width as f32, viewport_height as f32),
             address_bar: AddressBarState::new(url),
             focus: BrowserFocus::Page,
-        })
+        }
     }
 
     /// The active tab's page (for the window driver: display list, scroll, etc.).
@@ -277,6 +313,40 @@ mod tests {
         assert_eq!(app.focus, BrowserFocus::Page);
         assert_eq!(app.tabs.len(), 1);
         assert!(app.address_bar.current_url.is_some());
+    }
+
+    #[test]
+    fn start_opens_the_home_page_without_a_target() {
+        let app = BrowserAppState::start(800, 600).unwrap();
+        assert_eq!(app.focus, BrowserFocus::Page);
+        assert_eq!(app.tabs.len(), 1);
+        assert_eq!(app.tabs.active().title(), "New Tab");
+        assert!(app.tabs.active().url().is_none());
+        assert!(app.address_bar.current_url.is_none());
+        // The display list paints one DrawText per word.
+        let painted = mocha_paint::format_display_list(app.display_list());
+        assert!(painted.contains("\"Mocha\""));
+        assert!(painted.contains("\"Browser\""));
+    }
+
+    #[test]
+    fn failed_load_opens_an_error_page_instead_of_exiting() {
+        let app = BrowserAppState::load_or_error_page("definitely/missing.html", 800, 600).unwrap();
+        assert_eq!(app.tabs.len(), 1);
+        assert_eq!(app.tabs.active().title(), "Problem loading page");
+        assert!(app.tabs.active().url().is_none());
+        // The attempted input stays editable in the address bar.
+        assert_eq!(app.address_bar.draft_text, "definitely/missing.html");
+        let painted = mocha_paint::format_display_list(app.display_list());
+        assert!(painted.contains("definitely/missing.html"));
+    }
+
+    #[test]
+    fn successful_load_through_load_or_error_page_behaves_like_load() {
+        let app = BrowserAppState::load_or_error_page(&example_path("basic/index.html"), 800, 600)
+            .unwrap();
+        assert!(app.tabs.active().url().is_some());
+        assert_ne!(app.tabs.active().title(), "Problem loading page");
     }
 
     #[test]

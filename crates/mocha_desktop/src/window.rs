@@ -37,9 +37,10 @@ const CHROME_BUTTON_DISABLED: Color = Color {
     a: 255,
 };
 
-/// Open a window showing `target`, pumping input until it is closed (or Escape).
-pub fn run(target: &str, width: u32, height: u32) -> MochaResult<()> {
-    let mut app = BrowserAppState::load(target, width, height)?;
+/// Open a window showing the prepared browser state, pumping input until the
+/// window is closed (or Escape). The caller decides what the first tab shows:
+/// a loaded document, the home page, or an internal error page.
+pub fn run(mut app: BrowserAppState, width: u32, height: u32) -> MochaResult<()> {
     drain_console(&app);
 
     let mut window = Window::new(

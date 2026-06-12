@@ -56,6 +56,30 @@ impl BrowserTab {
         })
     }
 
+    /// A tab showing the internal load-error page for a failed `input` load
+    /// (no URL, no history — like a new-tab page with explanatory content).
+    fn load_error_page(
+        id: TabId,
+        input: &str,
+        message: &str,
+        width: u32,
+        height: u32,
+    ) -> MochaResult<Self> {
+        let html = crate::new_tab::load_error_html(input, message);
+        let page = DesktopPageState::from_html(&html, width, height)?;
+        Ok(BrowserTab {
+            id,
+            page,
+            title: crate::new_tab::LOAD_ERROR_TITLE.to_string(),
+            url: None,
+            is_loading: false,
+            history: Vec::new(),
+            history_index: None,
+            needs_reload: false,
+            pending_scroll: None,
+        })
+    }
+
     /// A tab that immediately loads `input` (file path / `file://` / `http://`).
     fn loaded(id: TabId, input: &str, width: u32, height: u32) -> MochaResult<Self> {
         let page = DesktopPageState::load(input, width, height)?;
@@ -271,6 +295,27 @@ impl TabManager {
         let tab = BrowserTab::loaded(
             manager.alloc_id(),
             input,
+            manager.viewport_width,
+            manager.viewport_height,
+        )?;
+        manager.active_tab = tab.id;
+        manager.tabs.push(tab);
+        Ok(manager)
+    }
+
+    /// A new manager whose single tab shows the internal load-error page for a
+    /// failed `input` load (the browser opens instead of exiting).
+    pub fn with_load_error(
+        input: &str,
+        message: &str,
+        viewport_width: u32,
+        viewport_height: u32,
+    ) -> MochaResult<Self> {
+        let mut manager = Self::empty(viewport_width, viewport_height);
+        let tab = BrowserTab::load_error_page(
+            manager.alloc_id(),
+            input,
+            message,
             manager.viewport_width,
             manager.viewport_height,
         )?;
@@ -500,6 +545,23 @@ mod tests {
         assert_eq!(m.len(), 1);
         assert_eq!(m.active().title(), "New Tab");
         assert!(m.active().url().is_none());
+    }
+
+    #[test]
+    fn with_load_error_shows_the_error_page_tab() {
+        let m =
+            TabManager::with_load_error("definitely/missing.html", "io error: not found", 800, 600)
+                .unwrap();
+        assert_eq!(m.len(), 1);
+        assert_eq!(m.active().title(), "Problem loading page");
+        assert!(m.active().url().is_none());
+        assert!(!m.active().can_go_back());
+        assert!(!m.active().can_go_forward());
+        // The display list paints one DrawText per word.
+        let painted = mocha_paint::format_display_list(m.active().page().display_list());
+        assert!(painted.contains("definitely/missing.html"));
+        assert!(painted.contains("\"Problem\""));
+        assert!(painted.contains("\"found\""));
     }
 
     #[test]
