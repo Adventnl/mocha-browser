@@ -98,7 +98,7 @@ mod tests {
 
     #[test]
     fn different_scheme_differs() {
-        // (https parses even though https loading is unsupported.)
+        // (https origins are real, loadable origins since Milestone 21.)
         assert_ne!(
             origin("http://example.com/"),
             origin("https://example.com/")

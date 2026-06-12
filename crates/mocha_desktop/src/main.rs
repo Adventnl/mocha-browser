@@ -5,9 +5,9 @@
 //! cargo run -p mocha_desktop -- --dump-display-list examples/forms/basic-form.html
 //! ```
 //!
-//! Loads a local file / `file://` / `http://` document and shows it in a native
+//! Loads a local file / `file://` / `http://` / `https://` document and shows it in a native
 //! window (with the `gui` feature). The window includes a toolbar with back/forward/reload
-//! buttons, an address bar, and the page viewport. `https://` is unsupported.
+//! buttons, an address bar, and the page viewport.
 
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -22,7 +22,7 @@ mod window;
 const DEFAULT_WIDTH: u32 = 800;
 const DEFAULT_HEIGHT: u32 = 600;
 
-const USAGE: &str = "usage: mocha_desktop [--width W] [--height H] [--dump-display-list]\n                     [--profile DIR] [--dump-session] <path-or-url>\n       (file paths, file:// and http:// URLs; https:// is not implemented)\n       --profile DIR opens a persistent profile (history + session persistence)\n       --dump-session loads <path>, records history, saves + prints the session\n       the visible window needs the `gui` feature: cargo run -p mocha_desktop --features gui -- <path>";
+const USAGE: &str = "usage: mocha_desktop [--width W] [--height H] [--dump-display-list]\n                     [--profile DIR] [--dump-session] <path-or-url>\n       (file paths, file://, http://, and https:// URLs)\n       --profile DIR opens a persistent profile (history + session persistence)\n       --dump-session loads <path>, records history, saves + prints the session\n       the visible window needs the `gui` feature: cargo run -p mocha_desktop --features gui -- <path>";
 
 fn main() -> ExitCode {
     match real_main() {

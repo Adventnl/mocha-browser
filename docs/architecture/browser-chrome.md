@@ -103,7 +103,7 @@ viewport height. The page viewport is positioned below the chrome for hit testin
 - Page title display in window title or chrome
 - Tab support (see M13)
 - Bookmarks, history database, settings UI
-- HTTPS support (unsupported since M4; returns clear error)
+- HTTPS certificate-error pages / TLS indicators (https loads work since M21)
 - Cookies
 - Search / search suggestions / address autocomplete
 - Keyboard shortcuts (Ctrl+T, Ctrl+L, Ctrl+R, Ctrl+W, etc.)

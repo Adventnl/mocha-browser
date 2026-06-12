@@ -538,12 +538,15 @@ reason = "HttpOnly hiding needs an http(s) origin and Set-Cookie; covered by moc
 
 # ======================= Security =======================
 
+# https is supported since Milestone 21; nothing listens on 127.0.0.1:1, so
+# this verifies an https load reaches the real network layer and fails with a
+# clear connection error (offline-safe — the connection is refused locally).
 [[test]]
-name = "security_https_unsupported"
-path = "https://example.com/"
+name = "security_https_connection_refused_is_clear"
+path = "https://127.0.0.1:1/"
 category = "security"
 status = "unsupported"
-expect_error_contains = "https"
+expect_error_contains = "cannot connect"
 
 [[test]]
 name = "security_text_plain_unsupported"

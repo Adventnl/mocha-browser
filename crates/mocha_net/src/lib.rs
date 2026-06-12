@@ -1,20 +1,25 @@
 //! Minimal resource loading for Mocha Browser.
 //!
-//! `mocha_net` loads documents from `file://`/local paths and `http://` URLs,
-//! follows redirects, infers content type, and keeps a tiny in-memory cache. It
-//! does **not** know about navigation history, HTML, CSS, layout, or painting.
+//! `mocha_net` loads documents from `file://`/local paths and `http://` /
+//! `https://` URLs, follows redirects, infers content type, and keeps a tiny
+//! in-memory cache. It does **not** know about navigation history, HTML, CSS,
+//! layout, or painting.
 //!
 //! Networking scope (intentionally small): `GET` only; a hand-written blocking
-//! HTTP/1.1 client over `std::net::TcpStream` (no keep-alive, chunked decoding,
-//! or compression); **no TLS** — `https://` returns
-//! [`MochaError::UnsupportedFeature`]. No auth or proxy support. Cookie support
-//! is optional through [`CookieProvider`] and [`DefaultLoader::load_with_cookies`];
-//! the default load path still sends no cookies.
+//! HTTP/1.1 client over `std::net::TcpStream` with `Transfer-Encoding: chunked`
+//! and `Content-Encoding: gzip` decoding (the from-scratch `mocha_gzip` crate).
+//! `https://` (Milestone 21) runs the same client over rustls with certificates
+//! verified against the embedded Mozilla root store — invalid certificates are
+//! clear errors with no override. No keep-alive, auth, proxies, HTTP/2-3, or
+//! encodings beyond gzip. Cookie support is optional through [`CookieProvider`]
+//! and [`DefaultLoader::load_with_cookies`]; the default load path still sends
+//! no cookies.
 
 mod cache;
 mod content_type;
 mod file;
 mod http;
+mod tls;
 
 #[cfg(any(test, feature = "test-util"))]
 pub mod test_server;
@@ -22,7 +27,7 @@ pub mod test_server;
 pub use cache::MemoryCache;
 pub use content_type::{classify, ResourceType};
 
-use mocha_error::{MochaError, MochaResult};
+use mocha_error::MochaResult;
 use mocha_url::{Scheme, Url};
 
 /// Maximum number of redirects followed before giving up.
@@ -128,16 +133,31 @@ pub trait CookieProvider {
     ) -> MochaResult<()>;
 }
 
-/// The default loader: handles `file`/`http`, with an in-memory cache for HTTP.
+/// The default loader: handles `file`/`http`/`https`, with an in-memory cache
+/// for HTTP(S).
 #[derive(Debug, Default)]
 pub struct DefaultLoader {
     cache: MemoryCache,
+    tls: tls::TlsClient,
 }
 
 impl DefaultLoader {
-    /// Create a loader with an empty cache.
+    /// Create a loader with an empty cache, trusting the embedded Mozilla CA
+    /// roots for `https://`.
     pub fn new() -> DefaultLoader {
         DefaultLoader::default()
+    }
+
+    /// A loader that additionally trusts `certificate_der` for TLS. **Testing
+    /// only**: this exists so integration tests can talk to the localhost
+    /// [`test_server::TestServer::start_tls`] server; production paths always
+    /// use [`DefaultLoader::new`].
+    #[cfg(any(test, feature = "test-util"))]
+    pub fn with_extra_tls_root(certificate_der: &[u8]) -> MochaResult<DefaultLoader> {
+        Ok(DefaultLoader {
+            cache: MemoryCache::default(),
+            tls: tls::TlsClient::with_extra_root(certificate_der)?,
+        })
     }
 
     fn load_http(&mut self, request: &LoadRequest) -> MochaResult<ResourceResponse> {
@@ -147,7 +167,7 @@ impl DefaultLoader {
                 return Ok(cached);
             }
         }
-        let response = http::fetch_with_redirects(&request.url)?;
+        let response = http::fetch_with_redirects(&request.url, &self.tls)?;
         // Only cache successful responses, keyed by the *final* URL so that a
         // later direct load of a redirect's destination (e.g. a back/forward
         // navigation, whose history stores the final URL) hits the cache.
@@ -162,7 +182,7 @@ impl DefaultLoader {
     /// Load `request`, consulting `cookies` to attach a `Cookie` header and store
     /// any `Set-Cookie` responses (Milestone 15). This path **bypasses the cache**
     /// (so the live `Cookie` header is always sent) and applies cookies per
-    /// redirect hop. `file://` loads ignore cookies; `https://` is unsupported.
+    /// redirect hop. `file://` loads ignore cookies.
     pub fn load_with_cookies(
         &mut self,
         request: LoadRequest,
@@ -171,10 +191,9 @@ impl DefaultLoader {
     ) -> MochaResult<ResourceResponse> {
         match request.url.scheme {
             Scheme::File => file::load_file(&request.url),
-            Scheme::Http => http::fetch_with_redirects_cookies(&request.url, Some(cookies), now_ms),
-            Scheme::Https => Err(MochaError::UnsupportedFeature(
-                "https loading is not implemented in Milestone 4".to_string(),
-            )),
+            Scheme::Http | Scheme::Https => {
+                http::fetch_with_redirects_cookies(&request.url, &self.tls, Some(cookies), now_ms)
+            }
         }
     }
 }
@@ -183,10 +202,7 @@ impl ResourceLoader for DefaultLoader {
     fn load(&mut self, request: LoadRequest) -> MochaResult<ResourceResponse> {
         match request.url.scheme {
             Scheme::File => file::load_file(&request.url),
-            Scheme::Http => self.load_http(&request),
-            Scheme::Https => Err(MochaError::UnsupportedFeature(
-                "https loading is not implemented in Milestone 4".to_string(),
-            )),
+            Scheme::Http | Scheme::Https => self.load_http(&request),
         }
     }
 }
@@ -195,6 +211,7 @@ impl ResourceLoader for DefaultLoader {
 mod tests {
     use super::test_server::{Reply, TestServer};
     use super::*;
+    use mocha_error::MochaError;
 
     fn load(loader: &mut DefaultLoader, url: &str) -> MochaResult<ResourceResponse> {
         loader.load(LoadRequest::get(Url::parse(url).unwrap()))
@@ -221,10 +238,129 @@ mod tests {
     }
 
     #[test]
-    fn https_is_unsupported() {
+    fn https_loads_over_tls() {
+        let server = TestServer::start_tls(vec![(
+            "/index.html".to_string(),
+            Reply::Html("<html><body><p>secure</p></body></html>".to_string()),
+        )]);
+        let mut loader = DefaultLoader::with_extra_tls_root(TestServer::tls_certificate_der())
+            .expect("test trust root");
+        let response = load(&mut loader, &server.url("/index.html")).unwrap();
+        assert_eq!(response.status, Some(200));
+        assert_eq!(response.final_url.scheme, Scheme::Https);
+        assert!(String::from_utf8_lossy(&response.body).contains("secure"));
+    }
+
+    #[test]
+    fn https_self_signed_certificate_is_rejected_by_default() {
+        // The default loader trusts only the Mozilla roots, so the test
+        // server's self-signed certificate must fail — with no override.
+        let server = TestServer::start_tls(vec![(
+            "/index.html".to_string(),
+            Reply::Html("<html></html>".to_string()),
+        )]);
         let mut loader = DefaultLoader::new();
-        let error = load(&mut loader, "https://example.com/").unwrap_err();
-        assert!(matches!(error, MochaError::UnsupportedFeature(_)));
+        let error = load(&mut loader, &server.url("/index.html")).unwrap_err();
+        match error {
+            MochaError::Network(message) => {
+                assert!(
+                    message.contains("certificate"),
+                    "expected a certificate error, got: {message}"
+                );
+            }
+            other => panic!("expected Network error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn http_redirect_to_https_is_followed() {
+        let tls_server = TestServer::start_tls(vec![(
+            "/dest.html".to_string(),
+            Reply::Html("<html><body>upgraded</body></html>".to_string()),
+        )]);
+        let plain_server = TestServer::start(vec![(
+            "/start".to_string(),
+            Reply::Redirect {
+                status: 301,
+                location: tls_server.url("/dest.html"),
+            },
+        )]);
+        let mut loader = DefaultLoader::with_extra_tls_root(TestServer::tls_certificate_der())
+            .expect("test trust root");
+        let response = load(&mut loader, &plain_server.url("/start")).unwrap();
+        assert_eq!(response.status, Some(200));
+        assert_eq!(response.final_url.scheme, Scheme::Https);
+        assert!(String::from_utf8_lossy(&response.body).contains("upgraded"));
+    }
+
+    #[test]
+    fn chunked_response_is_decoded() {
+        let body = "<html><body><p>chunked transfer works end to end</p></body></html>";
+        let server = TestServer::start(vec![(
+            "/c.html".to_string(),
+            Reply::ChunkedHtml(body.to_string()),
+        )]);
+        let mut loader = DefaultLoader::new();
+        let response = load(&mut loader, &server.url("/c.html")).unwrap();
+        assert_eq!(response.status, Some(200));
+        assert_eq!(String::from_utf8_lossy(&response.body), body);
+    }
+
+    #[test]
+    fn gzip_response_is_decoded() {
+        let body = "<html><body><p>gzip content-encoding works</p></body></html>";
+        let server = TestServer::start(vec![(
+            "/g.html".to_string(),
+            Reply::GzipHtml(body.to_string()),
+        )]);
+        let mut loader = DefaultLoader::new();
+        let response = load(&mut loader, &server.url("/g.html")).unwrap();
+        assert_eq!(response.status, Some(200));
+        assert_eq!(String::from_utf8_lossy(&response.body), body);
+    }
+
+    #[test]
+    fn corrupt_gzip_body_errors_clearly() {
+        let mut compressed = mocha_gzip::gzip_compress_stored(b"<html></html>");
+        let length = compressed.len();
+        compressed[length - 6] ^= 0xFF; // corrupt the CRC
+        let raw = [
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {length}\r\nContent-Encoding: gzip\r\nConnection: close\r\n\r\n"
+            )
+            .into_bytes(),
+            compressed,
+        ]
+        .concat();
+        let server = TestServer::start(vec![("/bad.html".to_string(), Reply::Raw(raw))]);
+        let mut loader = DefaultLoader::new();
+        let error = load(&mut loader, &server.url("/bad.html")).unwrap_err();
+        assert!(matches!(error, MochaError::Decompression(_)));
+    }
+
+    #[test]
+    fn unsupported_content_encoding_errors_clearly() {
+        let raw = b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 2\r\nContent-Encoding: br\r\nConnection: close\r\n\r\nxx".to_vec();
+        let server = TestServer::start(vec![("/br.html".to_string(), Reply::Raw(raw))]);
+        let mut loader = DefaultLoader::new();
+        let error = load(&mut loader, &server.url("/br.html")).unwrap_err();
+        match error {
+            MochaError::UnsupportedFeature(message) => assert!(message.contains("'br'")),
+            other => panic!("expected UnsupportedFeature, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn truncated_content_length_errors_clearly() {
+        let raw =
+            b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 100\r\nConnection: close\r\n\r\nshort".to_vec();
+        let server = TestServer::start(vec![("/t.html".to_string(), Reply::Raw(raw))]);
+        let mut loader = DefaultLoader::new();
+        let error = load(&mut loader, &server.url("/t.html")).unwrap_err();
+        match error {
+            MochaError::Network(message) => assert!(message.contains("truncated")),
+            other => panic!("expected Network error, got {other:?}"),
+        }
     }
 
     #[test]
@@ -340,7 +476,7 @@ mod tests {
     }
 
     #[test]
-    fn chunked_transfer_encoding_is_unsupported() {
+    fn raw_chunked_response_is_decoded() {
         let server = TestServer::start(vec![(
             "/c".to_string(),
             Reply::Raw(
@@ -349,7 +485,18 @@ mod tests {
             ),
         )]);
         let mut loader = DefaultLoader::new();
-        let error = load(&mut loader, &server.url("/c")).unwrap_err();
+        let response = load(&mut loader, &server.url("/c")).unwrap();
+        assert_eq!(response.body, b"abc");
+    }
+
+    #[test]
+    fn unsupported_transfer_encoding_errors_clearly() {
+        let server = TestServer::start(vec![(
+            "/te".to_string(),
+            Reply::Raw(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip, chunked\r\n\r\nxx".to_vec()),
+        )]);
+        let mut loader = DefaultLoader::new();
+        let error = load(&mut loader, &server.url("/te")).unwrap_err();
         assert!(matches!(error, MochaError::UnsupportedFeature(_)));
     }
 

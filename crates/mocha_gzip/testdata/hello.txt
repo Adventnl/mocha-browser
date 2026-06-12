@@ -1,0 +1,2 @@
+Hello, gzip!
+This fixture was compressed by GNU gzip.

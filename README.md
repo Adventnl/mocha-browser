@@ -4,9 +4,9 @@ Mocha Browser is an experimental from-scratch browser engine and desktop browser
 
 Mocha is not based on Chromium, WebKit, Gecko, Servo, Electron, CEF, Tauri WebView, system WebView, V8, SpiderMonkey, JavaScriptCore, QuickJS, Deno, or Node.js.
 
-Current status: Milestone 20 (web compatibility hardening) implemented. Mocha is a
-functioning **experimental** browser, not a production browser and **not
-Chromium-compatible**.
+Current status: Milestone 21 (real networking — HTTP/1.1 hardening and HTTPS/TLS)
+implemented. Mocha is a functioning **experimental** browser, not a production
+browser and **not Chromium-compatible**.
 
 Mocha is not safe for general web browsing yet.
 
@@ -17,7 +17,7 @@ Mocha is not safe for general web browsing yet.
 | Layout | Basic block/inline | No tables/flex/grid; fixed-advance debug font |
 | JS | Tiny custom interpreter | Not ECMAScript-compliant; no classes/promises/modules |
 | DOM | Basic bindings | Not the full Web API surface; no real event loop |
-| Network | HTTP/file | HTTPS/TLS unsupported |
+| Network | HTTP(S)/file | HTTP/1.1 + chunked + gzip; HTTPS via rustls (Mozilla roots); no HTTP/2-3, keep-alive, POST |
 | Storage | Profile/cookies/localStorage foundations | Needs an http(s) origin; minimal |
 | Security | Policy/sandbox/process prototypes | Not production-secure; not site isolation |
 | Desktop | Basic browser UI + tabs | Experimental |
@@ -37,6 +37,18 @@ Correctness and honesty are valued over breadth: unsupported behaviour fails
 with a clear error rather than being faked.
 
 ## Current milestone
+
+**Milestone 21: Real networking — HTTP/1.1 hardening and HTTPS/TLS.** The
+hand-written HTTP/1.1 client now decodes `Transfer-Encoding: chunked` and
+`Content-Encoding: gzip` (via `mocha_gzip`, a from-scratch RFC 1951/1952
+inflate + gzip decoder with CRC-32 verification and a zip-bomb cap), validates
+`Content-Length`, and loads `https://` URLs through **rustls** with
+certificates verified against the embedded Mozilla root store — no
+certificate-error overrides, no hand-rolled TLS. Redirects follow across
+http↔https, and the localhost test server gained a TLS mode with a committed
+self-signed test certificate. This is **not** HTTP/2-3, keep-alive,
+brotli/zstd, revocation/HSTS, client certificates, or TLS UI. See
+[networking-and-navigation.md](docs/architecture/networking-and-navigation.md).
 
 **Milestone 16: Origin model and security foundation.** The `mocha_security`
 crate defines explicit security decisions and policy objects: same-origin checks,
@@ -140,10 +152,13 @@ exists for terminal output mode.
   runs out; long text wraps at word boundaries.
 - A display list of `DrawRect` / `DrawBorder` / `DrawText` commands carrying
   colors, plus a layout-tree dump (`--dump-layout`), printed via `mocha_shell`.
-- **Document loading** of local paths, `file://`, and `http://` URLs through
-  `mocha_net` (a std-only blocking HTTP/1.1 client), with redirect following (up
-  to 10), content-type gating (only HTML renders), a simple in-memory cache, and
-  a `mocha_nav` back/forward/reload history model.
+- **Document loading** of local paths, `file://`, `http://`, and `https://`
+  URLs through `mocha_net` (a hand-written blocking HTTP/1.1 client; TLS via
+  rustls with the embedded Mozilla roots), with redirect following (up to 10,
+  across http↔https), `Transfer-Encoding: chunked` decoding,
+  `Content-Encoding: gzip` decoding (the from-scratch `mocha_gzip` crate),
+  `Content-Length` truncation checks, content-type gating (only HTML renders),
+  a simple in-memory cache, and a `mocha_nav` back/forward/reload history model.
 - **Internal DOM events** (`mocha_events`): capture/target/bubble dispatch,
   listener registration/removal, `once` listeners, `stopPropagation` /
   `stopImmediatePropagation` / `preventDefault`, and `click`/mouse/keyboard event
@@ -192,8 +207,12 @@ exists for terminal output mode.
 Not implemented (see [docs/architecture/limitations.md](docs/architecture/limitations.md)
 and [networking-and-navigation.md](docs/architecture/networking-and-navigation.md)):
 
-- **`https://`** (no TLS — returns a clear error), authentication, proxies,
-  HTTP/2-3, real HTTP cache semantics, charset decoding beyond UTF-8. **Cookies**
+- **HTTPS edge cases**: `https://` loads work (Milestone 21, rustls + Mozilla
+  roots), but there is no certificate-error interstitial or override, no
+  revocation (CRL/OCSP), no HSTS, no client certificates, and no TLS UI
+  (padlock). Also unsupported: keep-alive, HTTP/2-3, `br`/`zstd`/`deflate`
+  encodings (clear errors), authentication, proxies, real HTTP cache semantics,
+  charset decoding beyond UTF-8. **Cookies**
   are now supported as a minimal jar with `Set-Cookie`/`Cookie` HTTP integration
   and profile persistence (Milestone 15) — but not full RFC 6265bis, no
   third-party/partitioned-cookie policy, and `Secure` cookies need HTTPS.
@@ -254,8 +273,8 @@ and [networking-and-navigation.md](docs/architecture/networking-and-navigation.m
 - Security sandboxing.
 - Production multi-process architecture and OS sandboxing.
 
-`file://` and `http://` document loading are supported; `https://` is not
-implemented. Unsupported tags/features, unsupported CSS, unsupported URL schemes,
+`file://`, `http://`, and `https://` document loading are supported (Milestone
+21). Unsupported tags/features, unsupported CSS, unsupported URL schemes,
 non-HTML document content types, and unsupported subresources (e.g. `<script
 src>`) return clear errors; they are not silently ignored. `<style>` and
 `<script>` text is never painted.
@@ -264,12 +283,14 @@ src>`) return clear errors; they are not silently ignored. `<style>` and
 
 The toolchain is pinned to **stable** Rust via `rust-toolchain.toml` (with
 `rustfmt` and `clippy`); `rustup` selects it automatically. CI runs the full gate
-(fmt / clippy / build / test) on both Linux and Windows. The `image` crate
-(PNG/JPEG, default features off) is used by `mocha_image` for image decoding. The
-optional `gui` feature uses the `minifb` crate for a visible desktop window; without
-it, only terminal output is available. The rest of the workspace is std-only. No
-browser engine, webview, or JavaScript engine is used. Node.js is **not** used for
-build, test, or runtime.
+(fmt / clippy / build / test) on both Linux and Windows. Third-party dependencies
+are deliberately few: the `image` crate (PNG/JPEG, default features off) for
+image decoding, `rusqlite` (bundled SQLite, compiled from source — needs a C
+compiler) for profile storage, **rustls + webpki-roots** for TLS (Milestone 21 —
+TLS is never hand-rolled; the HTTP protocol on top is), and the optional `gui`
+feature's `minifb` crate for a visible desktop window. The rest of the workspace
+is std-only. No browser engine, webview, or JavaScript engine is used. Node.js is
+**not** used for build, test, or runtime.
 
 Build:
 

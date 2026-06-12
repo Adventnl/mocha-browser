@@ -29,7 +29,7 @@ fn main() -> ExitCode {
     }
 }
 
-const USAGE: &str = "usage: mocha_shell [--dump-layout] [--dump-form-state] [--devtools-snapshot] [--no-cache] [--show-headers] [--hit-test X,Y] <path-or-url>\n       mocha_shell --eval-js \"<javascript>\"\n       (file paths, file:// and http:// URLs; https:// is not implemented)";
+const USAGE: &str = "usage: mocha_shell [--dump-layout] [--dump-form-state] [--devtools-snapshot] [--no-cache] [--show-headers] [--hit-test X,Y] <path-or-url>\n       mocha_shell --eval-js \"<javascript>\"\n       (file paths, file://, http://, and https:// URLs)";
 
 fn real_main() -> MochaResult<()> {
     let mut options = RunOptions::default();

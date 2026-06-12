@@ -13,7 +13,7 @@ never silently) or is simply out of scope for this milestone.
 ## Supported document loading
 
 - Local file documents (bare path or `file://`).
-- `http://` documents (no TLS).
+- `http://` and `https://` documents (TLS via rustls, Mozilla roots, since M21).
 - HTTP redirects (the final URL becomes the document base URL).
 - `text/html` only; other content types fail clearly.
 - UTF-8 only; other encodings fail clearly.
@@ -21,7 +21,7 @@ never silently) or is simply out of scope for this milestone.
 - `<img>` images decoded as PNG or JPEG.
 - The GET-only form-submission model (form-urlencoded query URLs).
 
-**Unsupported:** `https://`/TLS, `<script src>` (external scripts), CSS `url(...)`,
+**Unsupported:** `<script src>` (external scripts), CSS `url(...)`,
 non-UTF-8 encodings, content types other than `text/html`, POST submission,
 HTTP caching beyond the in-memory loader cache.
 

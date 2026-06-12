@@ -300,7 +300,10 @@ fn run_test(test: &CompatTest, dir: &str, bless: bool) -> Outcome {
     if let Some(expect) = &test.expect {
         let expect_path = join_path(dir, expect);
         let expected = match std::fs::read_to_string(&expect_path) {
-            Ok(text) => text,
+            // Normalize line endings: git `core.autocrlf` checkouts turn the
+            // committed LF expectation files into CRLF on Windows, while the
+            // rendered snapshot always uses LF.
+            Ok(text) => text.replace("\r\n", "\n"),
             Err(_) => {
                 return classify(
                     test,

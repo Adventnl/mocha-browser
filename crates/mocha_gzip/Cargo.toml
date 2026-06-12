@@ -1,0 +1,10 @@
+[package]
+name = "mocha_gzip"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "From-scratch gzip (RFC 1952) and DEFLATE (RFC 1951) decoding for Mocha Browser's HTTP content-encoding support."
+
+[dependencies]
+mocha_error.workspace = true

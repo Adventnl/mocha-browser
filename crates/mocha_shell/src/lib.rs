@@ -6,7 +6,7 @@
 //! display list (default), the layout tree (`--dump-layout`), or the
 //! form-control state (`--dump-form-state`), optionally preceded by response
 //! headers. It does **not** open a window — that is `mocha_desktop` (Milestone
-//! 11). `https://` is unsupported and fails clearly. `--eval-js` evaluates a
+//! 11). `https://` loads over TLS since Milestone 21. `--eval-js` evaluates a
 //! standalone JavaScript snippet with no DOM.
 
 use mocha_devtools::{format_snapshot, snapshot_rendered_page};
@@ -158,10 +158,11 @@ mod tests {
     use mocha_net::test_server::{Reply, TestServer};
 
     #[test]
-    fn https_returns_unsupported_feature() {
-        // https is rejected before any network access.
-        let error = run_file("https://example.com/index.html").unwrap_err();
-        assert!(matches!(error, MochaError::UnsupportedFeature(_)));
+    fn https_connection_failure_is_a_clear_network_error() {
+        // https is supported since Milestone 21. Nothing listens on port 1, so
+        // the connection is refused locally and the test stays offline.
+        let error = run_file("https://127.0.0.1:1/index.html").unwrap_err();
+        assert!(matches!(error, MochaError::Network(_)));
     }
 
     #[test]

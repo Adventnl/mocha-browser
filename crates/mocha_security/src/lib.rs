@@ -115,12 +115,10 @@ pub fn check_url_context(url: &Url, context: UrlUseContext) -> SecurityDecision 
             Scheme::File | Scheme::Http | Scheme::Https => SecurityDecision::Allow,
         },
         UrlUseContext::Subresource | UrlUseContext::Stylesheet | UrlUseContext::Image => {
+            // https subresources are loadable since Milestone 21 (TLS via
+            // rustls); mixed-content policy still applies separately.
             match url.scheme {
-                Scheme::File | Scheme::Http => SecurityDecision::Allow,
-                Scheme::Https => block(
-                    SecurityViolationKind::UnsupportedScheme,
-                    "https subresources are recognized but not loadable until TLS exists",
-                ),
+                Scheme::File | Scheme::Http | Scheme::Https => SecurityDecision::Allow,
             }
         }
         UrlUseContext::Script => block(
@@ -128,11 +126,7 @@ pub fn check_url_context(url: &Url, context: UrlUseContext) -> SecurityDecision 
             "external script loading is blocked in M16",
         ),
         UrlUseContext::FormSubmission => match url.scheme {
-            Scheme::Http | Scheme::File => SecurityDecision::Allow,
-            Scheme::Https => block(
-                SecurityViolationKind::UnsupportedScheme,
-                "https form submission is recognized but not loadable until TLS exists",
-            ),
+            Scheme::Http | Scheme::Https | Scheme::File => SecurityDecision::Allow,
         },
         UrlUseContext::WebStorage => match Origin::from_url(url) {
             Ok(_) => SecurityDecision::Allow,

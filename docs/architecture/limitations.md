@@ -29,8 +29,11 @@ says nothing about modern-web compatibility.
   `mocha_raster`; in terminal mode, the display list is printed as text. No
   nearest-neighbor, antialiasing, or scaling quality control. `srcset`/`<picture>`,
   SVG, and animation are unsupported.
-- **HTTPS / TLS** — `https://` returns `UnsupportedFeature` (TLS is never
-  hand-rolled and no TLS library is bundled). This includes HTTPS subresources.
+- **HTTPS / TLS (Milestone 21)** — `https://` loads over rustls with
+  certificates verified against the embedded Mozilla root store (TLS is never
+  hand-rolled). Limits: no certificate-error interstitial or override, no
+  revocation checking (CRL/OCSP), no HSTS, no client certificates, no OS trust
+  store, and TLS state is not surfaced in the UI (no padlock).
 - **Real HTML5 parsing algorithm** — the tokenizer and tree builder accept a
   tiny hand-written grammar and a fixed tag set; there is no spec-compliant
   tokenization, no insertion modes, and no error recovery.
@@ -166,13 +169,14 @@ See [events.md](events.md) for detail.
 - `<a>` supports only `href` (inline, blue); `target`/`download`/`rel`/`ping`
   are parsed but have no behavior.
 
-## Networking limitations (Milestone 4)
+## Networking limitations (Milestones 4 and 21)
 
 See [networking-and-navigation.md](networking-and-navigation.md) for detail.
 
-- **`http://` only** — a hand-written blocking HTTP/1.1 `GET` over TCP; no
-  HTTPS/TLS, HTTP/2, or HTTP/3; no keep-alive, chunked-transfer decoding, or
-  compression.
+- **`http://` and `https://`** — a hand-written blocking HTTP/1.1 `GET` over
+  TCP (TLS via rustls for https), with chunked-transfer decoding and gzip
+  content decoding (the from-scratch `mocha_gzip` crate). No HTTP/2 or HTTP/3,
+  no keep-alive, and no `br`/`zstd`/`deflate` encodings (clear errors).
 - **Cookies are minimal** (Milestone 15): a jar with `Set-Cookie`/`Cookie`
   HTTP integration (`CookieProvider`) and profile persistence, but **not** full
   RFC 6265bis — no public-suffix list, no third-party/partitioned policy, no real

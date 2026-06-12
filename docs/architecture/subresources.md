@@ -58,7 +58,7 @@ so its text is never laid out or painted.
 External `<script src>` (still unsupported), CSS `url(...)` resources
 (backgrounds/fonts — the CSS parser rejects functions), web fonts, a `<base>`
 element, and HTTP cache semantics beyond the existing tiny in-memory cache.
-HTTPS subresources fail like HTTPS documents (no TLS).
+HTTPS subresources load like HTTPS documents (TLS via rustls since M21).
 
 ## Tests
 

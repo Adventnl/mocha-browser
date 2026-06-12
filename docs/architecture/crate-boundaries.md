@@ -49,7 +49,7 @@ mocha_paint
 - depends on: mocha_error, mocha_layout
 
 mocha_net
-- resource loading: file + http (no TLS), redirects, content-type, memory cache
+- resource loading: file + http + https (rustls; M21), redirects, chunked/gzip decoding, content-type, memory cache
 - M15: a `CookieProvider` trait + `load_with_cookies` (attaches Cookie, stores
   Set-Cookie per hop) so the HTTP client uses cookies without depending on the
   storage layer (an embedder supplies the provider)

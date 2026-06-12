@@ -10,6 +10,7 @@ members = [
     "crates/mocha_layout",
     "crates/mocha_paint",
     "crates/mocha_net",
+    "crates/mocha_gzip",
     "crates/mocha_nav",
     "crates/mocha_events",
     "crates/mocha_forms",
@@ -49,6 +50,7 @@ mocha_style = { path = "crates/mocha_style" }
 mocha_layout = { path = "crates/mocha_layout" }
 mocha_paint = { path = "crates/mocha_paint" }
 mocha_net = { path = "crates/mocha_net" }
+mocha_gzip = { path = "crates/mocha_gzip" }
 mocha_nav = { path = "crates/mocha_nav" }
 mocha_events = { path = "crates/mocha_events" }
 mocha_forms = { path = "crates/mocha_forms" }
@@ -80,6 +82,14 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 # source so there is no system-library or network dependency at runtime. No ORM,
 # no async runtime, no remote/network database.
 rusqlite = { version = "0.40", features = ["bundled"] }
+
+# HTTPS/TLS (Milestone 21): rustls provides the TLS layer for mocha_net's
+# hand-written HTTP/1.1 client (a TLS library, not a browser engine — TLS is
+# never hand-rolled). The `ring` crypto provider is chosen over the default
+# `aws-lc-rs` because it builds from crates.io without CMake/NASM. webpki-roots
+# embeds the Mozilla CA root store so certificate validation needs no OS state.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "1"
 
 # Desktop window (Milestone 11): a cross-platform window + event loop via minifb.
 # This is optional and behind mocha_desktop's non-default `gui` feature. The

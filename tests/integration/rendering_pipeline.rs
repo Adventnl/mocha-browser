@@ -236,11 +236,9 @@ fn unsupported_css_unit_fails_clearly() {
 }
 
 #[test]
-fn https_url_unsupported() {
-    // https is rejected before any network access (no external calls in tests).
-    let error = run_file("https://example.com/index.html").unwrap_err();
-    assert!(matches!(
-        error,
-        mocha_error::MochaError::UnsupportedFeature(_)
-    ));
+fn https_connection_failure_is_a_clear_network_error() {
+    // https is supported since Milestone 21. Nothing listens on port 1, so the
+    // connection is refused locally (no external calls in tests).
+    let error = run_file("https://127.0.0.1:1/index.html").unwrap_err();
+    assert!(matches!(error, mocha_error::MochaError::Network(_)));
 }

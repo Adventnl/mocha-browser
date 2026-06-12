@@ -1,6 +1,6 @@
 # Milestone Roadmap
 
-Mocha Browser is built one milestone at a time. **Milestones 1–10 are implemented
+Mocha Browser is built one milestone at a time. **Milestones 1–21 are implemented
 today**; everything after them is direction, not code. Each milestone lists its
 goal, what is explicitly not included, and how completion is verified.
 
@@ -293,11 +293,40 @@ goal, what is explicitly not included, and how completion is verified.
   [performance-baselines.md](performance-baselines.md), and
   [../release-readiness.md](../release-readiness.md).
 
-## Beyond Milestone 20 (direction, not code)
+## Milestone 21: Real networking — HTTP/1.1 hardening and HTTPS/TLS — complete
+
+- **Goal:** make the hand-written HTTP/1.1 client able to talk to real web
+  servers: `Transfer-Encoding: chunked` decoding, `Content-Encoding: gzip`
+  (the new from-scratch `mocha_gzip` crate — RFC 1951 inflate + RFC 1952
+  container with CRC-32/ISIZE verification and a zip-bomb output cap),
+  `Content-Length` truncation validation, `Accept-Encoding: gzip` requests, and
+  `https://` via **rustls** (the `ring` provider) with certificates verified
+  against the embedded Mozilla root store (`webpki-roots`). Redirects now
+  follow across http↔https. The localhost test server gains a TLS mode with a
+  committed self-signed certificate that tests must trust explicitly
+  (`DefaultLoader::with_extra_tls_root`); `mocha_security` allows https
+  subresources and form-action URLs.
+- **Not included:** keep-alive/pipelining, HTTP/2-3, `br`/`zstd`/`deflate`
+  encodings (clear errors), real HTTP cache semantics, certificate-error
+  interstitials or overrides, revocation (CRL/OCSP), HSTS, client certificates,
+  the OS trust store, TLS UI (padlock), POST, authentication, and proxies. TLS
+  itself is a vetted library (a deliberate exception to "from scratch" — TLS is
+  never hand-rolled); the HTTP protocol and gzip/DEFLATE decoding stay
+  hand-written.
+- **Verification:** `cargo test -p mocha_gzip` (inflate block types, real GNU
+  gzip fixtures, corrupt/truncated/bomb errors), `cargo test -p mocha_net`
+  (chunked/gzip/truncation over a live localhost server; TLS handshake against
+  the rustls test server; default rejection of its self-signed certificate;
+  http→https redirect), updated engine/shell/integration/compat https cases,
+  the full workspace gate, and a live load:
+  `cargo run -p mocha_shell -- https://example.com/`.
+
+## Beyond Milestone 21 (direction, not code)
 
 - **Expand compatibility coverage:** more cases, a server-backed compat mode for
   cookies/storage/CSP, and broader categories — without promising full web
   compatibility or importing web-platform-tests.
-- **HTTPS/TLS decision**, **JS/DOM and CSS/layout improvements**, **stronger
-  sandboxing**, **performance work**, **accessibility**, and **DevTools growth** —
-  each a separate, honest milestone.
+- **Text quality** (real font metrics/glyph rasterization, font fallback, line
+  breaking), **JS/DOM and CSS/layout improvements**, **stronger sandboxing**,
+  **performance work**, **accessibility**, and **DevTools growth** — each a
+  separate, honest milestone.

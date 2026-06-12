@@ -1,8 +1,10 @@
-# Networking and Navigation (Milestone 4)
+# Networking and Navigation (Milestones 4 and 21)
 
-Milestone 4 adds **document loading** and a **navigation history** in front of the
-existing rendering engine. It is deliberately small and is **not** a real browser
-network stack.
+Milestone 4 added **document loading** and a **navigation history** in front of
+the existing rendering engine. Milestone 21 hardened the HTTP/1.1 client
+(`Transfer-Encoding: chunked`, `Content-Encoding: gzip`, `Content-Length`
+validation) and added **HTTPS via rustls**. It is still deliberately small and
+is **not** a real browser network stack.
 
 ## Crate roles
 
@@ -14,6 +16,16 @@ the path to `/` for HTTP, provides `request_target()` (path + query, never the
 fragment), `normalized()` (a cache key), and `join()` for resolving redirect
 `Location` values. It performs **no network I/O** and is not WHATWG-compliant.
 
+### `mocha_gzip`
+
+A from-scratch gzip (RFC 1952) and DEFLATE (RFC 1951) **decoder** used for
+`Content-Encoding: gzip`: stored, fixed-Huffman, and dynamic-Huffman blocks,
+gzip header parsing (FEXTRA/FNAME/FCOMMENT/FHCRC), and CRC-32 + ISIZE trailer
+verification. Decompressed output is capped (64 MiB) so a "zip bomb" response
+is a clear `Decompression` error instead of memory exhaustion. A stored-block
+(non-compressing) gzip *encoder* exists solely so tests and the localhost test
+server can produce valid gzip bodies. No zlib/`deflate`, brotli, or zstd.
+
 ### `mocha_net`
 
 Loads a single resource into a `ResourceResponse` via the `ResourceLoader` trait.
@@ -23,8 +35,14 @@ Loads a single resource into a `ResourceResponse` via the `ResourceLoader` trait
   extension, returns a directory as a clear `UnsupportedFeature` error.
 - **`http://`** — a hand-written blocking HTTP/1.1 `GET` over
   `std::net::TcpStream` (`Connection: close`). It parses the status line and
-  headers, follows redirects, and consults a small in-memory cache.
-- **`https://`** — **not implemented**; returns `UnsupportedFeature`.
+  headers, decodes `chunked` framing and `gzip` bodies, validates
+  `Content-Length` (a short body is a clear "truncated" error), follows
+  redirects, and consults a small in-memory cache.
+- **`https://`** — the same hand-written HTTP client over a **rustls** stream
+  (Milestone 21). Certificates are verified against the embedded Mozilla root
+  store (`webpki-roots`); SNI uses the URL host. Certificate failures are clear
+  `Network` errors — there is **no** "ignore certificate errors" mode, and TLS
+  is never hand-rolled.
 
 `mocha_net` knows nothing about navigation history, HTML, CSS, layout, or paint.
 
@@ -47,13 +65,31 @@ as UTF-8, then run the existing HTML → style → layout → paint pipeline.
 | Scheme   | Status                                                      |
 | -------- | ---------------------------------------------------------- |
 | `file://`, local paths | Supported (read from disk)                   |
-| `http://`              | Supported (blocking HTTP/1.1 GET, no TLS)    |
-| `https://`             | **Not implemented** — clear `UnsupportedFeature` |
+| `http://`              | Supported (blocking HTTP/1.1 GET)            |
+| `https://`             | Supported (HTTP/1.1 over rustls, Mozilla roots) |
 
-**Why no HTTPS:** TLS must not be hand-rolled, and pulling in a TLS stack
-(rustls/ring/…) is a heavy, build-fragile dependency. Rather than fake it or risk
-the build, Milestone 4 implements HTTP fully and fails HTTPS honestly. HTTPS via a
-vetted TLS library is future work.
+**TLS boundary:** rustls is a TLS library, not a browser engine; the HTTP
+protocol on top of it stays hand-written. Trust anchors are compiled in via
+`webpki-roots` (no OS certificate store), so certificate validation is
+deterministic across platforms. The localhost test server
+(`test_server::TestServer::start_tls`) uses a committed self-signed certificate
+that tests must trust **explicitly** via `DefaultLoader::with_extra_tls_root`;
+the default loader rejects it like any other unknown certificate.
+
+## HTTP/1.1 message handling (Milestone 21)
+
+- Requests advertise `Accept-Encoding: gzip` and remain `GET` +
+  `Connection: close` (no keep-alive or pipelining).
+- `Transfer-Encoding: chunked` framing is decoded (chunk extensions ignored,
+  trailer fields parsed and discarded); any other transfer encoding is a clear
+  `UnsupportedFeature` error.
+- Without chunked framing, `Content-Length` is validated: a shorter body is a
+  clear "truncated response body" `Network` error; extra close-delimited bytes
+  beyond the declared length are dropped per message framing rules.
+- `Content-Encoding: gzip`/`x-gzip` bodies are decoded by `mocha_gzip` after
+  transfer decoding; corrupt streams (bad CRC, bad framing) are clear
+  `Decompression` errors. `br`, `zstd`, and `deflate` are clear
+  `UnsupportedFeature` errors.
 
 ## Redirect behavior
 
@@ -63,9 +99,9 @@ vetted TLS library is future work.
   URL/POSIX paths (also used for subresource resolution).
 - Limited to 10 redirects; exceeding the limit is a clear `Network` error.
 - A missing `Location` on a redirect is a clear error.
-- **Redirects to `file://` are rejected** (a `Network` error); unsupported-scheme
-  redirects are rejected. An `http → https` redirect surfaces the HTTPS
-  "unsupported" error.
+- **Redirects to `file://` are rejected** (a `Network` error). `http → https`
+  and `https → http` redirects are both followed (Milestone 21), like real
+  browsers; mixed-content policy for subresources lives in `mocha_security`.
 
 ## Content-type handling
 
@@ -109,8 +145,10 @@ and no request body is ever constructed. See
 
 Networking adds risk; Mocha is **not** safe for general browsing.
 
-- No TLS (no HTTPS); TLS verification is never disabled because TLS is not
-  implemented at all.
+- **TLS (Milestone 21):** rustls with the embedded Mozilla roots; verification
+  is always on and cannot be disabled or overridden by the user. There is no
+  certificate-error interstitial, no revocation checking (CRL/OCSP), no HSTS,
+  no certificate transparency, and no client certificates.
 - **Cookies (Milestone 15):** `mocha_net` exposes a `CookieProvider` trait and
   `DefaultLoader::load_with_cookies`, which attach a `Cookie` header and store
   `Set-Cookie` responses per redirect hop (cache-bypassing). The jar/matching/

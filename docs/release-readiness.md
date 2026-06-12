@@ -19,7 +19,7 @@ real web.
 | Layout | Basic block/inline | No tables/flex/grid; fixed-advance debug font |
 | JS | Tiny custom interpreter | Not ECMAScript-compliant; no classes/promises/modules/try-catch |
 | DOM | Basic bindings | Not the full Web API surface; no real event loop |
-| Network | HTTP/file | HTTPS/TLS unsupported |
+| Network | HTTP(S)/file | HTTP/1.1 + chunked + gzip; HTTPS via rustls; no HTTP/2-3, keep-alive, POST |
 | Storage | Profile/cookies/localStorage foundations | Needs an http(s) origin; minimal |
 | Security | Policy/sandbox/process prototypes | Not production-secure; not site isolation; CSP not enforced in-pipeline |
 | Desktop | Basic browser UI + tabs | Experimental |
@@ -59,7 +59,7 @@ cargo run -p mocha_shell -- --eval-js "let x = 1 + 2 * 3; x;"
 cargo run -p mocha_desktop -- --dump-display-list examples/basic/index.html
 cargo run -p mocha_desktop --features gui -- examples/basic/index.html
 
-# https is unsupported and fails clearly (non-zero exit)
+# https loads over TLS (Milestone 21)
 cargo run -p mocha_shell -- https://example.com/
 ```
 

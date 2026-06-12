@@ -616,10 +616,13 @@ mod tests {
     }
 
     #[test]
-    fn https_is_unsupported() {
+    fn https_connection_failure_is_a_clear_network_error() {
+        // https is supported since Milestone 21. Nothing listens on port 1,
+        // so the connection is refused locally — the test stays offline while
+        // proving https routes into the real network path.
         assert!(matches!(
-            render_url("https://example.com/", &RenderOptions::default()),
-            Err(MochaError::UnsupportedFeature(_))
+            render_url("https://127.0.0.1:1/", &RenderOptions::default()),
+            Err(MochaError::Network(_))
         ));
     }
 

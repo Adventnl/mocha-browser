@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Minimal resource loading for Mocha Browser: file and HTTP (no TLS), redirects, content-type, and an in-memory cache."
+description = "Minimal resource loading for Mocha Browser: file, HTTP, and HTTPS (rustls) with redirects, chunked/gzip decoding, content-type, and an in-memory cache."
 
 [features]
 # Exposes the localhost `test_server` helper for integration tests in other crates.
@@ -13,6 +13,11 @@ test-util = []
 [dependencies]
 mocha_error.workspace = true
 mocha_url.workspace = true
+mocha_gzip.workspace = true
+# TLS for https:// (Milestone 21). The HTTP protocol itself stays hand-written;
+# rustls only wraps the TcpStream. webpki-roots supplies the CA trust store.
+rustls.workspace = true
+webpki-roots.workspace = true
 
 [dev-dependencies]
 # Used only by cookie-integration tests to supply a CookieProvider over a jar.

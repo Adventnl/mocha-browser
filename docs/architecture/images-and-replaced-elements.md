@@ -45,8 +45,8 @@ corrupt/unreadable data is `MochaError::Image`.
 `application/octet-stream`/missing for the decoder to validate; an explicit
 non-image type like `text/plain` is rejected), and decodes it. Local files report
 `image/png`/`image/jpeg` from their extension. A failed load or decode aborts the
-render with a clear error (no broken-image placeholder yet). HTTPS images are
-unsupported (no TLS).
+render with a clear error (no broken-image placeholder yet). HTTPS images load
+over rustls since Milestone 21.
 
 ## Sizing
 
