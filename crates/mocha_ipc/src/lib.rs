@@ -34,8 +34,24 @@ pub enum BrowserToRenderer {
         viewport_width: u32,
         viewport_height: u32,
     },
+    SetSandboxPolicy {
+        allow_direct_document_loads: bool,
+    },
+    RenderPreparedDocument {
+        id: u64,
+        document: PreparedDocument,
+        viewport_width: u32,
+        viewport_height: u32,
+    },
     Shutdown,
     CrashForTest,
+}
+
+/// Document bytes prepared by the browser process for a restricted renderer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedDocument {
+    pub final_url: Option<String>,
+    pub html: String,
 }
 
 /// Lightweight renderer output. The full DOM/layout/page is not serialized.
@@ -140,6 +156,32 @@ fn encode_browser(message: &BrowserToRenderer) -> String {
                 .map(hex)
                 .unwrap_or_else(|| "-".to_string())
         ),
+        BrowserToRenderer::SetSandboxPolicy {
+            allow_direct_document_loads,
+        } => format!(
+            "{}\tSetSandboxPolicy\t{}",
+            IPC_PROTOCOL_VERSION,
+            if *allow_direct_document_loads {
+                "1"
+            } else {
+                "0"
+            }
+        ),
+        BrowserToRenderer::RenderPreparedDocument {
+            id,
+            document,
+            viewport_width,
+            viewport_height,
+        } => format!(
+            "{}\tRenderPreparedDocument\t{id}\t{}\t{}\t{viewport_width}\t{viewport_height}",
+            IPC_PROTOCOL_VERSION,
+            document
+                .final_url
+                .as_deref()
+                .map(hex)
+                .unwrap_or_else(|| "-".to_string()),
+            hex(&document.html)
+        ),
         BrowserToRenderer::Shutdown => format!("{}\tShutdown", IPC_PROTOCOL_VERSION),
         BrowserToRenderer::CrashForTest => format!("{}\tCrashForTest", IPC_PROTOCOL_VERSION),
     }
@@ -168,6 +210,32 @@ fn decode_browser(line: &str) -> MochaResult<BrowserToRenderer> {
             viewport_width: parse(width, "viewport_width")?,
             viewport_height: parse(height, "viewport_height")?,
         }),
+        [_, "SetSandboxPolicy", allow] => Ok(BrowserToRenderer::SetSandboxPolicy {
+            allow_direct_document_loads: match *allow {
+                "0" => false,
+                "1" => true,
+                other => {
+                    return Err(MochaError::Network(format!(
+                        "invalid sandbox policy allow flag: {other}"
+                    )))
+                }
+            },
+        }),
+        [_, "RenderPreparedDocument", id, final_url, html, width, height] => {
+            Ok(BrowserToRenderer::RenderPreparedDocument {
+                id: parse(id, "id")?,
+                document: PreparedDocument {
+                    final_url: if *final_url == "-" {
+                        None
+                    } else {
+                        Some(unhex(final_url)?)
+                    },
+                    html: unhex(html)?,
+                },
+                viewport_width: parse(width, "viewport_width")?,
+                viewport_height: parse(height, "viewport_height")?,
+            })
+        }
         [_, "Shutdown"] => Ok(BrowserToRenderer::Shutdown),
         [_, "CrashForTest"] => Ok(BrowserToRenderer::CrashForTest),
         _ => Err(MochaError::Network(format!(
@@ -309,6 +377,25 @@ mod tests {
             base_url: Some("http://example.com/".to_string()),
             viewport_width: 800,
             viewport_height: 600,
+        };
+        let mut bytes = Vec::new();
+        write_browser_message(&mut bytes, &message).unwrap();
+        let decoded = read_browser_message(&mut Cursor::new(bytes))
+            .unwrap()
+            .unwrap();
+        assert_eq!(decoded, message);
+    }
+
+    #[test]
+    fn prepared_document_message_round_trips() {
+        let message = BrowserToRenderer::RenderPreparedDocument {
+            id: 11,
+            document: PreparedDocument {
+                final_url: Some("file:///tmp/index.html".to_string()),
+                html: "<html><body>prepared</body></html>".to_string(),
+            },
+            viewport_width: 320,
+            viewport_height: 240,
         };
         let mut bytes = Vec::new();
         write_browser_message(&mut bytes, &message).unwrap();

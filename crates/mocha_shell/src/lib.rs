@@ -9,6 +9,7 @@
 //! 11). `https://` is unsupported and fails clearly. `--eval-js` evaluates a
 //! standalone JavaScript snippet with no DOM.
 
+use mocha_devtools::{format_snapshot, snapshot_rendered_page};
 use mocha_engine::{render_html, render_url, RenderOptions, ResponseMeta};
 use mocha_error::MochaResult;
 use mocha_layout::{format_layout_tree, hit_test};
@@ -27,6 +28,8 @@ pub struct RunOptions {
     pub no_cache: bool,
     /// Print response metadata before the output.
     pub show_headers: bool,
+    /// Print a headless DevTools snapshot instead of shell display output.
+    pub devtools_snapshot: bool,
 }
 
 fn render_options(options: RunOptions) -> RenderOptions {
@@ -46,7 +49,12 @@ pub fn render_request(input: &str, options: RunOptions) -> MochaResult<String> {
         output.push_str(&format_headers(page.meta.as_ref()));
         output.push('\n');
     }
-    if options.dump_form_state {
+    if options.devtools_snapshot {
+        output.push_str(&format_snapshot(&snapshot_rendered_page(
+            &page,
+            Some(input.to_string()),
+        )?));
+    } else if options.dump_form_state {
         output.push_str(&mocha_engine::format_form_state(
             &page.document,
             &mut page.form_state,
@@ -57,6 +65,17 @@ pub fn render_request(input: &str, options: RunOptions) -> MochaResult<String> {
         output.push_str(&format_display_list(&page.display_list));
     }
     Ok(output)
+}
+
+/// Load `input` and render a deterministic headless DevTools snapshot.
+pub fn devtools_snapshot_request(input: &str) -> MochaResult<String> {
+    render_request(
+        input,
+        RunOptions {
+            devtools_snapshot: true,
+            ..RunOptions::default()
+        },
+    )
 }
 
 /// Load a location (file or http) and produce its display list.
@@ -206,6 +225,19 @@ mod tests {
         .unwrap();
         assert!(out.contains("status: 200"));
         assert!(out.contains("content-type: text/html"));
+    }
+
+    #[test]
+    fn devtools_snapshot_includes_inspector_sections() {
+        let server = TestServer::start(vec![(
+            "/index.html".to_string(),
+            Reply::Html("<html><body><p>Hi</p></body></html>".to_string()),
+        )]);
+        let out = devtools_snapshot_request(&server.url("/index.html")).unwrap();
+        assert!(out.contains("DevToolsSnapshot"));
+        assert!(out.contains("DOM\n"));
+        assert!(out.contains("DrawText \"Hi\""));
+        assert!(out.contains("Network\n  document"));
     }
 
     #[test]

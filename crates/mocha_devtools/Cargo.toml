@@ -1,0 +1,22 @@
+[package]
+name = "mocha_devtools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Headless DevTools snapshot foundation for Mocha Browser internals."
+
+[lib]
+name = "mocha_devtools"
+path = "src/lib.rs"
+
+[dependencies]
+mocha_dom.workspace = true
+mocha_engine.workspace = true
+mocha_error.workspace = true
+mocha_layout.workspace = true
+mocha_origin.workspace = true
+mocha_paint.workspace = true
+mocha_security.workspace = true
+mocha_style.workspace = true
+mocha_url.workspace = true

@@ -18,3 +18,5 @@ path = "src/bin/mocha_renderer.rs"
 mocha_error.workspace = true
 mocha_engine.workspace = true
 mocha_ipc.workspace = true
+mocha_sandbox.workspace = true
+mocha_url.workspace = true

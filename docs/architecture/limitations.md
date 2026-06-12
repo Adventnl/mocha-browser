@@ -1,9 +1,10 @@
 # Limitations
 
-Mocha Browser is at **Milestone 17** (multi-tab desktop shell with a SQLite
+Mocha Browser is at **Milestone 19** (multi-tab desktop shell with a SQLite
 profile, minimal cookies + origin-aware web storage, a security policy
-foundation, and a multi-process prototype). It is an experimental engine with a
-minimal desktop frontend, not a usable browser. This document is deliberately
+foundation, a multi-process prototype, a sandbox prototype, and a headless
+DevTools snapshot foundation). It is an
+experimental engine with a minimal desktop frontend, not a usable browser. This document is deliberately
 explicit about what does not exist so the project never overclaims.
 
 ## Not supported
@@ -46,12 +47,20 @@ explicit about what does not exist so the project never overclaims.
   `mocha_origin`) for scoping cookies/web storage,
   and M16 adds explicit policy objects in `mocha_security` (same-origin checks,
   scheme/file decisions, mixed-content awareness, CSP, permissions, and
-  capabilities). This is **not** a complete security boundary: no OS sandbox,
-  site isolation, TLS, CORS, Fetch, or broad runtime enforcement.
+  capabilities). M18 adds a capability-restricted renderer path, but this is
+  **not** a complete security boundary: no OS sandbox, site isolation, TLS, CORS,
+  Fetch, or broad runtime enforcement.
 - **Multi-process architecture** — M17 has a renderer child-process prototype
-  with typed IPC, crash detection, and respawn tests, but it is not the default
-  desktop/shell path, not site isolation, not a network/GPU process split, and
-  not OS sandboxing.
+  with typed IPC, crash detection, and respawn tests. M18 adds an optional
+  capability-restricted prepared-document path. The normal desktop/shell path is
+  still not multiprocess by default; there is no site isolation, network/GPU
+  process split, or OS sandboxing.
+- **DevTools** — M19 adds `mocha_devtools` snapshots and a
+  `mocha_shell --devtools-snapshot` command for deterministic headless
+  inspection. It is not Chrome DevTools or CDP: no remote debugging socket,
+  breakpoints, JavaScript stepping, live DOM/style editing, heap snapshots,
+  profiler, network waterfall, or interactive UI panels. Network logs currently
+  include top-level document metadata; subresource logging hooks are future work.
 - **Profile / sessions** — the desktop shell has tabs (M13) and a SQLite profile
   (M14): history, bookmarks, settings, download metadata, and persistent session
   snapshots, plus a private in-memory profile. M15 adds cookie persistence and a

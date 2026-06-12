@@ -3,6 +3,8 @@ use std::thread;
 use std::time::Duration;
 
 use mocha_process::{RendererManager, RendererProcess};
+use mocha_sandbox::{prepare_document, RendererSandboxPolicy, SandboxStatus};
+use mocha_url::Url;
 
 fn renderer_bin() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_mocha_renderer"))
@@ -66,5 +68,43 @@ fn crash_is_detected_and_manager_respawns() {
 
     manager.respawn().unwrap();
     manager.renderer_mut().ping().unwrap();
+    manager.renderer_mut().shutdown().unwrap();
+}
+
+#[test]
+fn sandboxed_renderer_renders_prepared_document() {
+    let policy = RendererSandboxPolicy::default_renderer();
+    let (mut manager, status) =
+        RendererManager::spawn_sandboxed_with_path(renderer_bin(), &policy).unwrap();
+    assert_eq!(status, SandboxStatus::CapabilityRestrictedOnly);
+
+    let final_url = Url::parse("file:///tmp/prepared.html").unwrap();
+    let page = manager
+        .renderer_mut()
+        .render_prepared_document(
+            prepare_document(
+                Some(&final_url),
+                "<html><body><p>prepared</p></body></html>",
+            ),
+            800,
+            600,
+        )
+        .unwrap();
+    assert_eq!(page.final_url.as_deref(), Some("file:///tmp/prepared.html"));
+    assert!(page.display_list_len > 0);
+    manager.renderer_mut().shutdown().unwrap();
+}
+
+#[test]
+fn sandboxed_renderer_rejects_direct_document_load() {
+    let policy = RendererSandboxPolicy::default_renderer();
+    let (mut manager, _status) =
+        RendererManager::spawn_sandboxed_with_path(renderer_bin(), &policy).unwrap();
+    let err = manager
+        .renderer_mut()
+        .render_document(&example_path("basic/index.html"), 800, 600)
+        .unwrap_err();
+    assert!(err.to_string().contains("sandbox violation"));
+    assert!(manager.renderer_mut().is_alive());
     manager.renderer_mut().shutdown().unwrap();
 }

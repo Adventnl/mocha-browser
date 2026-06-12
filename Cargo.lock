@@ -529,6 +529,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "mocha_devtools"
+version = "0.1.0"
+dependencies = [
+ "mocha_dom",
+ "mocha_engine",
+ "mocha_error",
+ "mocha_layout",
+ "mocha_origin",
+ "mocha_paint",
+ "mocha_security",
+ "mocha_style",
+ "mocha_url",
+]
+
+[[package]]
 name = "mocha_dom"
 version = "0.1.0"
 dependencies = [
@@ -674,6 +689,8 @@ dependencies = [
  "mocha_engine",
  "mocha_error",
  "mocha_ipc",
+ "mocha_sandbox",
+ "mocha_url",
 ]
 
 [[package]]
@@ -700,6 +717,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "mocha_sandbox"
+version = "0.1.0"
+dependencies = [
+ "mocha_error",
+ "mocha_ipc",
+ "mocha_origin",
+ "mocha_security",
+ "mocha_url",
+]
+
+[[package]]
 name = "mocha_security"
 version = "0.1.0"
 dependencies = [
@@ -712,6 +740,7 @@ dependencies = [
 name = "mocha_shell"
 version = "0.1.0"
 dependencies = [
+ "mocha_devtools",
  "mocha_dom",
  "mocha_engine",
  "mocha_error",

@@ -2,7 +2,7 @@ use std::io::{self, BufReader};
 use std::process::ExitCode;
 
 use mocha_engine::{render_html, render_url, RenderOptions, RenderedPage};
-use mocha_error::MochaResult;
+use mocha_error::{MochaError, MochaResult};
 use mocha_ipc::{
     read_browser_message, write_renderer_message, BrowserToRenderer, RendererPageSnapshot,
     RendererToBrowser,
@@ -23,6 +23,7 @@ fn run() -> MochaResult<()> {
     let stdout = io::stdout();
     let mut reader = BufReader::new(stdin.lock());
     let mut writer = stdout.lock();
+    let mut allow_direct_document_loads = true;
 
     while let Some(message) = read_browser_message(&mut reader)? {
         match message {
@@ -35,8 +36,13 @@ fn run() -> MochaResult<()> {
                 viewport_width,
                 viewport_height,
             } => {
-                let result =
-                    render_url(&input, &options(viewport_width, viewport_height)).map(snapshot);
+                let result = if allow_direct_document_loads {
+                    render_url(&input, &options(viewport_width, viewport_height)).map(snapshot)
+                } else {
+                    Err(MochaError::Security(
+                        "sandbox violation: direct document loading is disabled".to_string(),
+                    ))
+                };
                 write_render_result(&mut writer, id, result)?;
             }
             BrowserToRenderer::RenderHtml {
@@ -53,6 +59,22 @@ fn run() -> MochaResult<()> {
                 } else {
                     render_html(&html, &options(viewport_width, viewport_height)).map(snapshot)
                 };
+                write_render_result(&mut writer, id, result)?;
+            }
+            BrowserToRenderer::SetSandboxPolicy {
+                allow_direct_document_loads: allow,
+            } => {
+                allow_direct_document_loads = allow;
+            }
+            BrowserToRenderer::RenderPreparedDocument {
+                id,
+                document,
+                viewport_width,
+                viewport_height,
+            } => {
+                let final_url = document.final_url.clone();
+                let result = render_html(&document.html, &options(viewport_width, viewport_height))
+                    .map(|page| snapshot_with_final_url(page, final_url));
                 write_render_result(&mut writer, id, result)?;
             }
             BrowserToRenderer::Shutdown => {
@@ -93,8 +115,12 @@ fn options(width: u32, height: u32) -> RenderOptions {
 }
 
 fn snapshot(page: RenderedPage) -> RendererPageSnapshot {
+    snapshot_with_final_url(page, None)
+}
+
+fn snapshot_with_final_url(page: RenderedPage, final_url: Option<String>) -> RendererPageSnapshot {
     RendererPageSnapshot {
-        final_url: page.base_url().map(|url| url.normalized()),
+        final_url: final_url.or_else(|| page.base_url().map(|url| url.normalized())),
         document_height: page.document_height,
         display_list_len: page.display_list.len(),
         console_output: page.console_output,

@@ -10,9 +10,10 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
 use mocha_error::{MochaError, MochaResult};
 use mocha_ipc::{
-    read_renderer_message, write_browser_message, BrowserToRenderer, RendererPageSnapshot,
-    RendererToBrowser,
+    read_renderer_message, write_browser_message, BrowserToRenderer, PreparedDocument,
+    RendererPageSnapshot, RendererToBrowser,
 };
+use mocha_sandbox::{NoopPlatformSandbox, PlatformSandbox, RendererSandboxPolicy, SandboxStatus};
 
 /// A spawned renderer child process.
 pub struct RendererProcess {
@@ -93,6 +94,37 @@ impl RendererProcess {
             id,
             html: html.to_string(),
             base_url: None,
+            viewport_width: width,
+            viewport_height: height,
+        })?;
+        self.expect_rendered(id)
+    }
+
+    /// Apply the M18 renderer sandbox policy. The portable implementation is
+    /// capability-restricted only unless a future platform hook says otherwise.
+    pub fn apply_sandbox_policy(
+        &mut self,
+        policy: &RendererSandboxPolicy,
+    ) -> MochaResult<SandboxStatus> {
+        let status = NoopPlatformSandbox::apply(policy)?;
+        self.send(&BrowserToRenderer::SetSandboxPolicy {
+            allow_direct_document_loads: policy.allows_direct_document_load(),
+        })?;
+        Ok(status)
+    }
+
+    /// Render already-loaded HTML in the child process. This is the M18
+    /// restricted path: the renderer does not receive a file path or URL to load.
+    pub fn render_prepared_document(
+        &mut self,
+        document: PreparedDocument,
+        width: u32,
+        height: u32,
+    ) -> MochaResult<RendererPageSnapshot> {
+        let id = self.alloc_id();
+        self.send(&BrowserToRenderer::RenderPreparedDocument {
+            id,
+            document,
             viewport_width: width,
             viewport_height: height,
         })?;
@@ -188,6 +220,15 @@ impl RendererManager {
     pub fn respawn(&mut self) -> MochaResult<()> {
         self.renderer = RendererProcess::spawn_with_path(self.renderer_path.clone())?;
         Ok(())
+    }
+
+    pub fn spawn_sandboxed_with_path(
+        path: impl Into<PathBuf>,
+        policy: &RendererSandboxPolicy,
+    ) -> MochaResult<(RendererManager, SandboxStatus)> {
+        let mut manager = RendererManager::spawn_with_path(path)?;
+        let status = manager.renderer.apply_sandbox_policy(policy)?;
+        Ok((manager, status))
     }
 }
 

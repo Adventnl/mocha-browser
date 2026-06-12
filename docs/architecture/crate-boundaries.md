@@ -95,18 +95,35 @@ mocha_security (M16)
 - not a sandbox, not TLS, not process isolation, and not full web security
 - depends on: mocha_error, mocha_url, mocha_origin
 
+mocha_sandbox (M18)
+- capability-based renderer sandbox policy, sandbox status, platform hook
+  abstraction, and prepared-document helpers
+- portable implementation reports CapabilityRestrictedOnly; no OS sandbox is
+  applied yet
+- depends on: mocha_error, mocha_url, mocha_origin, mocha_security, mocha_ipc
+
+mocha_devtools (M19)
+- deterministic headless snapshots for DOM, computed style, layout, display
+  list, document network metadata, console output, and structured event/storage/
+  security/IPC/process logs
+- not Chrome DevTools, not CDP, no remote debugging socket or interactive
+  debugger UI
+- depends on: mocha_error, mocha_dom, mocha_engine, mocha_layout, mocha_origin,
+  mocha_paint, mocha_security, mocha_style, mocha_url
+
 mocha_ipc (M17)
 - versioned typed IPC messages and frame encoding/decoding for the renderer
   process prototype; validates protocol version, frame size, and malformed input
-- serializes lightweight render snapshots, not DOM/layout/form state
+- serializes lightweight render snapshots and prepared-document commands, not
+  DOM/layout/form state
 - depends on: mocha_error
 
 mocha_process (M17)
 - browser-side renderer process manager and the `mocha_renderer` binary:
   spawn/ping/render/shutdown/test-crash/liveness/respawn over `mocha_ipc`
-- prototype process separation only; the renderer is not sandboxed and may still
-  call `mocha_engine::render_url` directly
-- depends on: mocha_error, mocha_engine, mocha_ipc
+- prototype process separation only; M18 can apply a capability-restricted
+  prepared-document path, but this is not an OS sandbox or site isolation
+- depends on: mocha_error, mocha_engine, mocha_ipc, mocha_sandbox, mocha_url
 
 mocha_cookie (M15)
 - Set-Cookie parsing, an in-memory cookie jar (domain/path/secure/expiry
@@ -187,9 +204,10 @@ mocha_shell
 - command-line executable (library + binary)
 - alternative front-end to mocha_engine (terminal output instead of windowing)
 - loads via mocha_engine, exposes hit testing (--hit-test), form-state dumping
-  (--dump-form-state), and standalone JS (--eval-js)
+  (--dump-form-state), DevTools snapshots (--devtools-snapshot), and standalone
+  JS (--eval-js)
 - no window, no browser UI; purely for terminal output and testing
-- depends on: mocha_error, mocha_engine
+- depends on: mocha_error, mocha_engine, mocha_devtools
 ```
 
 ## Notes

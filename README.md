@@ -4,8 +4,8 @@ Mocha Browser is an experimental from-scratch browser engine and desktop browser
 
 Mocha is not based on Chromium, WebKit, Gecko, Servo, Electron, CEF, Tauri WebView, system WebView, V8, SpiderMonkey, JavaScriptCore, QuickJS, Deno, or Node.js.
 
-Current status: Milestone 17 (Multi-process architecture prototype) implemented.
-Next milestone: Milestone 18 — security sandbox.
+Current status: Milestone 19 (DevTools foundation) implemented.
+Next milestone: Milestone 20 — web compatibility hardening.
 
 Mocha is not safe for general web browsing yet.
 
@@ -35,6 +35,22 @@ detection, and respawn. This is **not** a production multi-process browser, not
 site isolation, and not OS sandboxing. Normal shell/desktop paths remain
 single-process by default. See [ipc.md](docs/architecture/ipc.md) and
 [multiprocess-prototype.md](docs/architecture/multiprocess-prototype.md).
+
+**Milestone 18: Security sandbox prototype.** The `mocha_sandbox` crate adds a
+capability-based renderer policy, honest platform sandbox status, and a
+prepared-document path where the renderer receives already-loaded HTML instead
+of a file path or URL to load. This is **not** a production OS sandbox, not site
+isolation, and not secure for general browsing. See
+[security-sandbox.md](docs/architecture/security-sandbox.md) and
+[resource-broker.md](docs/architecture/resource-broker.md).
+
+**Milestone 19: DevTools foundation.** The `mocha_devtools` crate adds a
+deterministic headless snapshot model for the final DOM, computed styles, layout
+tree, display list, document network metadata, console output, and structured
+event/storage/security/IPC/process logs. `mocha_shell --devtools-snapshot`
+prints that snapshot for local files or `http://` URLs. This is **not** Chrome
+DevTools, not CDP, and not an interactive debugger. See
+[devtools.md](docs/architecture/devtools.md).
 
 **Milestone 15: Cookies and origin-aware storage.** Two crates — `mocha_origin`
 (a minimal `(scheme, host, port)` origin with a conservative `file://` policy) and
@@ -163,6 +179,10 @@ and [networking-and-navigation.md](docs/architecture/networking-and-navigation.m
   entry/backspace for text-editable controls, but there is no mature focus,
   caret, text selection, IME, accessibility, or pointer/touch/wheel gesture
   handling. Hit testing does not account for z-index/transforms/scrolling/clipping.
+- **DevTools (M19):** headless snapshots and structured log data exist through
+  `mocha_devtools` and `mocha_shell --devtools-snapshot`, but there is no Chrome
+  DevTools Protocol, remote debugger, breakpoint UI, live editing, heap view,
+  profiler, or interactive inspector.
 - **Tabs (M13) + a SQLite profile (M14) + cookies/web storage (M15):** history,
   bookmarks, settings, download metadata, persistent session snapshots, a cookie
   jar/store, and origin-keyed `localStorage`/`sessionStorage`, plus a private
@@ -179,6 +199,10 @@ and [networking-and-navigation.md](docs/architecture/networking-and-navigation.m
   typed IPC and recover from a test crash, but it is not sandboxed, not site
   isolation, not a network/GPU process split, and not the default desktop render
   path.
+- **Sandbox prototype (M18):** capability restrictions and a prepared-document
+  renderer path exist. OS-level sandboxing is not applied, external subresource
+  brokering is incomplete, and the legacy direct-load renderer path remains
+  explicitly unsandboxed.
 - The real HTML5 parsing algorithm and real CSS error recovery.
 - `!important`, media queries, pseudo-classes/elements, attribute selectors, the
   `>`/`+`/`~` combinators, `em`/`rem`/`%` units, `rgb()`/`calc()`/`var()`.

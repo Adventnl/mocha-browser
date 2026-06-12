@@ -25,7 +25,7 @@ the modern web. It must never claim otherwise.
 
 ## Current milestone
 
-**Milestone 17: Multi-process architecture prototype.** Milestones 1–10 built a
+**Milestone 19: DevTools foundation.** Milestones 1–10 built a
 complete document loading and rendering pipeline (HTML, CSS, layout, JavaScript
 bindings, forms). **Milestone 11** introduced the desktop shell and software
 rasterizer, **Milestone 12** added minimal browser chrome, **Milestone 13** made
@@ -37,17 +37,21 @@ scheme/file restrictions, mixed-content awareness, CSP policy evaluation,
 permissions, certificate error data, and future renderer capabilities.
 **Milestone 17** adds `mocha_ipc`, `mocha_process`, and a `mocha_renderer` child
 process prototype for typed IPC, renderer lifecycle, crash detection, and
-respawn. See
+respawn. **Milestone 18** adds `mocha_sandbox` and a capability-restricted
+prepared-document path. **Milestone 19** adds `mocha_devtools` and a headless
+snapshot/log foundation exposed through `mocha_shell --devtools-snapshot`. See
 [tabs-and-session.md](tabs-and-session.md),
 [profile-storage.md](profile-storage.md), and
 [cookies-and-web-storage.md](cookies-and-web-storage.md), plus
-[security-foundation.md](security-foundation.md) and
-[multiprocess-prototype.md](multiprocess-prototype.md).
+[security-foundation.md](security-foundation.md),
+[multiprocess-prototype.md](multiprocess-prototype.md), and
+[security-sandbox.md](security-sandbox.md), plus [devtools.md](devtools.md).
 
-The M16/M17 security and process work is intentionally foundational: it defines
-and tests policy and process objects, but it is not a full sandbox, complete web
-security, site isolation, or HTTPS/TLS. The renderer process is not OS-sandboxed
-and the normal desktop/shell paths remain single-process by default. The default
+The M16-M19 security, process, sandbox, and DevTools work is intentionally
+foundational: it defines
+and tests policy/process/sandbox objects, but it is not a production OS sandbox,
+complete web security, site isolation, HTTPS/TLS, Chrome DevTools, or CDP. The
+normal desktop/shell paths remain single-process by default. The default
 page-loading path still does not automatically use the cookie jar, and JS
 storage/cookies are per-render unless an embedder wires persistent state into a
 runtime.
@@ -72,9 +76,9 @@ intended to continue growing toward the shape of a modern browser: a CSS engine,
 a real layout/box model, a networking and navigation layer, a DOM event system,
 a custom JavaScript interpreter with DOM bindings, a desktop shell with
 rasterization, browser chrome, tabs, persistent profiles, cookies,
-origin-aware web storage, a security policy foundation, and a multi-process
-prototype with typed IPC (Milestones 1–17, implemented), then sandboxing and
-broader standards compliance. **Milestone 18 (security sandbox) is next.**
+origin-aware web storage, a security policy foundation, a multi-process
+prototype with typed IPC, a sandbox prototype, and a DevTools snapshot
+foundation (Milestones 1–19, implemented), then broader standards compliance.
 
 ## Why the project starts terminal-first
 

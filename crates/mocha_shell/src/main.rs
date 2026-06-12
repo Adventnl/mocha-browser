@@ -29,7 +29,7 @@ fn main() -> ExitCode {
     }
 }
 
-const USAGE: &str = "usage: mocha_shell [--dump-layout] [--dump-form-state] [--no-cache] [--show-headers] [--hit-test X,Y] <path-or-url>\n       mocha_shell --eval-js \"<javascript>\"\n       (file paths, file:// and http:// URLs; https:// is not implemented)";
+const USAGE: &str = "usage: mocha_shell [--dump-layout] [--dump-form-state] [--devtools-snapshot] [--no-cache] [--show-headers] [--hit-test X,Y] <path-or-url>\n       mocha_shell --eval-js \"<javascript>\"\n       (file paths, file:// and http:// URLs; https:// is not implemented)";
 
 fn real_main() -> MochaResult<()> {
     let mut options = RunOptions::default();
@@ -42,6 +42,7 @@ fn real_main() -> MochaResult<()> {
         match arg.as_str() {
             "--dump-layout" => options.dump_layout = true,
             "--dump-form-state" => options.dump_form_state = true,
+            "--devtools-snapshot" => options.devtools_snapshot = true,
             "--no-cache" => options.no_cache = true,
             "--show-headers" => options.show_headers = true,
             "--hit-test" => {

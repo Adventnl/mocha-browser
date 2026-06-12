@@ -249,9 +249,30 @@ goal, what is explicitly not included, and how completion is verified.
   and the full workspace gate. See [ipc.md](ipc.md) and
   [multiprocess-prototype.md](multiprocess-prototype.md).
 
-## Beyond Milestone 17 (direction, not code)
+## Milestone 18: Security sandbox prototype — complete
 
-- **Security sandbox (next, M18):** start turning policy/capability boundaries
-  into real process restrictions. This is not implemented in M17.
+- **Goal:** add `mocha_sandbox`, a capability-based renderer policy, honest
+  platform sandbox status, and a prepared-document renderer path that rejects
+  direct URL/file loads after a restricted policy is applied.
+- **Not included:** production OS sandboxing, site isolation, network process,
+  GPU process, complete resource brokering, or exploit mitigation.
+- **Verification:** `cargo test -p mocha_sandbox`, `cargo test -p mocha_ipc`,
+  `cargo test -p mocha_process`, and the full workspace gate. See
+  [security-sandbox.md](security-sandbox.md) and
+  [resource-broker.md](resource-broker.md).
+
+## Milestone 19: DevTools foundation — complete
+
+- **Goal:** add `mocha_devtools`, a deterministic headless inspection snapshot
+  for the final DOM, computed styles, layout tree, display list, document
+  network metadata, console output, and structured event/storage/security/IPC/
+  process logs; expose it through `mocha_shell --devtools-snapshot`.
+- **Not included:** Chrome DevTools, CDP, a remote debugging server, breakpoints,
+  JavaScript stepping, live editing, heap snapshots, profiling, or UI panels.
+- **Verification:** `cargo test -p mocha_devtools`, the shell snapshot smoke
+  test, and the full workspace gate. See [devtools.md](devtools.md).
+
+## Beyond Milestone 19 (direction, not code)
+
 - **Web compatibility hardening:** standards test suites, fuzzing, visual
   regression — without promising full web compatibility.

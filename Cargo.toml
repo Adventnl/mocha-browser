@@ -21,6 +21,8 @@ members = [
     "crates/mocha_cookie",
     "crates/mocha_storage",
     "crates/mocha_security",
+    "crates/mocha_sandbox",
+    "crates/mocha_devtools",
     "crates/mocha_ipc",
     "crates/mocha_process",
     "crates/mocha_engine",
@@ -56,6 +58,8 @@ mocha_origin = { path = "crates/mocha_origin" }
 mocha_cookie = { path = "crates/mocha_cookie" }
 mocha_storage = { path = "crates/mocha_storage" }
 mocha_security = { path = "crates/mocha_security" }
+mocha_sandbox = { path = "crates/mocha_sandbox" }
+mocha_devtools = { path = "crates/mocha_devtools" }
 mocha_ipc = { path = "crates/mocha_ipc" }
 mocha_process = { path = "crates/mocha_process" }
 mocha_engine = { path = "crates/mocha_engine" }

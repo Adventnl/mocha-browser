@@ -25,9 +25,11 @@ pipeline. The default page-loading path still does not automatically use the
 profile cookie jar, and JS `localStorage`/`sessionStorage` remain runtime-local
 unless an embedder wires persistent/tab-owned state.
 
-M17 uses the capability model conceptually for the renderer-process prototype,
-but it does not enforce OS-level restrictions. The M17 renderer is a separate
-process only; it is not sandboxed and may still perform direct file/http loads.
+M17 uses the capability model conceptually for the renderer-process prototype.
+M18 adds `mocha_sandbox`, a capability-restricted prepared-document path that
+denies direct file/network/profile/spawn capabilities in the restricted renderer.
+This is still not OS-level sandboxing; `NoopPlatformSandbox` reports
+`CapabilityRestrictedOnly`.
 
 M16 does not implement HTTPS/TLS, CORS, full Fetch, service workers, site
 isolation, process isolation, or OS sandboxing.
