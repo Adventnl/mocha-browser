@@ -4,9 +4,12 @@ Milestone 9 adds basic `<img>` support: discover the image, resolve its URL, loa
 the bytes, decode the intrinsic dimensions, lay the image out as a replaced
 element, and emit a `DrawImage` display command.
 
-**Nothing is rasterized to a window.** There is no graphics surface yet; Mocha
-emits `DrawImage` commands (and the layout box that carries the image) but does
-not draw pixels. Image rendering is **not** complete.
+At Milestone 9 itself nothing was rasterized to a window: Mocha emitted
+`DrawImage` commands (and the layout box that carries the image) but drew no
+pixels. **Milestone 11 added the graphics surface** (`mocha_raster`), which now
+resolves `DrawImage` onto the desktop window. Image *decoding* and rasterization
+are still intentionally minimal (no scaling quality, color management, or
+animation).
 
 ## Decoder dependency
 

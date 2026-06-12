@@ -54,8 +54,9 @@ pub enum DisplayCommand {
         /// Text color.
         color: Color,
     },
-    /// Draw a decoded image (a replaced element). Mocha emits this command but does
-    /// **not** rasterize pixels to a window — there is no graphics surface yet.
+    /// Draw a decoded image (a replaced element). The paint layer emits this
+    /// command; `mocha_raster` (Milestone 11) resolves the pixels onto the
+    /// desktop window surface.
     DrawImage {
         /// Index into the document's image store.
         image_id: usize,
