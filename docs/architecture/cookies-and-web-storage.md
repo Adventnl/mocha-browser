@@ -110,5 +110,7 @@ how an `HttpOnly` cookie can exist that `document.cookie` must not expose.
 - `localStorage` is minimal: **no quotas, no `StorageEvent`**, and JS-side
   persistence/sharing is deferred (see above). No IndexedDB, Cache API, WebSQL, or
   StorageManager.
-- This is **not** a complete security model: no sandbox, CSP, mixed-content
-  blocking, or process isolation. Mocha is still not safe for general browsing.
+- This is **not** a complete security model: M16 adds CSP and mixed-content
+  policy objects, but there is no full sandbox, process isolation, site
+  isolation, TLS, CORS, or broad enforcement across every render path. Mocha is
+  still not safe for general browsing.

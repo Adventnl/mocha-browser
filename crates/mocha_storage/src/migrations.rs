@@ -7,7 +7,7 @@
 //! is a no-op.
 
 use mocha_error::MochaResult;
-use rusqlite::Connection;
+use rusqlite::{Connection, Error as SqliteError};
 
 use crate::storage_err;
 
@@ -16,13 +16,21 @@ pub const LATEST_VERSION: i64 = 2;
 
 /// Read the current schema version (0 if the database is brand new).
 pub fn current_version(conn: &Connection) -> MochaResult<i64> {
-    conn.query_row(
+    match conn.query_row(
         "SELECT COALESCE(MAX(version), 0) FROM schema_version",
         [],
         |row| row.get::<_, i64>(0),
-    )
-    // A missing table (first open) reads as version 0.
-    .or(Ok(0))
+    ) {
+        Ok(version) => Ok(version),
+        // A missing table (first open) reads as version 0. Other SQLite errors
+        // must surface, otherwise a corrupt schema can look like a fresh DB.
+        Err(SqliteError::SqliteFailure(_, Some(message)))
+            if message.contains("no such table: schema_version") =>
+        {
+            Ok(0)
+        }
+        Err(error) => Err(storage_err(error)),
+    }
 }
 
 /// Ensure the database is migrated up to [`LATEST_VERSION`].
@@ -208,5 +216,16 @@ mod tests {
     fn current_version_of_empty_db_is_zero() {
         let conn = Connection::open_in_memory().unwrap();
         assert_eq!(current_version(&conn).unwrap(), 0);
+    }
+
+    #[test]
+    fn current_version_does_not_swallow_unexpected_sql_errors() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute("CREATE TABLE schema_version (version TEXT NOT NULL)", [])
+            .unwrap();
+        conn.execute("INSERT INTO schema_version (version) VALUES ('bad')", [])
+            .unwrap();
+
+        assert!(current_version(&conn).is_err());
     }
 }

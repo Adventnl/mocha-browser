@@ -39,7 +39,8 @@ limitations, and intended future expansion.
   file/http, redirects, content-type, in-memory cache), `mocha_nav`
   (history), orchestrated by `mocha_shell`.
 - **Current limitations:** `file://`/`http://` only — **no HTTPS/TLS**; only HTML
-  renders; UTF-8 only; no cookies/auth/proxy; the cache is not an HTTP cache. See
+  renders; UTF-8 only; default loads do not send cookies; no auth/proxy; the
+  cache is not an HTTP cache. See
   [networking-and-navigation.md](networking-and-navigation.md).
 - **Future expansion:** HTTPS via a vetted TLS library, subresource loading,
   charset decoding, real cache semantics.

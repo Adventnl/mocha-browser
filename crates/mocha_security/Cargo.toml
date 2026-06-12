@@ -1,0 +1,12 @@
+[package]
+name = "mocha_security"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Security policy foundation for Mocha Browser: origin checks, scheme/file policies, CSP, permissions, certificate errors, and capabilities."
+
+[dependencies]
+mocha_error.workspace = true
+mocha_url.workspace = true
+mocha_origin.workspace = true

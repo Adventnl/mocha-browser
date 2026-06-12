@@ -1,0 +1,20 @@
+[package]
+name = "mocha_process"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Renderer process lifecycle manager for the Mocha Browser multi-process prototype."
+
+[lib]
+name = "mocha_process"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mocha_renderer"
+path = "src/bin/mocha_renderer.rs"
+
+[dependencies]
+mocha_error.workspace = true
+mocha_engine.workspace = true
+mocha_ipc.workspace = true

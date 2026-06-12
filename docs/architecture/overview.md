@@ -25,17 +25,32 @@ the modern web. It must never claim otherwise.
 
 ## Current milestone
 
-**Milestone 13: Tabs and in-memory session model.** Milestones 1–10 built a
+**Milestone 17: Multi-process architecture prototype.** Milestones 1–10 built a
 complete document loading and rendering pipeline (HTML, CSS, layout, JavaScript
-bindings, forms). **Milestone 11** introduced the desktop shell and a software
-rasterizer that draws display lists to a pixel buffer and displays them in a
-window via `mocha_desktop`. **Milestone 12** added minimal browser chrome: an
-address bar, back/forward/reload buttons, and window event routing. **Milestone
-13** makes the shell multi-tab: a `TabManager` owns the tabs and the active-tab
-invariant, each tab keeps its own page/history/scroll/focus, a tab strip sits
-above the toolbar, a simple internal new-tab page renders offline, and an
-in-memory `SessionSnapshot` captures tab metadata for restore (not persisted —
-that is M14). See [tabs-and-session.md](tabs-and-session.md).
+bindings, forms). **Milestone 11** introduced the desktop shell and software
+rasterizer, **Milestone 12** added minimal browser chrome, **Milestone 13** made
+the shell multi-tab, **Milestone 14** added the SQLite-backed profile foundation,
+and **Milestone 15** added `mocha_origin`, `mocha_cookie`, cookie/localStorage
+persistence tables, optional cookie-aware HTTP loading, and JS bindings.
+**Milestone 16** adds `mocha_security`, a policy layer for same-origin checks,
+scheme/file restrictions, mixed-content awareness, CSP policy evaluation,
+permissions, certificate error data, and future renderer capabilities.
+**Milestone 17** adds `mocha_ipc`, `mocha_process`, and a `mocha_renderer` child
+process prototype for typed IPC, renderer lifecycle, crash detection, and
+respawn. See
+[tabs-and-session.md](tabs-and-session.md),
+[profile-storage.md](profile-storage.md), and
+[cookies-and-web-storage.md](cookies-and-web-storage.md), plus
+[security-foundation.md](security-foundation.md) and
+[multiprocess-prototype.md](multiprocess-prototype.md).
+
+The M16/M17 security and process work is intentionally foundational: it defines
+and tests policy and process objects, but it is not a full sandbox, complete web
+security, site isolation, or HTTPS/TLS. The renderer process is not OS-sandboxed
+and the normal desktop/shell paths remain single-process by default. The default
+page-loading path still does not automatically use the cookie jar, and JS
+storage/cookies are per-render unless an embedder wires persistent state into a
+runtime.
 
 The pipeline still loads documents, executes JavaScript, resolves subresources,
 and generates display lists exactly as before (Milestones 1–10). The display list
@@ -56,11 +71,10 @@ Over the roadmap (see [milestones.md](milestones.md)), Mocha has grown and is
 intended to continue growing toward the shape of a modern browser: a CSS engine,
 a real layout/box model, a networking and navigation layer, a DOM event system,
 a custom JavaScript interpreter with DOM bindings, a desktop shell with
-rasterization, browser chrome, and tabs (Milestones 11–13, implemented), then
-persistent storage and profiles, cookies and origin-aware web storage, a
-multi-process (browser/renderer) architecture with typed IPC, a security/origin
-model, and finally broader standards compliance. **Milestone 14 (profile
-storage) is next.**
+rasterization, browser chrome, tabs, persistent profiles, cookies,
+origin-aware web storage, a security policy foundation, and a multi-process
+prototype with typed IPC (Milestones 1–17, implemented), then sandboxing and
+broader standards compliance. **Milestone 18 (security sandbox) is next.**
 
 ## Why the project starts terminal-first
 

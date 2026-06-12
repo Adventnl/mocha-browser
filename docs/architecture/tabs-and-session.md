@@ -1,9 +1,9 @@
 # Tabs and Session Model (Milestone 13)
 
-Milestone 13 turns the single-page desktop shell into a **multi-tab** browser
-and adds an **in-memory session snapshot/restore** model. Everything lives in
-`mocha_desktop`; no new crate was needed. Sessions are **not persisted** in M13 —
-persistence arrives in Milestone 14 (profile storage).
+Milestone 13 turned the single-page desktop shell into a **multi-tab** browser
+and added an **in-memory session snapshot/restore** model. Everything lives in
+`mocha_desktop`; no new crate was needed. Milestone 14 later added persistence
+for the same snapshot shape through `mocha_storage`.
 
 ## Concepts
 
@@ -102,7 +102,7 @@ An edit in the bar never mutates an inactive tab.
 where each `SessionTab` holds only `url`, `title`, `scroll_y`, `history`
 (normalized URL strings), and `current_history_index`. **No DOM, form state,
 layout tree, or display list is captured** — the snapshot is cheap to copy and
-(in M14) to persist.
+persist through the M14 storage DTOs.
 
 `TabManager::restore(&snapshot, w, h)` rebuilds the manager. **Restore policy:**
 
@@ -116,11 +116,15 @@ layout tree, or display list is captured** — the snapshot is cheap to copy and
 
 This keeps restore cheap and avoids serializing heavy page state.
 
-## Limitations (M13)
+## Limitations
 
-- Sessions are **in-memory only** — no profile directory, no persistent restore
-  (Milestone 14).
-- No bookmarks/history/downloads database, no settings, no cookies.
+- M13 itself was in-memory only; M14 added persistent session DTOs and stores,
+  but the interactive shell still does not auto-restore sessions by default.
+- Bookmarks/history/downloads/settings exist in `mocha_storage`, but the
+  interactive desktop UI does not yet surface them.
+- Cookies and origin-keyed localStorage exist at the M15 storage layer, but tab
+  loads are not automatically profile-cookie-backed and JS storage is not yet
+  tab/profile-backed.
 - No tab **drag/reorder**, pinned tabs, or tab groups.
 - No private browsing, crash recovery, or multiprocess isolation.
 - Titles are URL-derived (no `<title>` parsing); `is_loading` is effectively

@@ -223,12 +223,35 @@ goal, what is explicitly not included, and how completion is verified.
   [cookies-and-web-storage.md](cookies-and-web-storage.md) and
   [origin-model.md](origin-model.md).
 
-## Beyond Milestone 15 (direction, not code)
+## Milestone 16: Origin model and security foundation — complete
 
-- **Origin model and security foundation (next, M16):** same-origin checks,
-  mixed-content awareness, and a real security boundary.
-- **Multi-process architecture:** a browser process and renderer process(es) with
-  typed IPC and crash recovery.
-- **Security foundation:** an origin model, same-origin checks, mixed content.
+- **Goal:** add `mocha_security`, a policy crate for explicit security decisions:
+  same-origin checks, URL context restrictions, conservative file policy helpers,
+  mixed-content awareness, a tiny CSP parser/evaluator, permission state,
+  certificate error data, and renderer/browser/network capability sets.
+- **Not included:** full sandboxing, complete web security, site isolation,
+  HTTPS/TLS, full CSP, CORS, Fetch, or broad runtime enforcement across every
+  render path.
+- **Verification:** `cargo test -p mocha_security` plus the full workspace gate.
+  See [security-foundation.md](security-foundation.md) and
+  [content-security-policy.md](content-security-policy.md).
+
+## Milestone 17: Multi-process architecture prototype — complete
+
+- **Goal:** add `mocha_ipc` and `mocha_process`, a versioned typed IPC protocol,
+  a `mocha_renderer` child process, renderer lifecycle management, render
+  request/response, clean shutdown, test crash handling, and respawn.
+- **Not included:** OS sandboxing, site isolation, network process, GPU process,
+  production crash reporting, or moving the normal desktop path to multiprocess
+  by default. The M17 renderer may still call `mocha_engine::render_url`
+  directly and therefore has direct file/http capability.
+- **Verification:** `cargo test -p mocha_ipc`, `cargo test -p mocha_process`,
+  and the full workspace gate. See [ipc.md](ipc.md) and
+  [multiprocess-prototype.md](multiprocess-prototype.md).
+
+## Beyond Milestone 17 (direction, not code)
+
+- **Security sandbox (next, M18):** start turning policy/capability boundaries
+  into real process restrictions. This is not implemented in M17.
 - **Web compatibility hardening:** standards test suites, fuzzing, visual
   regression — without promising full web compatibility.

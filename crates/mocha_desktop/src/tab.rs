@@ -59,7 +59,7 @@ impl BrowserTab {
     /// A tab that immediately loads `input` (file path / `file://` / `http://`).
     fn loaded(id: TabId, input: &str, width: u32, height: u32) -> MochaResult<Self> {
         let page = DesktopPageState::load(input, width, height)?;
-        let url = Url::parse(input).ok();
+        let url = page.base_url().cloned();
         let (history, history_index) = match url.clone() {
             Some(u) => (vec![u], Some(0)),
             None => (Vec::new(), None),
@@ -135,13 +135,14 @@ impl BrowserTab {
     /// entry. Re-renders the page.
     fn navigate(&mut self, url: Url) -> MochaResult<()> {
         self.page.navigate(&url)?;
+        let final_url = self.page.base_url().cloned().unwrap_or(url);
         match self.history_index {
             Some(i) => self.history.truncate(i + 1),
             None => self.history.clear(),
         }
-        self.history.push(url.clone());
+        self.history.push(final_url.clone());
         self.history_index = Some(self.history.len() - 1);
-        self.set_current(url);
+        self.set_current(final_url);
         self.needs_reload = false;
         Ok(())
     }
@@ -156,8 +157,12 @@ impl BrowserTab {
         }
         let url = self.history[i - 1].clone();
         self.page.navigate(&url)?;
+        let final_url = self.page.base_url().cloned().unwrap_or(url);
         self.history_index = Some(i - 1);
-        self.set_current(url);
+        if let Some(entry) = self.history.get_mut(i - 1) {
+            *entry = final_url.clone();
+        }
+        self.set_current(final_url);
         Ok(true)
     }
 
@@ -171,8 +176,12 @@ impl BrowserTab {
         }
         let url = self.history[i + 1].clone();
         self.page.navigate(&url)?;
+        let final_url = self.page.base_url().cloned().unwrap_or(url);
         self.history_index = Some(i + 1);
-        self.set_current(url);
+        if let Some(entry) = self.history.get_mut(i + 1) {
+            *entry = final_url.clone();
+        }
+        self.set_current(final_url);
         Ok(true)
     }
 
@@ -180,6 +189,14 @@ impl BrowserTab {
     fn reload(&mut self) -> MochaResult<()> {
         if let Some(url) = self.current_url() {
             self.page.navigate(&url)?;
+            if let Some(final_url) = self.page.base_url().cloned() {
+                if let Some(i) = self.history_index {
+                    if let Some(entry) = self.history.get_mut(i) {
+                        *entry = final_url.clone();
+                    }
+                }
+                self.set_current(final_url);
+            }
         }
         self.needs_reload = false;
         if let Some(scroll) = self.pending_scroll.take() {
@@ -586,5 +603,24 @@ mod tests {
         assert!(m.tab(m.active_id()).is_some());
         m.close_tab(m.active_id()).unwrap();
         assert!(m.tab(m.active_id()).is_some());
+    }
+
+    #[test]
+    fn loaded_local_tab_uses_rendered_final_url() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("crate is under crates/mocha_desktop")
+            .join("examples/basic/index.html")
+            .to_string_lossy()
+            .into_owned();
+
+        let manager = TabManager::with_loaded(&path, 800, 600).unwrap();
+        let tab = manager.active();
+        assert_eq!(tab.url(), tab.page().base_url());
+        assert_eq!(
+            tab.history_strings(),
+            vec![tab.page().base_url().unwrap().normalized()]
+        );
     }
 }

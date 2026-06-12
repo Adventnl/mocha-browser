@@ -20,6 +20,9 @@ members = [
     "crates/mocha_origin",
     "crates/mocha_cookie",
     "crates/mocha_storage",
+    "crates/mocha_security",
+    "crates/mocha_ipc",
+    "crates/mocha_process",
     "crates/mocha_engine",
     "crates/mocha_raster",
     "crates/mocha_desktop",
@@ -52,6 +55,9 @@ mocha_image = { path = "crates/mocha_image" }
 mocha_origin = { path = "crates/mocha_origin" }
 mocha_cookie = { path = "crates/mocha_cookie" }
 mocha_storage = { path = "crates/mocha_storage" }
+mocha_security = { path = "crates/mocha_security" }
+mocha_ipc = { path = "crates/mocha_ipc" }
+mocha_process = { path = "crates/mocha_process" }
 mocha_engine = { path = "crates/mocha_engine" }
 mocha_raster = { path = "crates/mocha_raster" }
 mocha_desktop = { path = "crates/mocha_desktop" }

@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Milestone 12 desktop browser shell: a native window, minimal browser chrome (toolbar, address bar, back/forward/reload buttons), and a single-page document viewer."
+description = "Desktop browser shell for Mocha Browser: browser chrome, tabs, address bar, navigation controls, and optional minifb windowing."
 
 [lib]
 name = "mocha_desktop"

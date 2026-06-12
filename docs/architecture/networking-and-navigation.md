@@ -119,8 +119,9 @@ Networking adds risk; Mocha is **not** safe for general browsing.
   page loads through the jar automatically is deferred. See
   [cookies-and-web-storage.md](cookies-and-web-storage.md).
 - No authentication, credentials, or proxy support.
-- A **minimal origin model** exists (`mocha_origin`) for storage/cookie scoping;
-  there are no same-origin checks, mixed-content handling, or CSP.
+- A **minimal origin model** exists (`mocha_origin`) for storage/cookie scoping,
+  and M16 adds same-origin, mixed-content, and CSP policy objects in
+  `mocha_security`. Broad networking/render-path enforcement is still incomplete.
 - Subresource loading (Milestones 8–9) is layered on top of `mocha_net` by
   `mocha_resources`/`mocha_image`, not by `mocha_net` itself: external
   `<link rel="stylesheet">` CSS and `<img>` images are loaded against the document

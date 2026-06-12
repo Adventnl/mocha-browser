@@ -134,6 +134,11 @@ impl DesktopPageState {
         &self.console_output
     }
 
+    /// The document base URL/final load URL, if this page came from file/http.
+    pub fn base_url(&self) -> Option<&Url> {
+        self.base.as_ref()
+    }
+
     // --- scrolling ----------------------------------------------------------
 
     /// The maximum scroll offset (0 when the document fits the viewport).

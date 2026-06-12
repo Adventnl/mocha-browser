@@ -87,6 +87,27 @@ mocha_origin (M15)
   conservative file:// policy (opaque → web storage unsupported)
 - depends on: mocha_error, mocha_url
 
+mocha_security (M16)
+- security policy foundation: explicit allow/block decisions, same-origin
+  helpers, URL context checks, conservative file policy helpers, mixed-content
+  awareness, tiny CSP parsing/evaluation, permission state, certificate error
+  data, and renderer/browser/network capability sets
+- not a sandbox, not TLS, not process isolation, and not full web security
+- depends on: mocha_error, mocha_url, mocha_origin
+
+mocha_ipc (M17)
+- versioned typed IPC messages and frame encoding/decoding for the renderer
+  process prototype; validates protocol version, frame size, and malformed input
+- serializes lightweight render snapshots, not DOM/layout/form state
+- depends on: mocha_error
+
+mocha_process (M17)
+- browser-side renderer process manager and the `mocha_renderer` binary:
+  spawn/ping/render/shutdown/test-crash/liveness/respawn over `mocha_ipc`
+- prototype process separation only; the renderer is not sandboxed and may still
+  call `mocha_engine::render_url` directly
+- depends on: mocha_error, mocha_engine, mocha_ipc
+
 mocha_cookie (M15)
 - Set-Cookie parsing, an in-memory cookie jar (domain/path/secure/expiry
   matching), and deterministic Cookie request headers; not full RFC 6265bis

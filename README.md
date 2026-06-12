@@ -4,8 +4,8 @@ Mocha Browser is an experimental from-scratch browser engine and desktop browser
 
 Mocha is not based on Chromium, WebKit, Gecko, Servo, Electron, CEF, Tauri WebView, system WebView, V8, SpiderMonkey, JavaScriptCore, QuickJS, Deno, or Node.js.
 
-Current status: Milestone 15 (Cookies and origin-aware storage) implemented.
-Next milestone: Milestone 16 — origin model and security foundation.
+Current status: Milestone 17 (Multi-process architecture prototype) implemented.
+Next milestone: Milestone 18 — security sandbox.
 
 Mocha is not safe for general web browsing yet.
 
@@ -19,7 +19,24 @@ with a clear error rather than being faked.
 
 ## Current milestone
 
-**Milestone 15: Cookies and origin-aware storage.** Two new crates — `mocha_origin`
+**Milestone 16: Origin model and security foundation.** The `mocha_security`
+crate defines explicit security decisions and policy objects: same-origin checks,
+URL context restrictions, conservative `file://` policy helpers, mixed-content
+awareness, a tiny CSP parser/evaluator, origin-keyed permission state,
+future-facing certificate error data, and renderer/browser capability sets. This
+is **not** a full sandbox, complete web security, site isolation, or HTTPS/TLS.
+See [security-foundation.md](docs/architecture/security-foundation.md) and
+[content-security-policy.md](docs/architecture/content-security-policy.md).
+
+**Milestone 17: Multi-process architecture prototype.** The `mocha_ipc` and
+`mocha_process` crates add a versioned typed IPC protocol, a `mocha_renderer`
+child process, a browser-side renderer manager, clean shutdown, test crash
+detection, and respawn. This is **not** a production multi-process browser, not
+site isolation, and not OS sandboxing. Normal shell/desktop paths remain
+single-process by default. See [ipc.md](docs/architecture/ipc.md) and
+[multiprocess-prototype.md](docs/architecture/multiprocess-prototype.md).
+
+**Milestone 15: Cookies and origin-aware storage.** Two crates — `mocha_origin`
 (a minimal `(scheme, host, port)` origin with a conservative `file://` policy) and
 `mocha_cookie` (`Set-Cookie` parsing and an in-memory jar with domain/path/secure/
 expiry matching and deterministic `Cookie` headers) — plus persistence in
@@ -142,9 +159,10 @@ and [networking-and-navigation.md](docs/architecture/networking-and-navigation.m
 - **Image rendering**: `DrawImage` commands are rasterized to the display surface
   in desktop mode. Responsive images (`srcset`/`<picture>`), SVG, and animation
   are unsupported.
-- Mature window input: no keyboard text editing (address bar only), focus/caret/text
-  selection, IME, or pointer/touch/wheel gesture handling. Hit testing does not
-  account for z-index/transforms/scrolling/clipping.
+- Mature window input: desktop mode supports crude click routing and simple text
+  entry/backspace for text-editable controls, but there is no mature focus,
+  caret, text selection, IME, accessibility, or pointer/touch/wheel gesture
+  handling. Hit testing does not account for z-index/transforms/scrolling/clipping.
 - **Tabs (M13) + a SQLite profile (M14) + cookies/web storage (M15):** history,
   bookmarks, settings, download metadata, persistent session snapshots, a cookie
   jar/store, and origin-keyed `localStorage`/`sessionStorage`, plus a private
@@ -153,6 +171,14 @@ and [networking-and-navigation.md](docs/architecture/networking-and-navigation.m
   cookie jar automatically; JS `localStorage` is not yet wired to the persistent
   store; and there are no passwords, encryption, tab drag/reorder, pinned tabs,
   tab groups, crash recovery, or multiprocess isolation.
+- **Security foundation (M16):** policy objects and tests exist for origin
+  checks, scheme/file decisions, mixed content, CSP, permissions, certificate
+  errors, and capabilities. They are not a full security model, not OS sandboxing,
+  and not site isolation; broad runtime enforcement is still future work.
+- **Multi-process prototype (M17):** a renderer child process can render through
+  typed IPC and recover from a test crash, but it is not sandboxed, not site
+  isolation, not a network/GPU process split, and not the default desktop render
+  path.
 - The real HTML5 parsing algorithm and real CSS error recovery.
 - `!important`, media queries, pseudo-classes/elements, attribute selectors, the
   `>`/`+`/`~` combinators, `em`/`rem`/`%` units, `rgb()`/`calc()`/`var()`.
@@ -160,17 +186,17 @@ and [networking-and-navigation.md](docs/architecture/networking-and-navigation.m
   collapse, `text-align`, `white-space` modes, hyphenation; long words can
   overflow. Baseline/`vertical-align` for inline images (top-aligned). Inline
   backgrounds/borders are deferred (inline text color and font size are honored).
-- **Forms beyond the basics**: no keyboard text editing, focus, caret, text
-  selection, or IME; no validation or validation UI; no `POST` bodies or
-  `multipart/form-data`; no file/date/color/range/number inputs; no
-  `:checked`/`:disabled`/`:focus` pseudo-classes; no `<optgroup>`,
-  `<fieldset>`, `<legend>`, or the `form` attribute; label clicks do not
-  activate controls; controls are painted as `DrawControl` commands, not real
-  widgets.
+- **Forms beyond the basics**: no mature focus, caret, text selection, or IME;
+  no validation or validation UI; no `POST` bodies or `multipart/form-data`; no
+  file/date/color/range/number inputs; no `:checked`/`:disabled`/`:focus`
+  pseudo-classes; no `<optgroup>`, `<fieldset>`, `<legend>`, or the `form`
+  attribute; label clicks do not activate controls; controls are printed as
+  `DrawControl` in terminal mode and debug-rasterized in desktop mode, not real
+  native widgets.
 - Fonts, canvas, accessibility.
 - Flexbox/grid, floats, positioning.
-- Tabs, persistent session/profiles, and security sandboxing.
-- Multi-process architecture.
+- Security sandboxing.
+- Production multi-process architecture and OS sandboxing.
 
 `file://` and `http://` document loading are supported; `https://` is not
 implemented. Unsupported tags/features, unsupported CSS, unsupported URL schemes,

@@ -146,7 +146,8 @@ M13 replaced the single-page state with a tab manager:
 - New tab / close tab / switch tab
 - In-memory session snapshot and restore (not persisted)
 
-See [tabs-and-session.md](tabs-and-session.md). Next is M14 (profile storage).
+See [tabs-and-session.md](tabs-and-session.md). M14 and M15 later added profile
+storage, cookies, and origin-aware web storage below the desktop shell.
 
 ## Current Honest Status
 
@@ -167,5 +168,6 @@ See [tabs-and-session.md](tabs-and-session.md). Next is M14 (profile storage).
 - No loading indicator / spinner
 - No favicon display
 - Address bar text field has no caret/selection/copy-paste/IME
-- Tabs exist (M13) but sessions are **in-memory only** — no persistence (M14)
+- Tabs exist (M13), and session persistence exists in `mocha_storage` (M14), but
+  the interactive shell does not yet auto-restore sessions
 - Terminal mode has no chrome (intentional; address bar can't exist without a window)

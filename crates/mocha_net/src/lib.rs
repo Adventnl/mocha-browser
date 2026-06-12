@@ -7,7 +7,9 @@
 //! Networking scope (intentionally small): `GET` only; a hand-written blocking
 //! HTTP/1.1 client over `std::net::TcpStream` (no keep-alive, chunked decoding,
 //! or compression); **no TLS** — `https://` returns
-//! [`MochaError::UnsupportedFeature`]. No cookies, auth, or proxy support.
+//! [`MochaError::UnsupportedFeature`]. No auth or proxy support. Cookie support
+//! is optional through [`CookieProvider`] and [`DefaultLoader::load_with_cookies`];
+//! the default load path still sends no cookies.
 
 mod cache;
 mod content_type;

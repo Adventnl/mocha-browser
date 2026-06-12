@@ -4,8 +4,9 @@ Milestone 14 adds a **persistent browser profile foundation**: the `mocha_storag
 crate, an embedded-SQLite database holding visit history, bookmarks, settings,
 download metadata, and a persisted session snapshot, plus a **private** (in-memory)
 profile mode. This is **not** a full browser profile — there is no encryption, no
-sync, no cookies or origin-keyed web storage (those are Milestone 15), and no
-concurrency model beyond a single connection.
+sync, no password manager, and no concurrency model beyond a single connection.
+Milestone 15 added cookies and origin-keyed `localStorage` tables on top of this
+profile foundation.
 
 ## Dependency: rusqlite (bundled)
 
@@ -108,13 +109,15 @@ bookmarks, or auto-restore — that UI wiring is deferred.
   passwords/credentials, form autofill, full page content, the DOM/layout/display
   list, and favicons.
 
-## Limitations (M14)
+## Limitations
 
 - Not a full or secure browser profile: no encryption, no integrity protection,
-  no multi-process access. (Cookies and origin-keyed `localStorage` were added in
-  Milestone 15.)
+  no multi-process access. Cookies and origin-keyed `localStorage` are stored as
+  of Milestone 15.
 - Single SQLite connection; not designed for concurrent writers.
 - The desktop UI integration is intentionally minimal (one headless command);
   the interactive shell does not yet record history or restore sessions.
 - `restore_session`/`homepage`/window-size settings exist as keys but are not yet
   consumed by the shell.
+- JS `localStorage` is not yet wired to `LocalStorageStore`, and default page
+  loads are not yet wired through the persistent cookie store.

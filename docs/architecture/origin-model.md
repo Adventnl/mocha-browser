@@ -45,5 +45,8 @@ storage and `document.cookie` are simply **unavailable** on `file://` documents
   beyond the above.
 - No opaque-origin identity for sandboxed/`data:`/`blob:` documents (those
   schemes are unsupported by `mocha_url`).
-- Not a security boundary: there is no process isolation, CSP, or mixed-content
-  policy. See [limitations.md](limitations.md).
+- Not a complete security boundary: M16 adds policy objects for same-origin
+  checks, CSP, and mixed-content awareness in `mocha_security`, but there is no
+  process isolation, OS sandbox, TLS, CORS, or broad enforcement across every
+  render path. See [security-foundation.md](security-foundation.md) and
+  [limitations.md](limitations.md).

@@ -134,12 +134,15 @@ calls `BrowserAppState` methods and pumps the result to the display.
 - No error page or error message display
 - No loading indicator or spinner
 
-### Tabs but No Profiles
+### Tabs and Minimal Profiles
 
 - **Tabs (M13):** multiple tabs with per-tab page/history/scroll/focus, a tab
   strip, and an in-memory session snapshot/restore. See
   [tabs-and-session.md](tabs-and-session.md).
-- No **persistent** profile/storage/session management yet (M14); no tab
+- **Profiles (M14/M15):** `mocha_storage` provides persistent history,
+  bookmarks, settings, download metadata, session snapshots, cookies, and
+  origin-keyed `localStorage` tables. The interactive desktop UI still does not
+  surface most of that profile state or auto-restore sessions. No tab
   drag/reorder, pinned tabs, tab groups, or crash recovery.
 
 ### No Window Features
@@ -219,7 +222,8 @@ invariant) instead of a single page:
 
 See [tabs-and-session.md](tabs-and-session.md).
 
-## Next Steps (M14)
+## Next Steps (M16)
 
-Persistent profile storage: a profile directory, schema migrations, and
-history/bookmarks/settings/downloads/session persistence on disk.
+Origin model and security foundation: same-origin checks, scheme/file policies,
+mixed-content awareness, and explicit security decisions. This is a policy layer,
+not a full sandbox.

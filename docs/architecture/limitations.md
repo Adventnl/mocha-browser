@@ -1,9 +1,10 @@
 # Limitations
 
-Mocha Browser is at **Milestone 15** (multi-tab desktop shell with a SQLite
-profile and minimal cookies + origin-aware web storage). It is an experimental
-engine with a minimal desktop frontend, not a usable browser. This document is
-deliberately explicit about what does not exist so the project never overclaims.
+Mocha Browser is at **Milestone 17** (multi-tab desktop shell with a SQLite
+profile, minimal cookies + origin-aware web storage, a security policy
+foundation, and a multi-process prototype). It is an experimental engine with a
+minimal desktop frontend, not a usable browser. This document is deliberately
+explicit about what does not exist so the project never overclaims.
 
 ## Not supported
 
@@ -30,28 +31,40 @@ deliberately explicit about what does not exist so the project never overclaims.
   incremental relayout.
 - **Forms beyond the Milestone 10 basics** — basic controls parse, carry
   state, lay out, and model GET submission (see
-  [forms-and-controls.md](forms-and-controls.md)). In M12, controls render as
-  `DrawControl` commands (display-list only, no native widgets). **There is no
-  keyboard text editing, focus, caret, selection, or IME**, no validation, no
-  POST bodies / `multipart/form-data`, no file/date/color/range/number inputs,
-  no `:checked`/`:disabled`/`:focus` pseudo-classes, no `<optgroup>` / `<fieldset>`
-  / multiple-select / `form` attribute, no label activation, and no autofill.
+  [forms-and-controls.md](forms-and-controls.md)). Terminal mode prints
+  `DrawControl`; desktop mode debug-rasterizes controls through
+  `mocha_raster`/`mocha_desktop`, but they are not native widgets. Desktop mode
+  has crude click routing and simple text entry/backspace where implemented, but
+  there is still no mature focus, caret, selection, IME, accessibility, validation
+  UI, POST bodies / `multipart/form-data`, file/date/color/range/number inputs,
+  `:checked`/`:disabled`/`:focus` pseudo-classes, `<optgroup>` / `<fieldset>` /
+  multiple-select / `form` attribute, label activation, or autofill.
 - **Fonts** — no font loading or shaping; text size is estimated, not measured.
 - **Canvas / accessibility** — not parsed or rendered.
-- **Security sandbox** — no process sandbox or permissions. A **minimal origin
-  model** exists (Milestone 15, `mocha_origin`) for scoping cookies/web storage,
-  but it is **not** a security boundary (no same-origin enforcement, CSP, or
-  mixed-content policy).
-- **Multi-process architecture** — single process only.
+- **Security sandbox** — no process sandbox, no permission UI, and no web APIs
+  consuming permission state yet. A **minimal origin model** exists (Milestone 15,
+  `mocha_origin`) for scoping cookies/web storage,
+  and M16 adds explicit policy objects in `mocha_security` (same-origin checks,
+  scheme/file decisions, mixed-content awareness, CSP, permissions, and
+  capabilities). This is **not** a complete security boundary: no OS sandbox,
+  site isolation, TLS, CORS, Fetch, or broad runtime enforcement.
+- **Multi-process architecture** — M17 has a renderer child-process prototype
+  with typed IPC, crash detection, and respawn tests, but it is not the default
+  desktop/shell path, not site isolation, not a network/GPU process split, and
+  not OS sandboxing.
 - **Profile / sessions** — the desktop shell has tabs (M13) and a SQLite profile
   (M14): history, bookmarks, settings, download metadata, and persistent session
-  snapshots, plus a private in-memory profile. But it is **not** a full or secure
-  profile: no encryption, no sync, **no cookies or origin-keyed
-  `localStorage`/`sessionStorage`** (Milestone 15), no passwords, no favicons, and
-  the interactive shell does not yet surface history/bookmarks UI or auto-restore
-  sessions. No tab drag/reorder, pinned tabs, tab groups, or crash recovery. See
-  [tabs-and-session.md](tabs-and-session.md) and
-  [profile-storage.md](profile-storage.md).
+  snapshots, plus a private in-memory profile. M15 adds cookie persistence and a
+  persistent origin-keyed `localStorage` table. But it is **not** a full or
+  secure profile: no encryption, no sync, no passwords, no favicons, and the
+  interactive shell does not yet surface history/bookmarks UI or auto-restore
+  sessions. The default page-loading path is not yet cookie-backed, JS
+  `localStorage` is not yet wired to the persistent store, and `sessionStorage`
+  is still per-runtime unless an embedder wires tab-owned storage. No tab
+  drag/reorder, pinned tabs, tab groups, or crash recovery. See
+  [tabs-and-session.md](tabs-and-session.md),
+  [profile-storage.md](profile-storage.md), and
+  [cookies-and-web-storage.md](cookies-and-web-storage.md).
 - **Modern web compatibility** — Mocha cannot browse real websites.
 
 ## CSS support (Milestone 2)
@@ -123,10 +136,10 @@ See [javascript-interpreter.md](javascript-interpreter.md) and
 
 See [events.md](events.md) for detail.
 
-- **No JavaScript event handlers** — the DOM event system exists for internal
-  dispatch (link clicks, form actions, etc.) and test harnesses, but there is no
-  way to attach JavaScript listeners at runtime (the JS bindings offer a stub
-  `addEventListener` that does not fire handlers).
+- **JavaScript event handlers are minimal** — JS can register listeners through
+  `addEventListener`, and Mocha dispatches its own simplified event objects, but
+  there is no browser event loop, no real pointer/wheel/touch/focus model, and
+  only the small supported event surface is wired.
 - **Window input (M12)** — `mocha_desktop` routes clicks and keyboard to the
   page/address bar via the layout's hit-test and browser state (see
   [desktop-shell.md](desktop-shell.md)). **But:** no text editing/caret, no
@@ -155,7 +168,8 @@ See [networking-and-navigation.md](networking-and-navigation.md) for detail.
 - **Only HTML documents render**; other content types return a clear error.
 - **UTF-8 only** — no charset detection or decoding; invalid UTF-8 is rejected.
 - A **minimal origin model** exists (`mocha_origin`) for storage/cookie scoping,
-  but there are **no same-origin checks, mixed-content handling, or CSP**.
+  and M16 adds policy objects for same-origin checks, mixed-content handling, and
+  CSP. Broad enforcement across all network/render paths is still incomplete.
 - Redirects are followed (limit 10); redirects to `file://` and unsupported
   schemes are rejected. Dot-segments (`.`/`..`) in relative references *are*
   normalized for URL/POSIX paths (used for subresource resolution); Windows file
@@ -187,8 +201,10 @@ Block and inline formatting are real but small:
 
 See [forms-and-controls.md](forms-and-controls.md) for detail.
 
-- **No real user input** — no typing, focus, caret, text selection, or IME;
-  control state changes come from JavaScript and programmatic event dispatch.
+- **Input is crude** — desktop mode routes clicks to controls and supports simple
+  text entry/backspace for text-editable controls where implemented, but there is
+  no mature focus model, caret, selection, IME, accessibility, or rich editing.
+  Terminal/headless mode only prints display-list/control state.
 - **Unsupported `input`/`button` types fail clearly** (`date`, `file`,
   `color`, `range`, `number`, …) — never a silent fallback to text.
 - **GET only** — `method="post"` (and any other method) is
@@ -202,8 +218,9 @@ See [forms-and-controls.md](forms-and-controls.md) for detail.
   `selected` option defaults to its **first** option.
 - **Label clicks do not activate controls**; `<fieldset>`/`<legend>` and the
   `form` attribute are unsupported.
-- **`DrawControl` is not a widget** — controls are display-list commands;
-  nothing is rasterized and no native controls exist.
+- **`DrawControl` is not a native widget** — terminal mode prints it as a
+  display-list command; desktop mode rasterizes/debug-draws it through
+  `mocha_raster`/`mocha_desktop`.
 - **`form.submit()` never navigates** — it records a request the embedder may
   inspect; the shell only notes it on stderr.
 

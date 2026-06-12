@@ -7,9 +7,10 @@
 //! in-memory database that is never written to disk).
 //!
 //! This is **not** a full browser profile: there is no encryption, no
-//! concurrency model beyond a single connection, no cookies or origin-keyed web
-//! storage (those arrive in Milestone 15), and no sync. The schema is versioned
-//! and upgraded by small idempotent [`migrations`].
+//! concurrency model beyond a single connection, no sync, and no password
+//! manager. Milestone 15 adds cookie and origin-keyed `localStorage` tables on
+//! top of the Milestone 14 profile foundation. The schema is versioned and
+//! upgraded by small idempotent [`migrations`].
 //!
 //! All timestamps are caller-supplied epoch milliseconds (`now_ms: i64`) so the
 //! stores stay deterministic and testable — the crate never reads a clock.
