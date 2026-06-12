@@ -59,7 +59,15 @@ fn render_new_tab(surface: &mut Surface, fonts: &mut Fonts, theme: &BrowserTheme
 
     // Title + subtitle, centered, starting ~22% down the viewport.
     let mut y = viewport.y + (viewport.height * 0.22).max(24.0);
-    y += draw_centered(surface, fonts, NEW_TAB_TITLE_TEXT, center_x, y, 36.0, theme.tab_text);
+    y += draw_centered(
+        surface,
+        fonts,
+        NEW_TAB_TITLE_TEXT,
+        center_x,
+        y,
+        36.0,
+        theme.tab_text,
+    );
     y += 6.0;
     y += draw_centered(
         surface,
@@ -87,12 +95,34 @@ fn render_new_tab(surface: &mut Surface, fonts: &mut Fonts, theme: &BrowserTheme
         + pad
         - 6.0;
     let card_x = center_x - card_width / 2.0;
-    surface.draw_rounded_rect(card_x, y, card_width, card_height, 12.0, theme.card_background);
-    surface.draw_rounded_rect_outline(card_x, y, card_width, card_height, 12.0, 1.0, theme.card_border);
+    surface.draw_rounded_rect(
+        card_x,
+        y,
+        card_width,
+        card_height,
+        12.0,
+        theme.card_background,
+    );
+    surface.draw_rounded_rect_outline(
+        card_x,
+        y,
+        card_width,
+        card_height,
+        12.0,
+        1.0,
+        theme.card_border,
+    );
 
     let text_x = card_x + pad;
     let mut card_y = y + pad;
-    fonts.draw(surface, NEW_TAB_HINT_TEXT, text_x, card_y, 15.0, theme.tab_text);
+    fonts.draw(
+        surface,
+        NEW_TAB_HINT_TEXT,
+        text_x,
+        card_y,
+        15.0,
+        theme.tab_text,
+    );
     card_y += hint_height + 14.0;
     fonts.draw(
         surface,
@@ -104,7 +134,14 @@ fn render_new_tab(surface: &mut Surface, fonts: &mut Fonts, theme: &BrowserTheme
     );
     card_y += header_height + 6.0;
     for example in NEW_TAB_EXAMPLES {
-        fonts.draw(surface, example, text_x + 12.0, card_y, 14.0, theme.tab_text);
+        fonts.draw(
+            surface,
+            example,
+            text_x + 12.0,
+            card_y,
+            14.0,
+            theme.tab_text,
+        );
         card_y += example_height + 6.0;
     }
 
@@ -162,7 +199,14 @@ fn render_error(
         + pad;
 
     let card_y = (viewport.y + (viewport.height - card_height) * 0.30).max(viewport.y + 16.0);
-    surface.draw_rounded_rect(card_x, card_y, card_width, card_height, 12.0, theme.card_background);
+    surface.draw_rounded_rect(
+        card_x,
+        card_y,
+        card_width,
+        card_height,
+        12.0,
+        theme.card_background,
+    );
     surface.draw_rounded_rect_outline(
         card_x,
         card_y,
@@ -175,7 +219,14 @@ fn render_error(
 
     let text_x = card_x + pad;
     let mut y = card_y + pad;
-    fonts.draw(surface, ERROR_TITLE_TEXT, text_x, y, 22.0, theme.error_accent);
+    fonts.draw(
+        surface,
+        ERROR_TITLE_TEXT,
+        text_x,
+        y,
+        22.0,
+        theme.error_accent,
+    );
     y += title_height + 14.0;
 
     // Details panel.
@@ -410,10 +461,7 @@ mod tests {
             explanation_for("network error: cannot connect"),
             ERROR_LOAD_EXPLANATION
         );
-        assert_eq!(
-            explanation_for("io error: missing"),
-            ERROR_LOAD_EXPLANATION
-        );
+        assert_eq!(explanation_for("io error: missing"), ERROR_LOAD_EXPLANATION);
         assert_eq!(
             explanation_for("unsupported feature: tag <head>"),
             ERROR_ENGINE_EXPLANATION
@@ -431,7 +479,10 @@ mod tests {
         );
         assert!(lines.len() > 1);
         for line in &lines {
-            assert!(fonts.measure(line, 14.0) <= 120.0 + 0.01, "line fits: {line}");
+            assert!(
+                fonts.measure(line, 14.0) <= 120.0 + 0.01,
+                "line fits: {line}"
+            );
         }
         // One enormous unbroken word still terminates and splits.
         let monster = "x".repeat(300);

@@ -138,8 +138,7 @@ impl ChromeLayout {
         if count == 0 {
             return m.tab_max_width;
         }
-        let reserved =
-            m.tab_strip_padding * 2.0 + m.new_tab_button_size + m.tab_gap * count as f32;
+        let reserved = m.tab_strip_padding * 2.0 + m.new_tab_button_size + m.tab_gap * count as f32;
         let available = (self.window_width - reserved).max(0.0);
         (available / count as f32).clamp(m.tab_min_width, m.tab_max_width)
     }

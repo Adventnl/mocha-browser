@@ -56,8 +56,22 @@ pub fn draw_reload_icon(surface: &mut Surface, rect: Rect, color: Color) {
     // Arrowhead at the arc start, pointing along the (clockwise) tangent.
     let head_x = cx + radius * start.cos();
     let head_y = cy - radius * start.sin();
-    surface.draw_line(head_x, head_y, head_x + s * 0.55, head_y - s * 0.2, t, color);
-    surface.draw_line(head_x, head_y, head_x - s * 0.05, head_y - s * 0.65, t, color);
+    surface.draw_line(
+        head_x,
+        head_y,
+        head_x + s * 0.55,
+        head_y - s * 0.2,
+        t,
+        color,
+    );
+    surface.draw_line(
+        head_x,
+        head_y,
+        head_x - s * 0.05,
+        head_y - s * 0.65,
+        t,
+        color,
+    );
 }
 
 /// A small house: roof above a body with a flat base.

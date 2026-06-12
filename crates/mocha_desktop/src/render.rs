@@ -15,7 +15,10 @@ use crate::text::Fonts;
 use crate::theme::BrowserTheme;
 
 /// The address bar's placeholder when it is empty and unfocused.
-pub const ADDRESS_PLACEHOLDER: &str = "Search or enter address";
+pub const ADDRESS_PLACEHOLDER: &str = "Search with Google or enter address";
+
+/// A vector-icon drawing function for a toolbar button.
+type IconDraw = fn(&mut Surface, Rect, mocha_layout::Color);
 
 /// Transient per-frame input state that affects chrome painting only.
 #[derive(Debug, Clone, Copy, Default)]
@@ -175,12 +178,7 @@ fn render_toolbar(
     let metrics = chrome.metrics;
 
     // Navigation buttons: (rect, element, icon, enabled).
-    let buttons: [(
-        Rect,
-        ChromeElement,
-        fn(&mut Surface, Rect, mocha_layout::Color),
-        bool,
-    ); 4] = [
+    let buttons: [(Rect, ChromeElement, IconDraw, bool); 4] = [
         (
             chrome.back_button(),
             ChromeElement::BackButton,
@@ -234,7 +232,13 @@ fn render_toolbar(
     // Address bar pill.
     let addr = chrome.address_bar();
     let focused = app.focus == BrowserFocus::AddressBar;
-    surface.draw_pill(addr.x, addr.y, addr.width, addr.height, theme.address_bar_background);
+    surface.draw_pill(
+        addr.x,
+        addr.y,
+        addr.width,
+        addr.height,
+        theme.address_bar_background,
+    );
     if focused {
         surface.draw_pill_outline(
             addr.x,
@@ -345,7 +349,10 @@ mod tests {
             Some(pack(theme.tab_strip_background))
         );
         // Toolbar background between home button and address bar.
-        assert_eq!(surface.pixel(1195, 60), Some(pack(theme.toolbar_background)));
+        assert_eq!(
+            surface.pixel(1195, 60),
+            Some(pack(theme.toolbar_background))
+        );
         // Active tab interior.
         let tab = app.chrome.tab_rect(0, 1);
         assert_eq!(
@@ -432,9 +439,7 @@ mod tests {
         let mut non_white = 0;
         for dy in 8..(addr.height as u32 - 8) {
             for dx in 14..200 {
-                let p = empty
-                    .pixel(addr.x as u32 + dx, addr.y as u32 + dy)
-                    .unwrap();
+                let p = empty.pixel(addr.x as u32 + dx, addr.y as u32 + dy).unwrap();
                 if p != 0x00ff_ffff {
                     non_white += 1;
                 }
@@ -447,7 +452,8 @@ mod tests {
     fn focused_address_bar_uses_focused_border_and_caret_blinks() {
         let mut app = app();
         let addr = app.chrome.address_bar();
-        app.click(addr.x + 30.0, addr.y + addr.height / 2.0).unwrap();
+        app.click(addr.x + 30.0, addr.y + addr.height / 2.0)
+            .unwrap();
         assert_eq!(app.focus, BrowserFocus::AddressBar);
         let theme = BrowserTheme::default();
         let caret_on = render(
