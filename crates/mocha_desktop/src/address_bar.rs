@@ -11,6 +11,9 @@ pub struct AddressBarState {
     pub draft_text: String,
     /// Whether the address bar is currently focused/editing.
     pub focused: bool,
+    /// When focused, the whole draft is "selected": the next character typed (or
+    /// backspace) replaces it, like a real browser's Ctrl+L / click-to-focus.
+    pub select_all: bool,
 }
 
 impl AddressBarState {
@@ -24,6 +27,7 @@ impl AddressBarState {
             current_url,
             draft_text,
             focused: false,
+            select_all: false,
         }
     }
 
@@ -32,24 +36,27 @@ impl AddressBarState {
         self.current_url = url.clone();
         self.draft_text = url.map(|u| u.normalized()).unwrap_or_default();
         self.focused = false;
+        self.select_all = false;
     }
 
-    /// User focused the address bar: prepare to edit.
+    /// User focused the address bar: prepare to edit with the URL selected.
     pub fn focus(&mut self) {
         if !self.focused {
             self.focused = true;
-            // Draft starts as the current URL.
+            // Draft starts as the current URL, fully selected (replace on type).
             self.draft_text = self
                 .current_url
                 .as_ref()
                 .map(|u| u.normalized())
                 .unwrap_or_default();
+            self.select_all = !self.draft_text.is_empty();
         }
     }
 
     /// User blurred the address bar: cancel editing.
     pub fn blur(&mut self) {
         self.focused = false;
+        self.select_all = false;
         self.draft_text = self
             .current_url
             .as_ref()
@@ -57,17 +64,26 @@ impl AddressBarState {
             .unwrap_or_default();
     }
 
-    /// User typed a character.
+    /// User typed a character (replacing the selection if the draft is selected).
     pub fn input_char(&mut self, c: char) {
         if self.focused {
+            if self.select_all {
+                self.draft_text.clear();
+                self.select_all = false;
+            }
             self.draft_text.push(c);
         }
     }
 
-    /// User pressed backspace.
+    /// User pressed backspace (clears a selected draft, else deletes one char).
     pub fn backspace(&mut self) {
         if self.focused {
-            self.draft_text.pop();
+            if self.select_all {
+                self.draft_text.clear();
+                self.select_all = false;
+            } else {
+                self.draft_text.pop();
+            }
         }
     }
 
@@ -78,6 +94,7 @@ impl AddressBarState {
             return None;
         }
         self.focused = false;
+        self.select_all = false;
 
         let url = resolve_query(&self.draft_text)?;
         self.current_url = Some(url.clone());
@@ -87,6 +104,7 @@ impl AddressBarState {
     /// User pressed Escape: cancel editing, restore the current URL.
     pub fn cancel(&mut self) {
         self.focused = false;
+        self.select_all = false;
         self.draft_text = self
             .current_url
             .as_ref()

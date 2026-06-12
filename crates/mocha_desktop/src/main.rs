@@ -101,12 +101,13 @@ fn real_main() -> MochaResult<()> {
     run_window(target.as_deref(), profile_dir.as_deref(), width, height)
 }
 
-/// Prepare the app-data directories (profile + logs) and initialize the
+/// Prepare the app-data directories (profile + logs) and open the persistent
 /// profile store. Best-effort by design: when Mocha runs as a desktop app, a
 /// failure here (for example a read-only location) must not stop the browser
-/// from opening, so problems are reported as warnings.
+/// from opening, so problems are reported as warnings and the browser falls
+/// back to a profile-less (no-persistence) session.
 #[cfg(feature = "gui")]
-fn prepare_app_data(profile_flag: Option<&str>) {
+fn prepare_app_data(profile_flag: Option<&str>) -> mocha_desktop::BrowserProfile {
     let profile_dir = profile_flag
         .map(PathBuf::from)
         .unwrap_or_else(mocha_desktop::default_profile_dir);
@@ -116,13 +117,16 @@ fn prepare_app_data(profile_flag: Option<&str>) {
             eprintln!("mocha: warning: cannot create {}: {error}", dir.display());
         }
     }
-    // Open (and create/migrate) the profile store so the directory is a real,
-    // writable profile; the GUI does not record history or sessions yet.
-    if let Err(error) = Profile::persistent(&profile_dir) {
-        eprintln!(
-            "mocha: warning: cannot open the profile at {}: {error}",
-            profile_dir.display()
-        );
+    match Profile::persistent(&profile_dir) {
+        Ok(profile) => mocha_desktop::BrowserProfile::new(profile),
+        Err(error) => {
+            eprintln!(
+                "mocha: warning: cannot open the profile at {} ({error}); \
+                 history, bookmarks and tabs will not be saved",
+                profile_dir.display()
+            );
+            mocha_desktop::BrowserProfile::none()
+        }
     }
 }
 
@@ -201,13 +205,10 @@ fn run_window(
 ) -> MochaResult<()> {
     use mocha_desktop::BrowserAppState;
 
-    prepare_app_data(profile_dir);
-    let app = match target {
-        // A failed load opens the browser on an internal error page rather
-        // than exiting (app behavior, not CLI behavior).
-        Some(input) => BrowserAppState::load_or_error_page(input, width, height)?,
-        None => BrowserAppState::start(width, height)?,
-    };
+    let profile = prepare_app_data(profile_dir);
+    // Restores the previous session (when enabled) or loads `target`; a failed
+    // load opens the browser on an internal error page rather than exiting.
+    let app = BrowserAppState::launch(profile, target, width, height)?;
     window::run(app, width, height)
 }
 
