@@ -1,0 +1,67 @@
+name: Windows Build
+
+# Builds the Mocha.exe desktop browser on every push to main and publishes it,
+# so the newest build is always downloadable from:
+#   - the run's "Artifacts" (Actions tab), and
+#   - the rolling "latest" release: /releases/latest
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: windows-build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Mocha.exe (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-release-cargo-${{ hashFiles('**/Cargo.toml') }}
+
+      - name: Package (build release + assemble dist\MochaBrowser)
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File scripts/package-windows.ps1
+
+      - name: Zip the runnable folder
+        shell: pwsh
+        run: Compress-Archive -Path dist/MochaBrowser/* -DestinationPath dist/MochaBrowser-windows-x64.zip -Force
+
+      - name: Upload build artifact (per-run download)
+        uses: actions/upload-artifact@v4
+        with:
+          name: MochaBrowser-windows-x64
+          path: dist/MochaBrowser
+          if-no-files-found: error
+
+      # Publish a permanent, always-current download under the "latest" tag.
+      - name: Publish rolling "latest" release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest build
+          prerelease: true
+          body: >-
+            Automatically built from the latest commit on `main`
+            (${{ github.sha }}). Download `MochaBrowser-windows-x64.zip`, unzip,
+            and run `Mocha.exe`.
+          files: |
+            dist/MochaBrowser-windows-x64.zip
+            dist/MochaBrowser/Mocha.exe
