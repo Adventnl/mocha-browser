@@ -207,15 +207,8 @@ impl Surface {
         let y1 = (y + h).ceil() as i32;
         for py in y0..y1 {
             for px in x0..x1 {
-                let coverage = rounded_rect_coverage(
-                    px as f32 + 0.5,
-                    py as f32 + 0.5,
-                    x,
-                    y,
-                    w,
-                    h,
-                    radii,
-                );
+                let coverage =
+                    rounded_rect_coverage(px as f32 + 0.5, py as f32 + 0.5, x, y, w, h, radii);
                 if coverage > 0.0 {
                     self.blend_pixel(px, py, color, (coverage * 255.0) as u8);
                 }
@@ -243,6 +236,7 @@ impl Surface {
 
     /// Stroke an anti-aliased rounded-rectangle outline of `thickness` pixels
     /// (drawn inward from the rectangle edge).
+    #[allow(clippy::too_many_arguments)]
     pub fn draw_rounded_rect_outline(
         &mut self,
         x: f32,
@@ -292,7 +286,15 @@ impl Surface {
     }
 
     /// Stroke an anti-aliased pill outline of `thickness` pixels.
-    pub fn draw_pill_outline(&mut self, x: f32, y: f32, w: f32, h: f32, thickness: f32, color: Color) {
+    pub fn draw_pill_outline(
+        &mut self,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        thickness: f32,
+        color: Color,
+    ) {
         self.draw_rounded_rect_outline(x, y, w, h, h / 2.0, thickness, color);
     }
 
@@ -309,14 +311,8 @@ impl Surface {
         let max_y = (y0.max(y1) + half).ceil() as i32;
         for py in min_y..=max_y {
             for px in min_x..=max_x {
-                let distance = point_segment_distance(
-                    px as f32 + 0.5,
-                    py as f32 + 0.5,
-                    x0,
-                    y0,
-                    x1,
-                    y1,
-                );
+                let distance =
+                    point_segment_distance(px as f32 + 0.5, py as f32 + 0.5, x0, y0, x1, y1);
                 let coverage = (half + 0.5 - distance).clamp(0.0, 1.0);
                 if coverage > 0.0 {
                     self.blend_pixel(px, py, color, (coverage * 255.0) as u8);
@@ -815,8 +811,16 @@ mod tests {
     fn rounded_rect_top_keeps_square_bottom_corners() {
         let mut surface = Surface::new(40, 40);
         surface.draw_rounded_rect_top(0.0, 0.0, 32.0, 32.0, 10.0, red());
-        assert_eq!(surface.pixel(0, 0), Some(pack(BACKGROUND)), "top corner rounded");
-        assert_eq!(surface.pixel(0, 31), Some(pack(red())), "bottom corner square");
+        assert_eq!(
+            surface.pixel(0, 0),
+            Some(pack(BACKGROUND)),
+            "top corner rounded"
+        );
+        assert_eq!(
+            surface.pixel(0, 31),
+            Some(pack(red())),
+            "bottom corner square"
+        );
     }
 
     #[test]
@@ -845,7 +849,11 @@ mod tests {
         let mut surface = Surface::new(30, 30);
         surface.draw_line(4.0, 15.0, 26.0, 15.0, 3.0, red());
         assert_eq!(surface.pixel(15, 14), Some(pack(red())), "on the line");
-        assert_eq!(surface.pixel(15, 4), Some(pack(BACKGROUND)), "far from line");
+        assert_eq!(
+            surface.pixel(15, 4),
+            Some(pack(BACKGROUND)),
+            "far from line"
+        );
         // Diagonals draw too (anti-aliased, so just require non-background).
         let mut diagonal = Surface::new(30, 30);
         diagonal.draw_line(4.0, 4.0, 26.0, 26.0, 2.0, red());

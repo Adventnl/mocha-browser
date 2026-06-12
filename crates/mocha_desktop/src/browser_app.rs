@@ -30,6 +30,8 @@ pub enum BrowserAction {
     Forward,
     /// Active tab: reload.
     Reload,
+    /// Active tab: return to the new-tab (home) page.
+    Home,
     /// Open and activate a new blank tab.
     NewTab,
     /// Close a tab.
@@ -134,6 +136,11 @@ impl BrowserAppState {
             BrowserAction::Reload => {
                 self.tabs.reload_active()?;
             }
+            BrowserAction::Home => {
+                self.tabs.home_active()?;
+                self.focus = BrowserFocus::Page;
+                self.sync_address_bar();
+            }
             BrowserAction::NewTab => {
                 self.tabs.new_tab()?;
                 self.focus = BrowserFocus::Page;
@@ -187,6 +194,10 @@ impl BrowserAppState {
             }
             Some(ChromeElement::ReloadButton) => {
                 self.dispatch(BrowserAction::Reload)?;
+                Ok(true)
+            }
+            Some(ChromeElement::HomeButton) => {
+                self.dispatch(BrowserAction::Home)?;
                 Ok(true)
             }
             Some(ChromeElement::AddressBar) => {
@@ -244,10 +255,18 @@ impl BrowserAppState {
         Ok(())
     }
 
-    /// Handle address bar Enter (navigate the active tab).
+    /// Handle address bar Enter: resolve the draft (URL or web search) and
+    /// navigate the active tab. A failed load shows the native error view in the
+    /// tab (keeping the typed text editable) instead of silently doing nothing.
     pub fn address_bar_submit(&mut self) -> MochaResult<()> {
         if let Some(url) = self.address_bar.submit() {
-            self.dispatch(BrowserAction::Navigate(url.normalized()))?;
+            let target = url.normalized();
+            if let Err(error) = self.dispatch(BrowserAction::Navigate(target.clone())) {
+                self.tabs
+                    .show_error_on_active(&target, &error.to_string())?;
+                self.sync_address_bar();
+                self.address_bar.draft_text = target;
+            }
         }
         Ok(())
     }
@@ -323,10 +342,11 @@ mod tests {
         assert_eq!(app.tabs.active().title(), "New Tab");
         assert!(app.tabs.active().url().is_none());
         assert!(app.address_bar.current_url.is_none());
-        // The display list paints one DrawText per word.
-        let painted = mocha_paint::format_display_list(app.display_list());
-        assert!(painted.contains("\"Mocha\""));
-        assert!(painted.contains("\"Browser\""));
+        // The active tab shows the native new-tab (home) view, not an HTML doc.
+        assert_eq!(
+            app.tabs.active().internal_view(),
+            Some(&crate::tab::InternalView::NewTab)
+        );
     }
 
     #[test]
@@ -337,8 +357,13 @@ mod tests {
         assert!(app.tabs.active().url().is_none());
         // The attempted input stays editable in the address bar.
         assert_eq!(app.address_bar.draft_text, "definitely/missing.html");
-        let painted = mocha_paint::format_display_list(app.display_list());
-        assert!(painted.contains("definitely/missing.html"));
+        // The tab shows the native error view carrying the attempted input.
+        match app.tabs.active().internal_view() {
+            Some(crate::tab::InternalView::LoadError { input, .. }) => {
+                assert_eq!(input, "definitely/missing.html");
+            }
+            other => panic!("expected a load-error view, got {other:?}"),
+        }
     }
 
     #[test]
@@ -410,6 +435,18 @@ mod tests {
         assert!(app.can_go_forward());
         app.dispatch(BrowserAction::Forward).unwrap();
         assert!(!app.can_go_forward());
+    }
+
+    #[test]
+    fn home_action_returns_active_tab_to_the_new_tab_page() {
+        let mut app = app();
+        assert!(app.tabs.active().url().is_some());
+        app.dispatch(BrowserAction::Home).unwrap();
+        assert_eq!(app.focus, BrowserFocus::Page);
+        assert_eq!(app.tabs.active().title(), "New Tab");
+        assert!(app.tabs.active().url().is_none());
+        assert!(app.tabs.active().internal_view().is_some());
+        assert!(app.address_bar.current_url.is_none());
     }
 
     #[test]

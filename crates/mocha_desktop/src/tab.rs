@@ -601,7 +601,8 @@ impl TabManager {
     /// navigation); existing history is kept so Back still works.
     pub fn show_error_on_active(&mut self, input: &str, message: &str) -> MochaResult<()> {
         let (width, height) = (self.viewport_width, self.viewport_height);
-        self.active_mut().show_load_error(input, message, width, height)
+        self.active_mut()
+            .show_load_error(input, message, width, height)
     }
 
     /// Reset the active tab to the new-tab (home) view.
@@ -637,11 +638,14 @@ mod tests {
         assert!(m.active().url().is_none());
         assert!(!m.active().can_go_back());
         assert!(!m.active().can_go_forward());
-        // The display list paints one DrawText per word.
-        let painted = mocha_paint::format_display_list(m.active().page().display_list());
-        assert!(painted.contains("definitely/missing.html"));
-        assert!(painted.contains("\"Problem\""));
-        assert!(painted.contains("\"found\""));
+        // The tab shows the native error view with the attempted input + message.
+        match m.active().internal_view() {
+            Some(InternalView::LoadError { input, message }) => {
+                assert_eq!(input, "definitely/missing.html");
+                assert_eq!(message, "io error: not found");
+            }
+            other => panic!("expected a load-error view, got {other:?}"),
+        }
     }
 
     #[test]

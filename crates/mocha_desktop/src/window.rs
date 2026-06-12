@@ -3,39 +3,25 @@
 //!
 //! This is the deliberately thin, untestable layer: it owns the OS window and
 //! pumps events into [`BrowserAppState`], which holds all the real logic. Each
-//! frame it rasterizes the page and chrome (via `mocha_raster`) into a CPU buffer
-//! and hands it to `minifb`. There is no GPU, no compositor; chrome is rendered
-//! as simple rectangles.
+//! frame it asks the (headlessly testable) [`render_browser`] to rasterize the
+//! page and chrome into a CPU buffer and hands it to `minifb`. There is no GPU
+//! and no compositor; the chrome is drawn with system fonts, vector icons, and
+//! the [`BrowserTheme`] palette.
+
+use std::time::Instant;
 
 use minifb::{Key, KeyRepeat, MouseButton, MouseMode, Window, WindowOptions};
 
-use mocha_desktop::BrowserAppState;
+use mocha_desktop::render::ChromeInput;
+use mocha_desktop::{render_browser, BrowserAppState, BrowserTheme, Fonts};
 use mocha_error::{MochaError, MochaResult};
-use mocha_layout::Color;
 use mocha_raster::Surface;
 
 /// Pixels scrolled per mouse-wheel notch.
 const SCROLL_STEP: f32 = 40.0;
 
-/// Chrome colors.
-const CHROME_BG: Color = Color {
-    r: 220,
-    g: 220,
-    b: 220,
-    a: 255,
-};
-const CHROME_BUTTON: Color = Color {
-    r: 200,
-    g: 200,
-    b: 200,
-    a: 255,
-};
-const CHROME_BUTTON_DISABLED: Color = Color {
-    r: 230,
-    g: 230,
-    b: 230,
-    a: 255,
-};
+/// Address-bar caret blink half-period (milliseconds on, then off).
+const CARET_BLINK_MS: u128 = 530;
 
 /// Open a window showing the prepared browser state, pumping input until the
 /// window is closed (or Escape). The caller decides what the first tab shows:
@@ -55,9 +41,12 @@ pub fn run(mut app: BrowserAppState, width: u32, height: u32) -> MochaResult<()>
     .map_err(|error| MochaError::Shell(format!("could not open a window: {error}")))?;
     window.set_target_fps(60);
 
+    let theme = BrowserTheme::default();
+    let mut fonts = Fonts::load();
     let mut surface = Surface::new(width, height);
     let mut last_size = (width, height);
     let mut mouse_was_down = false;
+    let blink_start = Instant::now();
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
         // Resize → re-render at the new viewport and rebuild the surface.
@@ -78,10 +67,13 @@ pub fn run(mut app: BrowserAppState, width: u32, height: u32) -> MochaResult<()>
             }
         }
 
-        // Left click on the press edge → route into the browser (chrome or page).
+        // Pointer position drives chrome hover styling and click routing.
+        let mouse_pos = window.get_mouse_pos(MouseMode::Clamp);
         let mouse_down = window.get_mouse_down(MouseButton::Left);
+
+        // Left click on the press edge → route into the browser (chrome or page).
         if mouse_down && !mouse_was_down {
-            if let Some((mx, my)) = window.get_mouse_pos(MouseMode::Clamp) {
+            if let Some((mx, my)) = mouse_pos {
                 handle_click(&mut app, mx, my);
             }
         }
@@ -92,21 +84,28 @@ pub fn run(mut app: BrowserAppState, width: u32, height: u32) -> MochaResult<()>
         for key in window.get_keys_pressed(KeyRepeat::Yes) {
             match key {
                 Key::Escape => app.escape(),
+                Key::Enter => {
+                    if let Err(error) = app.address_bar_submit() {
+                        eprintln!("mocha: {error}");
+                    }
+                }
                 Key::Backspace => {
                     let _ = app.backspace();
                 }
                 _ if let Some(c) = key_to_char(key, shift) => {
                     let _ = app.input_char(c);
-                    // Special handling for Enter in address bar.
-                    if c == '\n' {
-                        let _ = app.address_bar_submit();
-                    }
                 }
                 _ => {}
             }
         }
 
-        render_browser(&mut surface, &app);
+        let input = ChromeInput {
+            hover: mouse_pos.and_then(|(mx, my)| app.chrome.hit_test(mx, my, &app.tabs.tab_ids())),
+            mouse_down,
+            caret_visible: (blink_start.elapsed().as_millis() / CARET_BLINK_MS).is_multiple_of(2),
+        };
+
+        render_browser(&mut surface, &app, &mut fonts, &theme, input);
         window
             .update_with_buffer(
                 surface.buffer(),
@@ -116,219 +115,6 @@ pub fn run(mut app: BrowserAppState, width: u32, height: u32) -> MochaResult<()>
             .map_err(|error| MochaError::Shell(format!("window update failed: {error}")))?;
     }
     Ok(())
-}
-
-/// Render the browser: page (in its viewport region below the chrome) + chrome.
-fn render_browser(surface: &mut Surface, app: &BrowserAppState) {
-    let chrome_top = app.chrome.total_chrome_height as i32;
-    mocha_raster::rasterize_at(
-        surface,
-        app.display_list(),
-        app.images(),
-        app.scroll_y(),
-        chrome_top,
-    );
-
-    render_chrome(surface, app);
-}
-
-/// Render chrome on top of the page.
-fn render_chrome(surface: &mut Surface, app: &BrowserAppState) {
-    let back_rect = app.chrome.back_button();
-    let forward_rect = app.chrome.forward_button();
-    let reload_rect = app.chrome.reload_button();
-    let addr_rect = app.chrome.address_bar();
-
-    let toolbar_color = CHROME_BG;
-    let back_color = if app.can_go_back() {
-        CHROME_BUTTON
-    } else {
-        CHROME_BUTTON_DISABLED
-    };
-    let forward_color = if app.can_go_forward() {
-        CHROME_BUTTON
-    } else {
-        CHROME_BUTTON_DISABLED
-    };
-
-    let chrome_height = app.chrome.total_chrome_height as i32;
-    surface.draw_rect(0, 0, surface.width() as i32, chrome_height, toolbar_color);
-
-    render_tab_strip(surface, app);
-
-    surface.draw_rect(
-        back_rect.x as i32,
-        back_rect.y as i32,
-        back_rect.width as i32,
-        back_rect.height as i32,
-        back_color,
-    );
-    surface.draw_rect_outline(
-        back_rect.x as i32,
-        back_rect.y as i32,
-        back_rect.width as i32,
-        back_rect.height as i32,
-        1,
-        Color {
-            r: 100,
-            g: 100,
-            b: 100,
-            a: 255,
-        },
-    );
-
-    surface.draw_rect(
-        forward_rect.x as i32,
-        forward_rect.y as i32,
-        forward_rect.width as i32,
-        forward_rect.height as i32,
-        forward_color,
-    );
-    surface.draw_rect_outline(
-        forward_rect.x as i32,
-        forward_rect.y as i32,
-        forward_rect.width as i32,
-        forward_rect.height as i32,
-        1,
-        Color {
-            r: 100,
-            g: 100,
-            b: 100,
-            a: 255,
-        },
-    );
-
-    surface.draw_rect(
-        reload_rect.x as i32,
-        reload_rect.y as i32,
-        reload_rect.width as i32,
-        reload_rect.height as i32,
-        CHROME_BUTTON,
-    );
-    surface.draw_rect_outline(
-        reload_rect.x as i32,
-        reload_rect.y as i32,
-        reload_rect.width as i32,
-        reload_rect.height as i32,
-        1,
-        Color {
-            r: 100,
-            g: 100,
-            b: 100,
-            a: 255,
-        },
-    );
-
-    surface.draw_rect(
-        addr_rect.x as i32,
-        addr_rect.y as i32,
-        addr_rect.width as i32,
-        addr_rect.height as i32,
-        Color {
-            r: 255,
-            g: 255,
-            b: 255,
-            a: 255,
-        },
-    );
-    surface.draw_rect_outline(
-        addr_rect.x as i32,
-        addr_rect.y as i32,
-        addr_rect.width as i32,
-        addr_rect.height as i32,
-        1,
-        Color {
-            r: 100,
-            g: 100,
-            b: 100,
-            a: 255,
-        },
-    );
-
-    let text_color = Color {
-        r: 0,
-        g: 0,
-        b: 0,
-        a: 255,
-    };
-    let addr_text = app.address_bar.draft_text.as_str();
-    surface.draw_text_at(
-        addr_text,
-        addr_rect.x as i32 + 2,
-        addr_rect.y as i32 + 2,
-        1,
-        text_color,
-    );
-}
-
-/// Render the tab strip: one cell per tab (active highlighted), a close mark per
-/// tab, and the new-tab (+) button.
-fn render_tab_strip(surface: &mut Surface, app: &BrowserAppState) {
-    let border = Color {
-        r: 100,
-        g: 100,
-        b: 100,
-        a: 255,
-    };
-    let text = Color {
-        r: 0,
-        g: 0,
-        b: 0,
-        a: 255,
-    };
-    let active = Color {
-        r: 255,
-        g: 255,
-        b: 255,
-        a: 255,
-    };
-
-    let count = app.tabs.len();
-    let active_id = app.tabs.active_id();
-    for (index, tab) in app.tabs.tabs().iter().enumerate() {
-        let rect = app.chrome.tab_rect(index, count);
-        let bg = if tab.id == active_id {
-            active
-        } else {
-            CHROME_BUTTON
-        };
-        surface.draw_rect(
-            rect.x as i32,
-            rect.y as i32,
-            rect.width as i32,
-            rect.height as i32,
-            bg,
-        );
-        surface.draw_rect_outline(
-            rect.x as i32,
-            rect.y as i32,
-            rect.width as i32,
-            rect.height as i32,
-            1,
-            border,
-        );
-        surface.draw_text_at(tab.title(), rect.x as i32 + 4, rect.y as i32 + 8, 1, text);
-        let close = app.chrome.tab_close_rect(index, count);
-        surface.draw_text_at("x", close.x as i32 + 4, close.y as i32 + 4, 1, border);
-    }
-
-    let plus = app.chrome.new_tab_button(count);
-    surface.draw_rect(
-        plus.x as i32,
-        plus.y as i32,
-        plus.width as i32,
-        plus.height as i32,
-        CHROME_BUTTON,
-    );
-    surface.draw_rect_outline(
-        plus.x as i32,
-        plus.y as i32,
-        plus.width as i32,
-        plus.height as i32,
-        1,
-        border,
-    );
-    surface.draw_text_at("+", plus.x as i32 + 10, plus.y as i32 + 8, 1, text);
 }
 
 /// Route a click; follow a resulting navigation by loading the new document.
@@ -345,7 +131,8 @@ fn drain_console(app: &BrowserAppState) {
 }
 
 /// Map a `minifb` key to a printable character (basic: lowercase letters unless
-/// Shift is held, digits, and space). Text input is intentionally crude.
+/// Shift is held, digits, space, and the common URL/search punctuation). Text
+/// input is intentionally crude.
 fn key_to_char(key: Key, shift: bool) -> Option<char> {
     let letter = |lower: char, upper: char| Some(if shift { upper } else { lower });
     match key {
@@ -375,18 +162,23 @@ fn key_to_char(key: Key, shift: bool) -> Option<char> {
         Key::X => letter('x', 'X'),
         Key::Y => letter('y', 'Y'),
         Key::Z => letter('z', 'Z'),
-        Key::Key0 => Some('0'),
-        Key::Key1 => Some('1'),
-        Key::Key2 => Some('2'),
-        Key::Key3 => Some('3'),
-        Key::Key4 => Some('4'),
-        Key::Key5 => Some('5'),
-        Key::Key6 => Some('6'),
-        Key::Key7 => Some('7'),
-        Key::Key8 => Some('8'),
-        Key::Key9 => Some('9'),
+        Key::Key0 => Some(if shift { ')' } else { '0' }),
+        Key::Key1 => Some(if shift { '!' } else { '1' }),
+        Key::Key2 => Some(if shift { '@' } else { '2' }),
+        Key::Key3 => Some(if shift { '#' } else { '3' }),
+        Key::Key4 => Some(if shift { '$' } else { '4' }),
+        Key::Key5 => Some(if shift { '%' } else { '5' }),
+        Key::Key6 => Some(if shift { '^' } else { '6' }),
+        Key::Key7 => Some(if shift { '&' } else { '7' }),
+        Key::Key8 => Some(if shift { '*' } else { '8' }),
+        Key::Key9 => Some(if shift { '(' } else { '9' }),
         Key::Space => Some(' '),
-        Key::Enter => Some('\n'),
+        Key::Minus => Some(if shift { '_' } else { '-' }),
+        Key::Equal => Some(if shift { '+' } else { '=' }),
+        Key::Slash => Some(if shift { '?' } else { '/' }),
+        Key::Period => Some(if shift { '>' } else { '.' }),
+        Key::Comma => Some(if shift { '<' } else { ',' }),
+        Key::Semicolon => Some(if shift { ':' } else { ';' }),
         _ => None,
     }
 }
