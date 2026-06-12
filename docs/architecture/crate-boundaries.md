@@ -121,11 +121,15 @@ mocha_raster
 - depends on: mocha_error, mocha_paint, mocha_image, mocha_layout (Color)
 
 mocha_desktop
-- desktop shell and browser app state (M11–M12)
-- BrowserAppState: state machine for page/chrome/address-bar/history/focus
-- DesktopPageState: document loading/rendering (calls mocha_engine)
-- ChromeLayout: toolbar/button/address-bar positioning and hit testing
-- AddressBarState: address bar editing
+- desktop shell, browser app state, and tabs (M11–M13)
+- BrowserAppState: state machine over a TabManager + chrome + address-bar + focus
+- TabManager / BrowserTab / TabId: tab list, active-tab invariant, per-tab
+  page/history/scroll/focus (M13)
+- SessionSnapshot / SessionTab: in-memory, metadata-only session capture/restore (M13)
+- InternalPage::NewTab: offline new-tab page
+- DesktopPageState: per-tab document loading/rendering (calls mocha_engine)
+- ChromeLayout: tab-strip/toolbar/button/address-bar positioning and hit testing
+- AddressBarState: address bar editing (app-level draft)
 - window.rs: native window event loop (thin, untestable layer using minifb)
 - fully testable without a window; window.rs is intentionally untestable
 - optional `gui` feature: enables minifb for visible windowing
@@ -191,8 +195,9 @@ mocha_shell
 - `mocha_raster` (M11+) owns pixel rasterization and is decoupled from windowing.
   The Surface is a simple CPU framebuffer; no GPU, no compositor. `mocha_desktop`
   calls `mocha_raster` and passes the pixel buffer to `minifb` for display.
-- `mocha_desktop` (M11–M12) owns browser state (page/chrome/address-bar/history),
-  which is entirely testable (`BrowserAppState` tests pass without a window).
+- `mocha_desktop` (M11–M13) owns browser state (tabs/page/chrome/address-bar/
+  history/session), which is entirely testable (`BrowserAppState`, `TabManager`,
+  and session snapshot/restore tests all pass without a window).
   The window event loop (`window.rs`) is a thin untestable layer that pumps
   events and drives the rasterizer. The optional `gui` feature gates the
   `minifb` dependency.

@@ -117,9 +117,16 @@ pub fn run(target: &str, width: u32, height: u32) -> MochaResult<()> {
     Ok(())
 }
 
-/// Render the browser: page + chrome.
+/// Render the browser: page (in its viewport region below the chrome) + chrome.
 fn render_browser(surface: &mut Surface, app: &BrowserAppState) {
-    mocha_raster::rasterize(surface, app.display_list(), app.images(), app.scroll_y());
+    let chrome_top = app.chrome.total_chrome_height as i32;
+    mocha_raster::rasterize_at(
+        surface,
+        app.display_list(),
+        app.images(),
+        app.scroll_y(),
+        chrome_top,
+    );
 
     render_chrome(surface, app);
 }
@@ -143,8 +150,10 @@ fn render_chrome(surface: &mut Surface, app: &BrowserAppState) {
         CHROME_BUTTON_DISABLED
     };
 
-    let toolbar_height = (app.chrome.toolbar_height + app.chrome.address_bar_height) as i32;
-    surface.draw_rect(0, 0, surface.width() as i32, toolbar_height, toolbar_color);
+    let chrome_height = app.chrome.total_chrome_height as i32;
+    surface.draw_rect(0, 0, surface.width() as i32, chrome_height, toolbar_color);
+
+    render_tab_strip(surface, app);
 
     surface.draw_rect(
         back_rect.x as i32,
@@ -251,6 +260,76 @@ fn render_chrome(surface: &mut Surface, app: &BrowserAppState) {
     );
 }
 
+/// Render the tab strip: one cell per tab (active highlighted), a close mark per
+/// tab, and the new-tab (+) button.
+fn render_tab_strip(surface: &mut Surface, app: &BrowserAppState) {
+    let border = Color {
+        r: 100,
+        g: 100,
+        b: 100,
+        a: 255,
+    };
+    let text = Color {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 255,
+    };
+    let active = Color {
+        r: 255,
+        g: 255,
+        b: 255,
+        a: 255,
+    };
+
+    let count = app.tabs.len();
+    let active_id = app.tabs.active_id();
+    for (index, tab) in app.tabs.tabs().iter().enumerate() {
+        let rect = app.chrome.tab_rect(index, count);
+        let bg = if tab.id == active_id {
+            active
+        } else {
+            CHROME_BUTTON
+        };
+        surface.draw_rect(
+            rect.x as i32,
+            rect.y as i32,
+            rect.width as i32,
+            rect.height as i32,
+            bg,
+        );
+        surface.draw_rect_outline(
+            rect.x as i32,
+            rect.y as i32,
+            rect.width as i32,
+            rect.height as i32,
+            1,
+            border,
+        );
+        surface.draw_text_at(tab.title(), rect.x as i32 + 4, rect.y as i32 + 8, 1, text);
+        let close = app.chrome.tab_close_rect(index, count);
+        surface.draw_text_at("x", close.x as i32 + 4, close.y as i32 + 4, 1, border);
+    }
+
+    let plus = app.chrome.new_tab_button(count);
+    surface.draw_rect(
+        plus.x as i32,
+        plus.y as i32,
+        plus.width as i32,
+        plus.height as i32,
+        CHROME_BUTTON,
+    );
+    surface.draw_rect_outline(
+        plus.x as i32,
+        plus.y as i32,
+        plus.width as i32,
+        plus.height as i32,
+        1,
+        border,
+    );
+    surface.draw_text_at("+", plus.x as i32 + 10, plus.y as i32 + 8, 1, text);
+}
+
 /// Route a click; follow a resulting navigation by loading the new document.
 fn handle_click(app: &mut BrowserAppState, x: f32, y: f32) {
     if let Err(error) = app.click(x, y) {
@@ -259,7 +338,7 @@ fn handle_click(app: &mut BrowserAppState, x: f32, y: f32) {
 }
 
 fn drain_console(app: &BrowserAppState) {
-    for line in app.page.console_output() {
+    for line in app.active_page().console_output() {
         eprintln!("{line}");
     }
 }

@@ -1,9 +1,9 @@
 # Limitations
 
-Mocha Browser is at **Milestone 12** (desktop shell with browser chrome). It is an
-experimental engine with a minimal desktop frontend, not a usable browser. This
-document is deliberately explicit about what does not exist so the project never
-overclaims.
+Mocha Browser is at **Milestone 13** (multi-tab desktop shell with an in-memory
+session model). It is an experimental engine with a minimal desktop frontend, not
+a usable browser. This document is deliberately explicit about what does not exist
+so the project never overclaims.
 
 ## Not supported
 
@@ -40,6 +40,12 @@ overclaims.
 - **Canvas / accessibility** — not parsed or rendered.
 - **Security sandbox** — no process sandbox, origin model, or permissions.
 - **Multi-process architecture** — single process only.
+- **Persistent profile / sessions** — the desktop shell has tabs (M13) and an
+  **in-memory** session snapshot/restore, but **nothing is written to disk**: no
+  profile directory, no persistent session restore, no bookmarks/history/downloads
+  database, no settings store, no cookies (those begin at Milestones 14–15). There
+  is no tab drag/reorder, pinned tabs, tab groups, private browsing, or crash
+  recovery. See [tabs-and-session.md](tabs-and-session.md).
 - **Modern web compatibility** — Mocha cannot browse real websites.
 
 ## CSS support (Milestone 2)

@@ -134,10 +134,13 @@ calls `BrowserAppState` methods and pumps the result to the display.
 - No error page or error message display
 - No loading indicator or spinner
 
-### No Tabs or Profiles
+### Tabs but No Profiles
 
-- Single page only (M13 will add tabs)
-- No profile/storage/session management
+- **Tabs (M13):** multiple tabs with per-tab page/history/scroll/focus, a tab
+  strip, and an in-memory session snapshot/restore. See
+  [tabs-and-session.md](tabs-and-session.md).
+- No **persistent** profile/storage/session management yet (M14); no tab
+  drag/reorder, pinned tabs, tab groups, or crash recovery.
 
 ### No Window Features
 
@@ -204,12 +207,19 @@ Chrome is drawn on the same surface after page rasterization.
 `mocha_shell` also uses `mocha_engine::Engine` and prints the display list as
 text. It does not use `mocha_desktop` or `mocha_raster`.
 
-## Next Steps (M13)
+## Tabs (M13, implemented)
 
-M13 will replace single-page state with a tab manager:
+`BrowserAppState` now owns a `TabManager` (a `Vec<BrowserTab>` + active-tab
+invariant) instead of a single page:
 
-- `BrowserAppState` becomes `BrowserWindowState`
-- A vec of `BrowserTabState` (one per tab)
-- Tab strip rendering and interaction
-- New tab / close tab / switch tab
-- Session snapshot/restore for crash recovery
+- Each `BrowserTab` keeps its own page, navigation history, scroll, and focus.
+- Tab strip rendering + hit testing (`ChromeElement::Tab`/`TabClose`/`NewTabButton`).
+- New tab / close tab (right-then-left neighbour policy) / switch tab.
+- An in-memory `SessionSnapshot`/`restore` (metadata only — **not** persisted).
+
+See [tabs-and-session.md](tabs-and-session.md).
+
+## Next Steps (M14)
+
+Persistent profile storage: a profile directory, schema migrations, and
+history/bookmarks/settings/downloads/session persistence on disk.

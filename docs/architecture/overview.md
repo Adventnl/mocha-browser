@@ -25,12 +25,17 @@ the modern web. It must never claim otherwise.
 
 ## Current milestone
 
-**Milestone 12: Browser chrome and desktop shell.** Milestones 1–10 built a
+**Milestone 13: Tabs and in-memory session model.** Milestones 1–10 built a
 complete document loading and rendering pipeline (HTML, CSS, layout, JavaScript
 bindings, forms). **Milestone 11** introduced the desktop shell and a software
 rasterizer that draws display lists to a pixel buffer and displays them in a
-window via `mocha_desktop`. **Milestone 12** adds minimal browser chrome: an
-address bar, back/forward/reload buttons, and window event routing.
+window via `mocha_desktop`. **Milestone 12** added minimal browser chrome: an
+address bar, back/forward/reload buttons, and window event routing. **Milestone
+13** makes the shell multi-tab: a `TabManager` owns the tabs and the active-tab
+invariant, each tab keeps its own page/history/scroll/focus, a tab strip sits
+above the toolbar, a simple internal new-tab page renders offline, and an
+in-memory `SessionSnapshot` captures tab metadata for restore (not persisted —
+that is M14). See [tabs-and-session.md](tabs-and-session.md).
 
 The pipeline still loads documents, executes JavaScript, resolves subresources,
 and generates display lists exactly as before (Milestones 1–10). The display list
@@ -51,10 +56,11 @@ Over the roadmap (see [milestones.md](milestones.md)), Mocha has grown and is
 intended to continue growing toward the shape of a modern browser: a CSS engine,
 a real layout/box model, a networking and navigation layer, a DOM event system,
 a custom JavaScript interpreter with DOM bindings, a desktop shell with
-rasterization and browser chrome (Milestones 11–12, implemented), then a
-multi-process (browser/renderer) architecture with typed IPC, tabs and session
-persistence, storage and profiles, a security/origin model, and finally broader
-standards compliance. **Milestone 13 (tabs and session model) is next.**
+rasterization, browser chrome, and tabs (Milestones 11–13, implemented), then
+persistent storage and profiles, cookies and origin-aware web storage, a
+multi-process (browser/renderer) architecture with typed IPC, a security/origin
+model, and finally broader standards compliance. **Milestone 14 (profile
+storage) is next.**
 
 ## Why the project starts terminal-first
 

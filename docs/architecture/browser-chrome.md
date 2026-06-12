@@ -8,16 +8,20 @@ Milestone 12 adds minimal browser UI to the desktop shell: a toolbar with naviga
 
 All logic lives in [`BrowserAppState`](../../crates/mocha_desktop/src/browser_app.rs), a plain state machine:
 
+As of M13, `BrowserAppState` owns a `TabManager` rather than a single page; the
+per-tab page, history, and scroll moved into `BrowserTab`:
+
 ```rust
 pub struct BrowserAppState {
-    pub page: DesktopPageState,          // The loaded page (M11)
+    pub tabs: TabManager,                // Open tabs + active-tab invariant (M13)
     pub chrome: ChromeLayout,            // Chrome layout computation
-    pub address_bar: AddressBarState,    // Address bar editing state
-    pub history: Vec<Url>,               // Simple back/forward history
-    pub history_index: Option<usize>,    // Current position in history
+    pub address_bar: AddressBarState,    // Address bar editing state (app-level draft)
     pub focus: BrowserFocus,             // Address bar or page focus
 }
 ```
+
+(In M12 this struct held a single `page`/`history`/`history_index` directly; see
+[tabs-and-session.md](tabs-and-session.md) for the M13 tab model.)
 
 The window driver (`window.rs`) is a thin untestable layer that calls `BrowserAppState` methods and hands the result to the rasterizer.
 
@@ -133,14 +137,16 @@ Tests verify:
 - `crates/mocha_desktop/src/lib.rs`: DesktopPageState (M11) + new exports
 - `crates/mocha_desktop/src/window.rs`: Window loop (unchanged from M11)
 
-## Next Steps (M13)
+## M13 (implemented)
 
-M13 builds on M12 by replacing single-page state with a tab manager:
+M13 replaced the single-page state with a tab manager:
 
-- Multiple tabs, each with own page/scroll/history
-- Tab strip UI
+- Multiple tabs, each with its own page/scroll/history/focus
+- Tab strip UI (above the toolbar) + new-tab and per-tab close buttons
 - New tab / close tab / switch tab
-- Session snapshot and restore
+- In-memory session snapshot and restore (not persisted)
+
+See [tabs-and-session.md](tabs-and-session.md). Next is M14 (profile storage).
 
 ## Current Honest Status
 
@@ -161,5 +167,5 @@ M13 builds on M12 by replacing single-page state with a tab manager:
 - No loading indicator / spinner
 - No favicon display
 - Address bar text field has no caret/selection/copy-paste/IME
-- No tabs or session persistence (M13)
+- Tabs exist (M13) but sessions are **in-memory only** — no persistence (M14)
 - Terminal mode has no chrome (intentional; address bar can't exist without a window)

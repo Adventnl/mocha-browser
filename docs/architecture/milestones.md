@@ -174,13 +174,28 @@ goal, what is explicitly not included, and how completion is verified.
   shows simple chrome (colored buttons, address bar text field), address bar accepts
   input, back/forward/reload buttons work.
 
-## Beyond Milestone 12 (direction, not code)
+## Milestone 13: Tabs and in-memory session model — complete
 
+- **Goal:** turn the single-page desktop shell into a multi-tab browser with a
+  tab strip, per-tab page/navigation/scroll/focus, a simple internal new-tab
+  page, and an in-memory session snapshot/restore. All in `mocha_desktop`.
+- **Not included:** persistent session files, profile directory, SQLite,
+  cookies, localStorage, bookmarks/history/downloads databases, settings UI, tab
+  drag/reorder, pinned tabs, tab groups, private browsing, crash recovery,
+  multiprocess isolation. Sessions are **in-memory only** (persistence is M14).
+- **Verification:** `cargo test -p mocha_desktop` (tab manager: start/new/switch/
+  close policy, stable+unique ids, order, always-valid active; session snapshot/
+  restore; chrome tab-strip layout + hit testing; address bar follows active tab;
+  navigation/back/forward affect the active tab only); all terminal examples and
+  `--dump-display-list` still work. See [tabs-and-session.md](tabs-and-session.md).
+
+## Beyond Milestone 13 (direction, not code)
+
+- **Profile and storage system (next, M14):** a profile directory, schema
+  migrations, and history/bookmarks/settings/downloads/session persistence.
+- **Web state (M15):** cookies and origin-aware `localStorage`/`sessionStorage`.
 - **Multi-process architecture:** a browser process and renderer process(es) with
   typed IPC and crash recovery.
-- **Storage and profile system:** history, bookmarks, settings, session restore.
 - **Security foundation:** an origin model, same-origin checks, mixed content.
-- **Desktop product shell:** tabs, address bar, and navigation chrome on top of
-  the Milestone 11 window.
 - **Web compatibility hardening:** standards test suites, fuzzing, visual
   regression — without promising full web compatibility.

@@ -146,6 +146,12 @@ impl DesktopPageState {
         self.scroll_y = (self.scroll_y + delta_y).clamp(0.0, self.max_scroll());
     }
 
+    /// Set the absolute scroll offset (clamped to the document). Used when
+    /// restoring a tab's scroll position from a session snapshot.
+    pub fn set_scroll(&mut self, scroll_y: f32) {
+        self.scroll_y = scroll_y.clamp(0.0, self.max_scroll());
+    }
+
     fn clamp_scroll(&mut self) {
         self.scroll_y = self.scroll_y.clamp(0.0, self.max_scroll());
     }
@@ -512,7 +518,13 @@ mod tests {
 pub mod address_bar;
 pub mod browser_app;
 pub mod chrome;
+pub mod new_tab;
+pub mod session;
+pub mod tab;
 
 pub use address_bar::AddressBarState;
-pub use browser_app::{BrowserAppState, BrowserFocus};
+pub use browser_app::{BrowserAction, BrowserAppState, BrowserFocus};
 pub use chrome::{ChromeElement, ChromeLayout, Rect};
+pub use new_tab::InternalPage;
+pub use session::{SessionSnapshot, SessionTab};
+pub use tab::{BrowserTab, TabId, TabManager};

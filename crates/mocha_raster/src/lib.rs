@@ -198,8 +198,23 @@ pub fn rasterize(
     images: &[RasterImage],
     scroll_y: f32,
 ) {
+    rasterize_at(surface, display_list, images, scroll_y, 0);
+}
+
+/// Like [`rasterize`], but the document is drawn starting `top_offset` device
+/// pixels down the surface so it sits in its viewport region below the browser
+/// chrome. The surface is cleared first; the caller is expected to paint opaque
+/// chrome over the `[0, top_offset)` band afterwards (content scrolled above the
+/// viewport top is drawn there and then covered).
+pub fn rasterize_at(
+    surface: &mut Surface,
+    display_list: &[DisplayCommand],
+    images: &[RasterImage],
+    scroll_y: f32,
+    top_offset: i32,
+) {
     surface.clear(BACKGROUND);
-    let offset = scroll_y.round() as i32;
+    let offset = scroll_y.round() as i32 - top_offset;
     // Text/control labels are scaled so a 16px font reads roughly right with the
     // 7-dot-tall debug glyphs.
     for command in display_list {

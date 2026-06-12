@@ -1,6 +1,7 @@
 # Rendering Pipeline
 
-As of Milestone 12 the pipeline is:
+As of Milestone 13 the pipeline is unchanged per document; the desktop shell now
+runs one pipeline per **tab** (the active tab drives the viewport). The flow is:
 
 **Terminal path (mocha_shell):**
 ```text

@@ -4,7 +4,8 @@ Mocha Browser is an experimental from-scratch browser engine and desktop browser
 
 Mocha is not based on Chromium, WebKit, Gecko, Servo, Electron, CEF, Tauri WebView, system WebView, V8, SpiderMonkey, JavaScriptCore, QuickJS, Deno, or Node.js.
 
-Current status: Milestone 12 (Browser chrome) implemented.
+Current status: Milestone 13 (Tabs and in-memory session) implemented.
+Next milestone: Milestone 14 — profile storage.
 
 Mocha is not safe for general web browsing yet.
 
@@ -18,12 +19,20 @@ with a clear error rather than being faked.
 
 ## Current milestone
 
-**Milestone 12: Browser chrome and desktop shell.** The engine now renders to a
-desktop window with a software rasterizer. Browser chrome (address bar, back/forward/reload
-buttons) is drawn natively. The page content is rendered via a shared
-`mocha_engine` pipeline that flows through the style/layout/paint system into a
-display list, then to `mocha_raster` for pixel rasterization and `mocha_desktop`
-for windowing. The command-line shell still exists for terminal output mode.
+**Milestone 13: Tabs and in-memory session model.** The desktop shell is now a
+**multi-tab** browser. A `TabManager` owns the open tabs and the active-tab
+invariant; each `BrowserTab` keeps its own page, navigation history, scroll, and
+focus. A tab strip (with a new-tab button and per-tab close buttons) sits above
+the toolbar; the address bar follows the active tab. A simple internal new-tab
+page renders without touching the network. An in-memory `SessionSnapshot`
+captures tab metadata (URL/title/scroll/history) and can be restored — but it is
+**not persisted to disk** (that is Milestone 14). See
+[docs/architecture/tabs-and-session.md](docs/architecture/tabs-and-session.md).
+
+The page content still renders via the shared `mocha_engine` pipeline through
+style/layout/paint into a display list, then `mocha_raster` for pixel
+rasterization and `mocha_desktop` for windowing. The command-line shell still
+exists for terminal output mode.
 
 ## What works
 
@@ -78,8 +87,9 @@ for windowing. The command-line shell still exists for terminal output mode.
 - **Images** (`mocha_image` + the `image` crate): `<img>` is parsed as a void
   element, loaded, and decoded (PNG/JPEG) for its intrinsic size. Images lay out
   as replaced elements (inline by default, or block) using CSS, then attribute,
-  then intrinsic dimensions, and paint as `DrawImage` commands. **Pixels are not
-  rasterized to a window.**
+  then intrinsic dimensions, and paint as `DrawImage` commands. As of Milestone
+  11 the desktop shell's `mocha_raster` resolves `DrawImage` onto the window
+  surface.
 - **Forms and basic controls** (`mocha_forms`): `<form>`, `<input>` (text,
   password, checkbox, radio, submit, reset, hidden), `<button>`, `<label>`,
   `<textarea>`, `<select>`/`<option>`. Dynamic value/checked/selected/disabled
@@ -114,8 +124,11 @@ and [networking-and-navigation.md](docs/architecture/networking-and-navigation.m
   are unsupported.
 - Mature window input: no keyboard text editing (address bar only), focus/caret/text
   selection, IME, or pointer/touch/wheel gesture handling. Hit testing does not
-  account for z-index/transforms/scrolling/clipping. No tabs or persistent session
-  yet.
+  account for z-index/transforms/scrolling/clipping.
+- **Tabs exist (M13) but sessions are in-memory only** — no profile directory or
+  persistent session restore (M14), no bookmarks/history/downloads database, no
+  cookies, no tab drag/reorder, pinned tabs, tab groups, private browsing,
+  crash recovery, or multiprocess isolation.
 - The real HTML5 parsing algorithm and real CSS error recovery.
 - `!important`, media queries, pseudo-classes/elements, attribute selectors, the
   `>`/`+`/`~` combinators, `em`/`rem`/`%` units, `rgb()`/`calc()`/`var()`.
@@ -272,7 +285,8 @@ The full roadmap lives in [docs/architecture/milestones.md](docs/architecture/mi
 10. Forms and basic input controls (done)
 11. Desktop window shell — a real raster surface for the display list (done)
 12. Browser chrome and desktop shell (done)
-13. Tabs and session model (next)
+13. Tabs and in-memory session model (done)
+14. Profile storage (next)
 
 Longer-term direction (not code yet): multi-process architecture, persistent
 storage and profiles, a security/origin foundation, and web-compatibility hardening.
