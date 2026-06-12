@@ -29,6 +29,11 @@ pub struct ChromeInput {
     pub mouse_down: bool,
     /// Whether the address-bar caret is in the visible phase of its blink.
     pub caret_visible: bool,
+    /// Determinate loading-bar fill `0..=1` (None = no bar shown).
+    pub progress: Option<f32>,
+    /// Tab open/close strip animation `0..=1` (1 = settled). Drives a subtle
+    /// fade of the active tab on open.
+    pub tab_anim: f32,
 }
 
 /// Render the full browser (page or native view, then chrome) into `surface`.
@@ -42,7 +47,14 @@ pub fn render_browser(
     let viewport = app.chrome.page_viewport();
     if let Some(view) = app.tabs.active().internal_view() {
         surface.clear(theme.page_background);
-        crate::views::render_view(view, surface, fonts, theme, viewport);
+        crate::views::render_view(
+            view,
+            surface,
+            fonts,
+            theme,
+            viewport,
+            app.tabs.active().view_scroll(),
+        );
     } else {
         let chrome_top = app.chrome.total_chrome_height as i32;
         rasterize_at(
@@ -84,10 +96,21 @@ fn render_chrome(
         toolbar.height.ceil() as i32,
         theme.toolbar_background,
     );
+    // Bookmarks bar band (when shown), with a hairline at its bottom.
+    if chrome.show_bookmarks_bar {
+        let bar = chrome.bookmarks_bar();
+        surface.draw_rect(
+            bar.x as i32,
+            bar.y as i32,
+            bar.width.ceil() as i32,
+            bar.height.ceil() as i32,
+            theme.toolbar_background,
+        );
+    }
     // Hairline between chrome and page.
     surface.draw_rect(
         0,
-        (toolbar.y + toolbar.height) as i32,
+        (chrome.total_chrome_height - metrics.page_padding_top.max(1.0)) as i32,
         chrome.window_width.ceil() as i32,
         metrics.page_padding_top.max(1.0) as i32,
         theme.chrome_border,
@@ -95,6 +118,195 @@ fn render_chrome(
 
     render_tab_strip(surface, app, fonts, theme, input);
     render_toolbar(surface, app, fonts, theme, input);
+    if chrome.show_bookmarks_bar {
+        render_bookmarks_bar(surface, app, fonts, theme, input);
+    }
+    render_progress(surface, app, theme, input);
+    render_suggestions(surface, app, fonts, theme, input);
+    render_menu(surface, app, fonts, theme, input);
+}
+
+/// Loading progress bar drawn along the bottom hairline of the toolbar/bookmarks
+/// band.
+fn render_progress(
+    surface: &mut Surface,
+    app: &BrowserAppState,
+    theme: &BrowserTheme,
+    input: ChromeInput,
+) {
+    let Some(p) = input.progress else { return };
+    let chrome = &app.chrome;
+    let y = (chrome.total_chrome_height - 2.0) as i32;
+    let w = (chrome.window_width * p.clamp(0.0, 1.0)) as i32;
+    surface.draw_rect(0, y, w, 3, theme.address_bar_focused_border);
+}
+
+fn render_bookmarks_bar(
+    surface: &mut Surface,
+    app: &BrowserAppState,
+    fonts: &mut Fonts,
+    theme: &BrowserTheme,
+    input: ChromeInput,
+) {
+    let chrome = &app.chrome;
+    if app.bookmark_bar.is_empty() {
+        let bar = chrome.bookmarks_bar();
+        fonts.draw(
+            surface,
+            "Bookmark pages with the ☆ to see them here",
+            bar.x + 10.0,
+            bar.y + 7.0,
+            12.5,
+            theme.address_bar_placeholder,
+        );
+        return;
+    }
+    for (i, (label, _url)) in app.bookmark_bar.iter().enumerate() {
+        let rect = chrome.bookmark_item_rect(i);
+        if rect.x + rect.width > chrome.window_width {
+            break;
+        }
+        if input.hover == Some(ChromeElement::BookmarksBarItem(i)) {
+            surface.draw_rounded_rect(
+                rect.x,
+                rect.y,
+                rect.width,
+                rect.height,
+                5.0,
+                theme.button_hover_background,
+            );
+        }
+        icons::draw_star_filled(
+            surface,
+            Rect::new(rect.x + 4.0, rect.y + rect.height / 2.0 - 7.0, 14.0, 14.0),
+            theme.error_accent,
+        );
+        let text = fonts.ellipsize(label, 12.5, rect.width - 28.0);
+        fonts.draw(
+            surface,
+            &text,
+            rect.x + 22.0,
+            rect.y + 5.0,
+            12.5,
+            theme.tab_text,
+        );
+    }
+}
+
+fn render_suggestions(
+    surface: &mut Surface,
+    app: &BrowserAppState,
+    fonts: &mut Fonts,
+    theme: &BrowserTheme,
+    input: ChromeInput,
+) {
+    let Some(panel) = app.chrome.suggestions_panel() else {
+        return;
+    };
+    surface.draw_rounded_rect(
+        panel.x,
+        panel.y,
+        panel.width,
+        panel.height + 6.0,
+        8.0,
+        theme.card_background,
+    );
+    surface.draw_rounded_rect_outline(
+        panel.x,
+        panel.y,
+        panel.width,
+        panel.height + 6.0,
+        8.0,
+        1.0,
+        theme.card_border,
+    );
+    for (i, s) in app.suggestions.iter().enumerate() {
+        let row = app.chrome.suggestion_row(i);
+        if input.hover == Some(ChromeElement::SuggestionRow(i)) {
+            surface.draw_rounded_rect(
+                row.x + 3.0,
+                row.y + 1.0,
+                row.width - 6.0,
+                row.height - 2.0,
+                6.0,
+                theme.button_hover_background,
+            );
+        }
+        let icon = Rect::new(row.x + 8.0, row.y + row.height / 2.0 - 7.0, 14.0, 14.0);
+        if s.bookmarked {
+            icons::draw_star_filled(surface, icon, theme.error_accent);
+        } else {
+            icons::draw_reload_icon(surface, icon, theme.text_secondary);
+        }
+        let title = fonts.ellipsize(&s.title, 13.5, row.width * 0.42);
+        let title_w = fonts.draw(
+            surface,
+            &title,
+            row.x + 30.0,
+            row.y + 9.0,
+            13.5,
+            theme.tab_text,
+        );
+        let url = fonts.ellipsize(&s.url, 12.0, row.width - 40.0 - title_w - 12.0);
+        fonts.draw(
+            surface,
+            &url,
+            row.x + 30.0 + title_w + 12.0,
+            row.y + 10.0,
+            12.0,
+            theme.text_secondary,
+        );
+    }
+}
+
+fn render_menu(
+    surface: &mut Surface,
+    app: &BrowserAppState,
+    fonts: &mut Fonts,
+    theme: &BrowserTheme,
+    input: ChromeInput,
+) {
+    let Some(panel) = app.chrome.menu_panel() else {
+        return;
+    };
+    surface.draw_rounded_rect(
+        panel.x,
+        panel.y,
+        panel.width,
+        panel.height + 6.0,
+        8.0,
+        theme.card_background,
+    );
+    surface.draw_rounded_rect_outline(
+        panel.x,
+        panel.y,
+        panel.width,
+        panel.height + 6.0,
+        8.0,
+        1.0,
+        theme.card_border,
+    );
+    for (i, (label, _)) in crate::browser_app::MENU_ITEMS.iter().enumerate() {
+        let row = app.chrome.menu_item_rect(i);
+        if input.hover == Some(ChromeElement::MenuItem(i)) {
+            surface.draw_rounded_rect(
+                row.x + 3.0,
+                row.y + 1.0,
+                row.width - 6.0,
+                row.height - 2.0,
+                6.0,
+                theme.button_hover_background,
+            );
+        }
+        fonts.draw(
+            surface,
+            label,
+            row.x + 14.0,
+            row.y + 8.0,
+            13.5,
+            theme.tab_text,
+        );
+    }
 }
 
 fn render_tab_strip(
@@ -229,6 +441,37 @@ fn render_toolbar(
         draw_icon(surface, rect, color);
     }
 
+    // Right-side buttons: bookmark star (fills when bookmarked) and overflow.
+    let star = chrome.bookmark_button();
+    let star_hover = input.hover == Some(ChromeElement::BookmarkButton);
+    if star_hover {
+        surface.draw_rounded_rect(
+            star.x,
+            star.y,
+            star.width,
+            star.height,
+            star.width / 2.0,
+            theme.button_hover_background,
+        );
+    }
+    if app.is_current_bookmarked() {
+        icons::draw_star_filled(surface, star, theme.error_accent);
+    } else {
+        icons::draw_star_icon(surface, star, theme.icon);
+    }
+    let menu = chrome.menu_button();
+    if input.hover == Some(ChromeElement::MenuButton) || chrome.menu_open {
+        surface.draw_rounded_rect(
+            menu.x,
+            menu.y,
+            menu.width,
+            menu.height,
+            menu.width / 2.0,
+            theme.button_hover_background,
+        );
+    }
+    icons::draw_menu_icon(surface, menu, theme.icon);
+
     // Address bar pill.
     let addr = chrome.address_bar();
     let focused = app.focus == BrowserFocus::AddressBar;
@@ -348,9 +591,10 @@ mod tests {
             surface.pixel(1100, 8),
             Some(pack(theme.tab_strip_background))
         );
-        // Toolbar background between home button and address bar.
+        // Toolbar background in the gap between the home button and address bar.
+        let home = app.chrome.home_button();
         assert_eq!(
-            surface.pixel(1195, 60),
+            surface.pixel((home.x + home.width + 2.0) as u32, 60),
             Some(pack(theme.toolbar_background))
         );
         // Active tab interior.
@@ -365,10 +609,9 @@ mod tests {
             surface.pixel((addr.x + addr.width / 2.0) as u32, (addr.y + 4.0) as u32),
             Some(pack(theme.address_bar_background))
         );
-        // Hairline below the toolbar.
-        let toolbar = app.chrome.toolbar();
+        // Hairline at the bottom of the chrome (below the bookmarks bar).
         assert_eq!(
-            surface.pixel(600, (toolbar.y + toolbar.height) as u32),
+            surface.pixel(600, app.chrome.total_chrome_height as u32 - 1),
             Some(pack(theme.chrome_border))
         );
     }

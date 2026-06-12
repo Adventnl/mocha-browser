@@ -20,6 +20,63 @@ use crate::DesktopPageState;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TabId(pub u64);
 
+/// One row in a native list view (history, bookmarks, downloads). A row with a
+/// `url` is clickable and navigates there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListRow {
+    pub title: String,
+    pub detail: String,
+    pub url: Option<String>,
+    /// Visually accented (bookmarked entry, completed download, …).
+    pub accent: bool,
+    /// A per-row action id the shell understands (e.g. `remove:<id>`), or empty.
+    pub action: String,
+}
+
+impl ListRow {
+    pub fn new(title: impl Into<String>, detail: impl Into<String>) -> ListRow {
+        ListRow {
+            title: title.into(),
+            detail: detail.into(),
+            url: None,
+            accent: false,
+            action: String::new(),
+        }
+    }
+    pub fn with_url(mut self, url: impl Into<String>) -> ListRow {
+        self.url = Some(url.into());
+        self
+    }
+    pub fn with_accent(mut self, accent: bool) -> ListRow {
+        self.accent = accent;
+        self
+    }
+    pub fn with_action(mut self, action: impl Into<String>) -> ListRow {
+        self.action = action.into();
+        self
+    }
+}
+
+/// The control kind for a settings row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SettingKind {
+    /// A boolean toggle (current state).
+    Toggle(bool),
+    /// A free-text value.
+    Text(String),
+    /// A clickable action button (e.g. "Clear history").
+    Action,
+}
+
+/// One row on the native settings page.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SettingRow {
+    /// Stable key the shell maps to a setting/action.
+    pub key: String,
+    pub label: String,
+    pub kind: SettingKind,
+}
+
 /// A native (non-web) view shown in a tab's viewport instead of rendered page
 /// content. These are drawn directly by the desktop shell (`crate::views`) —
 /// no HTML, no network.
@@ -35,6 +92,28 @@ pub enum InternalView {
         /// The failure, exactly as reported by the engine.
         message: String,
     },
+    /// Browsing history (newest first).
+    History(Vec<ListRow>),
+    /// Saved bookmarks.
+    Bookmarks(Vec<ListRow>),
+    /// Downloads.
+    Downloads(Vec<ListRow>),
+    /// Settings/preferences.
+    Settings(Vec<SettingRow>),
+}
+
+impl InternalView {
+    /// The tab title shown for this view.
+    pub fn title(&self) -> &'static str {
+        match self {
+            InternalView::NewTab => "New Tab",
+            InternalView::LoadError { .. } => crate::new_tab::LOAD_ERROR_TITLE,
+            InternalView::History(_) => "History",
+            InternalView::Bookmarks(_) => "Bookmarks",
+            InternalView::Downloads(_) => "Downloads",
+            InternalView::Settings(_) => "Settings",
+        }
+    }
 }
 
 /// A single browser tab: an independent page plus its own history/title/url.
@@ -56,6 +135,8 @@ pub struct BrowserTab {
     pending_scroll: Option<f32>,
     /// When set, the viewport shows this native view instead of the page.
     internal_view: Option<InternalView>,
+    /// Vertical scroll offset for scrollable native views (history, etc.).
+    view_scroll: f32,
 }
 
 impl BrowserTab {
@@ -73,6 +154,7 @@ impl BrowserTab {
             needs_reload: false,
             pending_scroll: None,
             internal_view: Some(InternalView::NewTab),
+            view_scroll: 0.0,
         })
     }
 
@@ -100,6 +182,7 @@ impl BrowserTab {
                 input: input.to_string(),
                 message: message.to_string(),
             }),
+            view_scroll: 0.0,
         })
     }
 
@@ -126,6 +209,7 @@ impl BrowserTab {
             needs_reload: false,
             pending_scroll: None,
             internal_view: None,
+            view_scroll: 0.0,
         })
     }
 
@@ -134,6 +218,16 @@ impl BrowserTab {
     /// The native view shown instead of page content, if any.
     pub fn internal_view(&self) -> Option<&InternalView> {
         self.internal_view.as_ref()
+    }
+
+    /// The scroll offset of the active native list view.
+    pub fn view_scroll(&self) -> f32 {
+        self.view_scroll
+    }
+
+    /// Scroll the native view by `delta`, clamped to `[0, max]`.
+    pub fn scroll_view_by(&mut self, delta: f32, max: f32) {
+        self.view_scroll = (self.view_scroll + delta).clamp(0.0, max.max(0.0));
     }
 
     /// The tab's title (derived from its URL, or "New Tab").
@@ -281,6 +375,7 @@ impl BrowserTab {
         self.url = Some(url);
         // A successfully rendered document replaces any native view.
         self.internal_view = None;
+        self.view_scroll = 0.0;
     }
 
     /// Replace this tab's content with the native load-error view (the page,
@@ -300,6 +395,27 @@ impl BrowserTab {
             input: input.to_string(),
             message: message.to_string(),
         });
+        self.view_scroll = 0.0;
+        Ok(())
+    }
+
+    /// Replace this tab's content with a native list/settings view (history,
+    /// bookmarks, downloads, settings). Clears URL/history like other internal
+    /// pages; the title comes from the view.
+    pub(crate) fn show_native(
+        &mut self,
+        view: InternalView,
+        width: u32,
+        height: u32,
+    ) -> MochaResult<()> {
+        self.page = DesktopPageState::from_html(InternalPage::NewTab.html(), width, height)?;
+        self.title = view.title().to_string();
+        self.url = None;
+        self.history.clear();
+        self.history_index = None;
+        self.needs_reload = false;
+        self.internal_view = Some(view);
+        self.view_scroll = 0.0;
         Ok(())
     }
 
@@ -313,6 +429,7 @@ impl BrowserTab {
         self.history_index = None;
         self.needs_reload = false;
         self.internal_view = Some(InternalView::NewTab);
+        self.view_scroll = 0.0;
         Ok(())
     }
 }
@@ -450,6 +567,7 @@ impl TabManager {
             // Until the lazy load happens the tab shows the home view; the
             // first successful (re)load clears it via `set_current`.
             internal_view: Some(InternalView::NewTab),
+            view_scroll: 0.0,
         })
     }
 
@@ -609,6 +727,40 @@ impl TabManager {
     pub fn home_active(&mut self) -> MochaResult<()> {
         let (width, height) = (self.viewport_width, self.viewport_height);
         self.active_mut().show_new_tab_page(width, height)
+    }
+
+    /// Show a native list/settings view in the active tab.
+    pub fn show_native_on_active(&mut self, view: InternalView) -> MochaResult<()> {
+        let (width, height) = (self.viewport_width, self.viewport_height);
+        self.active_mut().show_native(view, width, height)
+    }
+
+    /// Open a native view in a new active tab.
+    pub fn open_native_tab(&mut self, view: InternalView) -> MochaResult<TabId> {
+        let id = self.new_tab()?;
+        self.show_native_on_active(view)?;
+        Ok(id)
+    }
+
+    /// Move the tab at `from` to index `to` (clamped), preserving the active
+    /// tab. Used by drag-to-reorder. Returns whether the order changed.
+    pub fn move_tab(&mut self, from: usize, to: usize) -> bool {
+        let len = self.tabs.len();
+        if from >= len {
+            return false;
+        }
+        let to = to.min(len - 1);
+        if from == to {
+            return false;
+        }
+        let tab = self.tabs.remove(from);
+        self.tabs.insert(to, tab);
+        true
+    }
+
+    /// The strip index of `id`, if present (for drag-to-reorder hit testing).
+    pub fn index_of_id(&self, id: TabId) -> Option<usize> {
+        self.index_of(id)
     }
 }
 

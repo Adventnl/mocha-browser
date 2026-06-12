@@ -46,6 +46,16 @@ pub enum ChromeElement {
     ReloadButton,
     HomeButton,
     AddressBar,
+    /// Bookmark-the-current-page star (right of the address bar).
+    BookmarkButton,
+    /// Overflow / hamburger menu button (far right).
+    MenuButton,
+    /// A button on the bookmarks bar.
+    BookmarksBarItem(usize),
+    /// A row in the address-bar suggestions dropdown.
+    SuggestionRow(usize),
+    /// An item in the open overflow menu.
+    MenuItem(usize),
     PageViewport,
 }
 
@@ -74,6 +84,18 @@ pub struct ChromeMetrics {
     pub button_gap: f32,
     /// Corner radius of tabs (top corners).
     pub tab_radius: f32,
+    /// Height of the bookmarks bar band (when shown).
+    pub bookmarks_bar_height: f32,
+    /// Width of a single bookmarks-bar button.
+    pub bookmark_item_width: f32,
+    /// Gap between bookmarks-bar buttons.
+    pub bookmark_item_gap: f32,
+    /// Height of a single address-bar suggestion row.
+    pub suggestion_row_height: f32,
+    /// Height of a single overflow-menu item.
+    pub menu_item_height: f32,
+    /// Width of the overflow menu popup.
+    pub menu_width: f32,
 }
 
 impl Default for ChromeMetrics {
@@ -95,6 +117,12 @@ impl Default for ChromeMetrics {
             tab_close_size: 16.0,
             button_gap: 4.0,
             tab_radius: 8.0,
+            bookmarks_bar_height: 30.0,
+            bookmark_item_width: 150.0,
+            bookmark_item_gap: 4.0,
+            suggestion_row_height: 36.0,
+            menu_item_height: 34.0,
+            menu_width: 220.0,
         }
     }
 }
@@ -105,19 +133,68 @@ pub struct ChromeLayout {
     pub total_chrome_height: f32,
     pub window_width: f32,
     pub window_height: f32,
+    /// Whether the bookmarks bar band is shown below the toolbar.
+    pub show_bookmarks_bar: bool,
+    /// Number of buttons currently on the bookmarks bar (for hit testing).
+    pub bookmark_count: usize,
+    /// Number of address-bar suggestion rows currently shown (0 = hidden).
+    pub suggestion_count: usize,
+    /// Whether the overflow menu popup is open.
+    pub menu_open: bool,
+    /// Number of items in the overflow menu.
+    pub menu_item_count: usize,
 }
 
 impl ChromeLayout {
     pub fn new(window_width: f32, window_height: f32) -> Self {
         let metrics = ChromeMetrics::default();
-        Self {
+        let mut layout = Self {
             metrics,
-            total_chrome_height: metrics.tab_strip_height
-                + metrics.toolbar_height
-                + metrics.page_padding_top,
+            total_chrome_height: 0.0,
             window_width: window_width.max(1.0),
             window_height: window_height.max(1.0),
-        }
+            show_bookmarks_bar: true,
+            bookmark_count: 0,
+            suggestion_count: 0,
+            menu_open: false,
+            menu_item_count: 0,
+        };
+        layout.recompute_height();
+        layout
+    }
+
+    fn recompute_height(&mut self) {
+        let m = &self.metrics;
+        self.total_chrome_height = m.tab_strip_height
+            + m.toolbar_height
+            + if self.show_bookmarks_bar {
+                m.bookmarks_bar_height
+            } else {
+                0.0
+            }
+            + m.page_padding_top;
+    }
+
+    /// Show or hide the bookmarks bar (recomputes chrome height).
+    pub fn set_bookmarks_bar_visible(&mut self, visible: bool) {
+        self.show_bookmarks_bar = visible;
+        self.recompute_height();
+    }
+
+    /// Set the number of bookmarks-bar buttons (for layout/hit testing).
+    pub fn set_bookmark_count(&mut self, count: usize) {
+        self.bookmark_count = count;
+    }
+
+    /// Set the number of visible suggestion rows (0 hides the dropdown).
+    pub fn set_suggestion_count(&mut self, count: usize) {
+        self.suggestion_count = count;
+    }
+
+    /// Open/close the overflow menu, with `item_count` items when open.
+    pub fn set_menu(&mut self, open: bool, item_count: usize) {
+        self.menu_open = open;
+        self.menu_item_count = if open { item_count } else { 0 };
     }
 
     pub fn resize(&mut self, window_width: f32, window_height: f32) {
@@ -218,14 +295,103 @@ impl ChromeLayout {
         self.toolbar_button(3)
     }
 
-    /// Rectangle of the address bar (fills the toolbar right of the buttons).
+    /// A toolbar button anchored from the right edge (`slot` 0 = rightmost).
+    fn toolbar_button_right(&self, slot: usize) -> Rect {
+        let m = &self.metrics;
+        let size = m.toolbar_button_size;
+        let x = self.window_width - m.toolbar_padding - size - slot as f32 * (size + m.button_gap);
+        let y = m.tab_strip_height + (m.toolbar_height - size) / 2.0;
+        Rect::new(x, y, size, size)
+    }
+
+    /// Rectangle of the overflow / hamburger menu button (far right).
+    pub fn menu_button(&self) -> Rect {
+        self.toolbar_button_right(0)
+    }
+
+    /// Rectangle of the bookmark-the-page star button (left of the menu).
+    pub fn bookmark_button(&self) -> Rect {
+        self.toolbar_button_right(1)
+    }
+
+    /// Rectangle of the address bar (between the left buttons and the right
+    /// buttons).
     pub fn address_bar(&self) -> Rect {
         let m = &self.metrics;
         let home = self.home_button();
         let x = home.x + home.width + m.toolbar_padding;
         let y = m.tab_strip_height + (m.toolbar_height - m.address_bar_height) / 2.0;
-        let width = self.window_width - x - m.toolbar_padding;
-        Rect::new(x, y, width.max(0.0), m.address_bar_height)
+        let right = self.bookmark_button().x - m.toolbar_padding;
+        let width = (right - x).max(0.0);
+        Rect::new(x, y, width, m.address_bar_height)
+    }
+
+    // --- bookmarks bar -------------------------------------------------------
+
+    /// The bookmarks-bar band (empty rect when hidden).
+    pub fn bookmarks_bar(&self) -> Rect {
+        if !self.show_bookmarks_bar {
+            return Rect::new(0.0, 0.0, 0.0, 0.0);
+        }
+        let m = &self.metrics;
+        let y = m.tab_strip_height + m.toolbar_height;
+        Rect::new(0.0, y, self.window_width, m.bookmarks_bar_height)
+    }
+
+    /// The rectangle of bookmarks-bar button `index`.
+    pub fn bookmark_item_rect(&self, index: usize) -> Rect {
+        let m = &self.metrics;
+        let bar = self.bookmarks_bar();
+        let x = m.toolbar_padding + index as f32 * (m.bookmark_item_width + m.bookmark_item_gap);
+        let h = m.bookmarks_bar_height - 6.0;
+        Rect::new(x, bar.y + 3.0, m.bookmark_item_width, h)
+    }
+
+    // --- suggestions dropdown ------------------------------------------------
+
+    /// The rectangle of suggestion row `index` (drawn over the page).
+    pub fn suggestion_row(&self, index: usize) -> Rect {
+        let m = &self.metrics;
+        let addr = self.address_bar();
+        let y = addr.y + addr.height + 4.0 + index as f32 * m.suggestion_row_height;
+        Rect::new(addr.x, y, addr.width, m.suggestion_row_height)
+    }
+
+    /// The bounding rectangle of the whole suggestions dropdown (for painting a
+    /// backing panel), or `None` when no suggestions are shown.
+    pub fn suggestions_panel(&self) -> Option<Rect> {
+        if self.suggestion_count == 0 {
+            return None;
+        }
+        let first = self.suggestion_row(0);
+        let h = self.suggestion_count as f32 * self.metrics.suggestion_row_height;
+        Some(Rect::new(first.x, first.y, first.width, h))
+    }
+
+    // --- overflow menu -------------------------------------------------------
+
+    /// The rectangle of overflow-menu item `index` (drawn over the page).
+    pub fn menu_item_rect(&self, index: usize) -> Rect {
+        let m = &self.metrics;
+        let button = self.menu_button();
+        let x = (button.x + button.width - m.menu_width).max(4.0);
+        let top = button.y + button.height + 4.0;
+        Rect::new(
+            x,
+            top + index as f32 * m.menu_item_height,
+            m.menu_width,
+            m.menu_item_height,
+        )
+    }
+
+    /// The bounding rectangle of the open overflow menu, or `None` when closed.
+    pub fn menu_panel(&self) -> Option<Rect> {
+        if !self.menu_open || self.menu_item_count == 0 {
+            return None;
+        }
+        let first = self.menu_item_rect(0);
+        let h = self.menu_item_count as f32 * self.metrics.menu_item_height;
+        Some(Rect::new(first.x, first.y, first.width, h))
     }
 
     /// Rectangle of the page viewport (below all chrome).
@@ -256,17 +422,56 @@ impl ChromeLayout {
             return None;
         }
 
+        // Open overflow menu wins over everything beneath it.
+        if self.menu_open {
+            for i in 0..self.menu_item_count {
+                if self.menu_item_rect(i).contains(x, y) {
+                    return Some(ChromeElement::MenuItem(i));
+                }
+            }
+        }
+
+        // Toolbar buttons + address bar.
         if self.back_button().contains(x, y) {
-            Some(ChromeElement::BackButton)
-        } else if self.forward_button().contains(x, y) {
-            Some(ChromeElement::ForwardButton)
-        } else if self.reload_button().contains(x, y) {
-            Some(ChromeElement::ReloadButton)
-        } else if self.home_button().contains(x, y) {
-            Some(ChromeElement::HomeButton)
-        } else if self.address_bar().contains(x, y) {
-            Some(ChromeElement::AddressBar)
-        } else if self.page_viewport().contains(x, y) {
+            return Some(ChromeElement::BackButton);
+        }
+        if self.forward_button().contains(x, y) {
+            return Some(ChromeElement::ForwardButton);
+        }
+        if self.reload_button().contains(x, y) {
+            return Some(ChromeElement::ReloadButton);
+        }
+        if self.home_button().contains(x, y) {
+            return Some(ChromeElement::HomeButton);
+        }
+        if self.menu_button().contains(x, y) {
+            return Some(ChromeElement::MenuButton);
+        }
+        if self.bookmark_button().contains(x, y) {
+            return Some(ChromeElement::BookmarkButton);
+        }
+        if self.address_bar().contains(x, y) {
+            return Some(ChromeElement::AddressBar);
+        }
+
+        // Suggestions dropdown floats over the page/bookmarks band.
+        for i in 0..self.suggestion_count {
+            if self.suggestion_row(i).contains(x, y) {
+                return Some(ChromeElement::SuggestionRow(i));
+            }
+        }
+
+        // Bookmarks bar band.
+        if self.show_bookmarks_bar && self.bookmarks_bar().contains(x, y) {
+            for i in 0..self.bookmark_count {
+                if self.bookmark_item_rect(i).contains(x, y) {
+                    return Some(ChromeElement::BookmarksBarItem(i));
+                }
+            }
+            return None;
+        }
+
+        if self.page_viewport().contains(x, y) {
             Some(ChromeElement::PageViewport)
         } else {
             None
@@ -303,10 +508,12 @@ mod tests {
         let layout = ChromeLayout::new(1200.0, 800.0);
         let viewport = layout.page_viewport();
         assert_eq!(viewport.y, layout.total_chrome_height);
+        // The bookmarks bar is shown by default, so it adds to the chrome height.
         assert_eq!(
             layout.total_chrome_height,
             layout.metrics.tab_strip_height
                 + layout.metrics.toolbar_height
+                + layout.metrics.bookmarks_bar_height
                 + layout.metrics.page_padding_top
         );
         assert!(viewport.height > 0.0);
@@ -320,12 +527,71 @@ mod tests {
         let layout = ChromeLayout::new(1200.0, 800.0);
         let addr = layout.address_bar();
         assert_eq!(addr.height, layout.metrics.address_bar_height);
-        // Padding after the home button and before the right window edge.
+        // Padding after the home button and before the right-side buttons.
         let home = layout.home_button();
         assert_eq!(addr.x, home.x + home.width + layout.metrics.toolbar_padding);
         assert_eq!(
             addr.x + addr.width,
+            layout.bookmark_button().x - layout.metrics.toolbar_padding
+        );
+        // The right-side buttons (bookmark star, menu) sit in order to the edge.
+        assert!(layout.bookmark_button().x < layout.menu_button().x);
+        assert_eq!(
+            layout.menu_button().x + layout.menu_button().width,
             layout.window_width - layout.metrics.toolbar_padding
+        );
+    }
+
+    #[test]
+    fn bookmarks_bar_toggles_chrome_height() {
+        let mut layout = ChromeLayout::new(1200.0, 800.0);
+        let with_bar = layout.total_chrome_height;
+        layout.set_bookmarks_bar_visible(false);
+        assert!(layout.total_chrome_height < with_bar);
+        assert_eq!(
+            with_bar - layout.total_chrome_height,
+            layout.metrics.bookmarks_bar_height
+        );
+    }
+
+    #[test]
+    fn hit_test_right_buttons_and_menu_and_suggestions() {
+        let mut layout = ChromeLayout::new(1200.0, 800.0);
+        let star = layout.bookmark_button();
+        assert_eq!(
+            layout.hit_test(star.x + star.width / 2.0, star.y + star.height / 2.0, &[]),
+            Some(ChromeElement::BookmarkButton)
+        );
+        let menu = layout.menu_button();
+        assert_eq!(
+            layout.hit_test(menu.x + menu.width / 2.0, menu.y + menu.height / 2.0, &[]),
+            Some(ChromeElement::MenuButton)
+        );
+        // Open the menu: items hit-test on top of the page.
+        layout.set_menu(true, 5);
+        let item = layout.menu_item_rect(2);
+        assert_eq!(
+            layout.hit_test(item.x + 10.0, item.y + item.height / 2.0, &[]),
+            Some(ChromeElement::MenuItem(2))
+        );
+        layout.set_menu(false, 5);
+        // Suggestions dropdown.
+        layout.set_suggestion_count(3);
+        let row = layout.suggestion_row(1);
+        assert_eq!(
+            layout.hit_test(row.x + 10.0, row.y + row.height / 2.0, &[]),
+            Some(ChromeElement::SuggestionRow(1))
+        );
+    }
+
+    #[test]
+    fn hit_test_bookmarks_bar_items() {
+        let mut layout = ChromeLayout::new(1200.0, 800.0);
+        layout.set_bookmark_count(3);
+        let item = layout.bookmark_item_rect(1);
+        assert_eq!(
+            layout.hit_test(item.x + 5.0, item.y + item.height / 2.0, &[]),
+            Some(ChromeElement::BookmarksBarItem(1))
         );
     }
 

@@ -521,11 +521,13 @@ mod tests {
 }
 
 pub mod address_bar;
+pub mod anim;
 pub mod app_dirs;
 pub mod browser_app;
 pub mod chrome;
 pub mod icons;
 pub mod new_tab;
+pub mod profile;
 pub mod render;
 pub mod session;
 pub mod tab;
@@ -534,12 +536,14 @@ pub mod theme;
 pub mod views;
 
 pub use address_bar::AddressBarState;
+pub use anim::{Easing, Tween};
 pub use app_dirs::{default_app_data_root, default_logs_dir, default_profile_dir};
 pub use browser_app::{BrowserAction, BrowserAppState, BrowserFocus};
 pub use chrome::{ChromeElement, ChromeLayout, ChromeMetrics, Rect};
 pub use new_tab::InternalPage;
+pub use profile::{BrowserProfile, Suggestion};
 pub use render::render_browser;
 pub use session::{SessionSnapshot, SessionTab};
-pub use tab::{BrowserTab, InternalView, TabId, TabManager};
+pub use tab::{BrowserTab, InternalView, ListRow, TabId, TabManager};
 pub use text::Fonts;
 pub use theme::BrowserTheme;

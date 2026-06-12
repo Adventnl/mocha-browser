@@ -106,6 +106,66 @@ pub fn draw_close_icon(surface: &mut Surface, rect: Rect, color: Color) {
     surface.draw_line(cx - r, cy + r, cx + r, cy - r, t, color);
 }
 
+/// A hamburger (overflow) menu: three horizontal bars.
+pub fn draw_menu_icon(surface: &mut Surface, rect: Rect, color: Color) {
+    let (cx, cy, s, t) = geometry(rect);
+    let w = s * 0.85;
+    for dy in [-s * 0.55, 0.0, s * 0.55] {
+        surface.draw_line(cx - w, cy + dy, cx + w, cy + dy, t, color);
+    }
+}
+
+/// The ten outline points of a five-point star inscribed in `rect`.
+fn star_points(rect: Rect) -> [(f32, f32); 10] {
+    let (cx, cy, s, _) = geometry(rect);
+    let (outer, inner) = (s, s * 0.42);
+    let mut pts = [(0.0f32, 0.0f32); 10];
+    for (k, p) in pts.iter_mut().enumerate() {
+        let r = if k % 2 == 0 { outer } else { inner };
+        let a = -std::f32::consts::FRAC_PI_2 + k as f32 * std::f32::consts::PI / 5.0;
+        *p = (cx + r * a.cos(), cy + r * a.sin());
+    }
+    pts
+}
+
+/// A star outline (bookmark this page).
+pub fn draw_star_icon(surface: &mut Surface, rect: Rect, color: Color) {
+    let (_, _, _, t) = geometry(rect);
+    let pts = star_points(rect);
+    for k in 0..10 {
+        let a = pts[k];
+        let b = pts[(k + 1) % 10];
+        surface.draw_line(a.0, a.1, b.0, b.1, t, color);
+    }
+}
+
+/// A filled star (page is bookmarked): scanline fill plus the outline.
+pub fn draw_star_filled(surface: &mut Surface, rect: Rect, color: Color) {
+    let pts = star_points(rect);
+    let (min_y, max_y) = pts.iter().fold((f32::MAX, f32::MIN), |(lo, hi), p| {
+        (lo.min(p.1), hi.max(p.1))
+    });
+    let mut y = min_y.ceil();
+    while y <= max_y {
+        let mut xs: Vec<f32> = Vec::new();
+        for k in 0..10 {
+            let (ax, ay) = pts[k];
+            let (bx, by) = pts[(k + 1) % 10];
+            if (ay <= y && by > y) || (by <= y && ay > y) {
+                xs.push(ax + (bx - ax) * (y - ay) / (by - ay));
+            }
+        }
+        xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        for pair in xs.chunks(2) {
+            if let [x0, x1] = pair {
+                surface.draw_line(*x0, y, *x1, y, 1.0, color);
+            }
+        }
+        y += 1.0;
+    }
+    draw_star_icon(surface, rect, color);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -10,7 +10,7 @@ use mocha_layout::Color;
 use mocha_raster::Surface;
 
 use crate::chrome::Rect;
-use crate::tab::InternalView;
+use crate::tab::{InternalView, ListRow, SettingKind, SettingRow};
 use crate::text::Fonts;
 use crate::theme::BrowserTheme;
 
@@ -37,19 +37,340 @@ pub const ERROR_ENGINE_EXPLANATION: &str =
 pub const ERROR_LOAD_EXPLANATION: &str = "Mocha could not load this page.";
 pub const ERROR_HINT_TEXT: &str = "Try a local example: examples/basic/index.html";
 
-/// Render `view` into the page viewport region of `surface`.
+/// Render `view` into the page viewport region of `surface`. `scroll` is the
+/// vertical offset for the scrollable list/settings views (ignored by the
+/// fixed new-tab/error views).
 pub fn render_view(
     view: &InternalView,
     surface: &mut Surface,
     fonts: &mut Fonts,
     theme: &BrowserTheme,
     viewport: Rect,
+    scroll: f32,
 ) {
     match view {
         InternalView::NewTab => render_new_tab(surface, fonts, theme, viewport),
         InternalView::LoadError { input, message } => {
             render_error(surface, fonts, theme, viewport, input, message)
         }
+        InternalView::History(rows) => render_list(
+            surface, fonts, theme, viewport, "History", rows, scroll, true,
+        ),
+        InternalView::Bookmarks(rows) => render_list(
+            surface,
+            fonts,
+            theme,
+            viewport,
+            "Bookmarks",
+            rows,
+            scroll,
+            true,
+        ),
+        InternalView::Downloads(rows) => render_list(
+            surface,
+            fonts,
+            theme,
+            viewport,
+            "Downloads",
+            rows,
+            scroll,
+            false,
+        ),
+        InternalView::Settings(rows) => {
+            render_settings(surface, fonts, theme, viewport, rows, scroll)
+        }
+    }
+}
+
+/// Header band height above the scrollable rows (title + padding).
+const LIST_HEADER: f32 = 72.0;
+/// Per-row height in list/settings views.
+const LIST_ROW_H: f32 = 58.0;
+/// Maximum content column width.
+const LIST_COL_MAX: f32 = 760.0;
+
+/// The horizontally-centered content column for list views.
+fn list_column(viewport: Rect) -> (f32, f32) {
+    let width = (viewport.width - 80.0).clamp(120.0, LIST_COL_MAX);
+    let x = viewport.x + (viewport.width - width) / 2.0;
+    (x, width)
+}
+
+/// The device rect of row `i` given the scroll offset (may be off-screen).
+fn list_row_rect(viewport: Rect, i: usize, scroll: f32) -> Rect {
+    let (x, w) = list_column(viewport);
+    let y = viewport.y + LIST_HEADER + i as f32 * LIST_ROW_H - scroll;
+    Rect::new(x, y, w, LIST_ROW_H - 8.0)
+}
+
+/// Total scrollable content height for `count` rows.
+pub fn list_content_height(count: usize) -> f32 {
+    LIST_HEADER + count as f32 * LIST_ROW_H + 16.0
+}
+
+/// The maximum scroll for a view with `count` rows in `viewport`.
+pub fn list_max_scroll(count: usize, viewport: Rect) -> f32 {
+    (list_content_height(count) - viewport.height).max(0.0)
+}
+
+/// What a click inside a native view resolved to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ViewHit {
+    /// Navigate to this URL (history/bookmark row body).
+    Navigate(String),
+    /// Run a per-row action id (e.g. `remove:7`).
+    Action(String),
+    /// Activate a settings row by key.
+    Setting(String),
+}
+
+/// Hit-test a click at `(x, y)` against the rows of a native list/settings view.
+pub fn hit_view(
+    view: &InternalView,
+    viewport: Rect,
+    scroll: f32,
+    x: f32,
+    y: f32,
+) -> Option<ViewHit> {
+    if y < viewport.y + LIST_HEADER {
+        return None;
+    }
+    match view {
+        InternalView::History(rows)
+        | InternalView::Bookmarks(rows)
+        | InternalView::Downloads(rows) => {
+            for (i, row) in rows.iter().enumerate() {
+                let rect = list_row_rect(viewport, i, scroll);
+                if rect.contains(x, y) {
+                    // A trailing action hit-zone (right 44px) runs the row action.
+                    if !row.action.is_empty() && x >= rect.x + rect.width - 44.0 {
+                        return Some(ViewHit::Action(row.action.clone()));
+                    }
+                    if let Some(url) = &row.url {
+                        return Some(ViewHit::Navigate(url.clone()));
+                    }
+                }
+            }
+            None
+        }
+        InternalView::Settings(rows) => {
+            for (i, row) in rows.iter().enumerate() {
+                if list_row_rect(viewport, i, scroll).contains(x, y) {
+                    return Some(ViewHit::Setting(row.key.clone()));
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_list(
+    surface: &mut Surface,
+    fonts: &mut Fonts,
+    theme: &BrowserTheme,
+    viewport: Rect,
+    title: &str,
+    rows: &[ListRow],
+    scroll: f32,
+    show_remove: bool,
+) {
+    fill_viewport(surface, theme.page_background, viewport);
+    let (col_x, _col_w) = list_column(viewport);
+    fonts.draw(
+        surface,
+        title,
+        col_x,
+        viewport.y + 26.0,
+        26.0,
+        theme.tab_text,
+    );
+
+    if rows.is_empty() {
+        let empty = format!("No {} yet.", title.to_ascii_lowercase());
+        fonts.draw(
+            surface,
+            &empty,
+            col_x,
+            viewport.y + LIST_HEADER + 8.0,
+            15.0,
+            theme.text_secondary,
+        );
+        return;
+    }
+
+    let clip_top = viewport.y + LIST_HEADER - LIST_ROW_H;
+    let clip_bottom = viewport.y + viewport.height;
+    for (i, row) in rows.iter().enumerate() {
+        let rect = list_row_rect(viewport, i, scroll);
+        if rect.y + rect.height < clip_top || rect.y > clip_bottom {
+            continue;
+        }
+        let bg = if row.accent {
+            theme.address_bar_background
+        } else {
+            theme.card_background
+        };
+        surface.draw_rounded_rect(rect.x, rect.y, rect.width, rect.height, 8.0, bg);
+        surface.draw_rounded_rect_outline(
+            rect.x,
+            rect.y,
+            rect.width,
+            rect.height,
+            8.0,
+            1.0,
+            theme.card_border,
+        );
+        let pad = 14.0;
+        let title_budget = rect.width - pad * 2.0 - if show_remove { 44.0 } else { 0.0 };
+        let title = fonts.ellipsize(&row.title, 15.0, title_budget.max(20.0));
+        fonts.draw(
+            surface,
+            &title,
+            rect.x + pad,
+            rect.y + 9.0,
+            15.0,
+            theme.tab_text,
+        );
+        let detail = fonts.ellipsize(&row.detail, 12.5, title_budget.max(20.0));
+        fonts.draw(
+            surface,
+            &detail,
+            rect.x + pad,
+            rect.y + 31.0,
+            12.5,
+            theme.text_secondary,
+        );
+        if row.accent {
+            icons_star(
+                surface,
+                rect.x + rect.width - 30.0,
+                rect.y + rect.height / 2.0,
+                theme.error_accent,
+            );
+        }
+        if show_remove && !row.action.is_empty() {
+            let cx = rect.x + rect.width - 22.0;
+            let cy = rect.y + rect.height / 2.0;
+            let r = 5.0;
+            surface.draw_line(cx - r, cy - r, cx + r, cy + r, 1.6, theme.text_secondary);
+            surface.draw_line(cx - r, cy + r, cx + r, cy - r, 1.6, theme.text_secondary);
+        }
+    }
+}
+
+fn render_settings(
+    surface: &mut Surface,
+    fonts: &mut Fonts,
+    theme: &BrowserTheme,
+    viewport: Rect,
+    rows: &[SettingRow],
+    scroll: f32,
+) {
+    fill_viewport(surface, theme.page_background, viewport);
+    let (col_x, _col_w) = list_column(viewport);
+    fonts.draw(
+        surface,
+        "Settings",
+        col_x,
+        viewport.y + 26.0,
+        26.0,
+        theme.tab_text,
+    );
+
+    let clip_bottom = viewport.y + viewport.height;
+    for (i, row) in rows.iter().enumerate() {
+        let rect = list_row_rect(viewport, i, scroll);
+        if rect.y > clip_bottom || rect.y + rect.height < viewport.y {
+            continue;
+        }
+        surface.draw_rounded_rect(
+            rect.x,
+            rect.y,
+            rect.width,
+            rect.height,
+            8.0,
+            theme.card_background,
+        );
+        surface.draw_rounded_rect_outline(
+            rect.x,
+            rect.y,
+            rect.width,
+            rect.height,
+            8.0,
+            1.0,
+            theme.card_border,
+        );
+        let pad = 16.0;
+        fonts.draw(
+            surface,
+            &row.label,
+            rect.x + pad,
+            rect.y + 17.0,
+            15.0,
+            theme.tab_text,
+        );
+        match &row.kind {
+            SettingKind::Toggle(on) => {
+                let tw = 44.0;
+                let th = 24.0;
+                let tx = rect.x + rect.width - pad - tw;
+                let ty = rect.y + (rect.height - th) / 2.0;
+                let track = if *on {
+                    theme.address_bar_focused_border
+                } else {
+                    theme.inactive_tab_background
+                };
+                surface.draw_pill(tx, ty, tw, th, track);
+                let knob = th - 6.0;
+                let kx = if *on { tx + tw - knob - 3.0 } else { tx + 3.0 };
+                surface.draw_rounded_rect(
+                    kx,
+                    ty + 3.0,
+                    knob,
+                    knob,
+                    knob / 2.0,
+                    theme.page_background,
+                );
+            }
+            SettingKind::Text(value) => {
+                let budget = rect.width * 0.5;
+                let shown = fonts.ellipsize(value, 14.0, budget);
+                let w = fonts.measure(&shown, 14.0);
+                fonts.draw(
+                    surface,
+                    &shown,
+                    rect.x + rect.width - pad - w,
+                    rect.y + 18.0,
+                    14.0,
+                    theme.text_secondary,
+                );
+            }
+            SettingKind::Action => {
+                let label = "Run";
+                let w = fonts.measure(label, 13.0) + 24.0;
+                let bx = rect.x + rect.width - pad - w;
+                let by = rect.y + (rect.height - 28.0) / 2.0;
+                surface.draw_pill(bx, by, w, 28.0, theme.button_hover_background);
+                fonts.draw(surface, label, bx + 12.0, by + 6.0, 13.0, theme.tab_text);
+            }
+        }
+    }
+}
+
+/// A small five-point star marker.
+fn icons_star(surface: &mut Surface, cx: f32, cy: f32, color: Color) {
+    let r = 6.0;
+    let mut pts = [(0.0f32, 0.0f32); 5];
+    for (k, p) in pts.iter_mut().enumerate() {
+        let a = -std::f32::consts::FRAC_PI_2 + k as f32 * 2.0 * std::f32::consts::PI * 2.0 / 5.0;
+        *p = (cx + r * a.cos(), cy + r * a.sin());
+    }
+    for k in 0..5 {
+        let a = pts[k];
+        let b = pts[(k + 2) % 5];
+        surface.draw_line(a.0, a.1, b.0, b.1, 1.4, color);
     }
 }
 
@@ -404,7 +725,7 @@ mod tests {
         let mut surface = Surface::new(1200, 800);
         let mut fonts = Fonts::load();
         let theme = BrowserTheme::default();
-        render_view(view, &mut surface, &mut fonts, &theme, viewport());
+        render_view(view, &mut surface, &mut fonts, &theme, viewport(), 0.0);
         surface.buffer().to_vec()
     }
 
