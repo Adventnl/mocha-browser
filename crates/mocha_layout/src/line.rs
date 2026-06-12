@@ -154,15 +154,15 @@ impl InlineItem {
 }
 
 fn word_width(text: &str, font_size: f32) -> f32 {
-    (text.chars().count() as f32 * font_size * 0.6).round()
+    mocha_text::measure(text, font_size, false)
 }
 
 fn space_width(font_size: f32) -> f32 {
-    (font_size * 0.6).round()
+    mocha_text::space_advance(font_size, false)
 }
 
 fn line_height(font_size: f32) -> f32 {
-    (font_size * 1.2).round()
+    mocha_text::line_height(font_size)
 }
 
 /// Lay `items` out into stacked line boxes within `available_width`, starting at

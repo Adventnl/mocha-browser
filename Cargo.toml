@@ -8,6 +8,7 @@ members = [
     "crates/mocha_css",
     "crates/mocha_style",
     "crates/mocha_layout",
+    "crates/mocha_text",
     "crates/mocha_paint",
     "crates/mocha_net",
     "crates/mocha_gzip",
@@ -48,6 +49,7 @@ mocha_html = { path = "crates/mocha_html" }
 mocha_css = { path = "crates/mocha_css" }
 mocha_style = { path = "crates/mocha_style" }
 mocha_layout = { path = "crates/mocha_layout" }
+mocha_text = { path = "crates/mocha_text" }
 mocha_paint = { path = "crates/mocha_paint" }
 mocha_net = { path = "crates/mocha_net" }
 mocha_gzip = { path = "crates/mocha_gzip" }

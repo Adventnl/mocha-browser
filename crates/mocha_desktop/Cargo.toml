@@ -29,12 +29,14 @@ mocha_dom.workspace = true
 mocha_events.workspace = true
 mocha_forms.workspace = true
 mocha_layout.workspace = true
+mocha_text.workspace = true
 mocha_paint.workspace = true
 mocha_image.workspace = true
 mocha_nav.workspace = true
 mocha_engine.workspace = true
 mocha_raster.workspace = true
 mocha_storage.workspace = true
-# Chrome text rasterization (UI only; page text still uses the debug font).
+# Chrome text rasterization (toolbar/tabs/native views). Page content text is
+# rendered via mocha_text (real system fonts) through the raster pipeline.
 fontdue.workspace = true
 minifb = { workspace = true, optional = true }

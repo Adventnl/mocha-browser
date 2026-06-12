@@ -1,0 +1,14 @@
+[package]
+name = "mocha_text"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Shared real-font text metrics and glyph rasterization for Mocha Browser's layout and paint pipeline (system fonts via fontdue, with a deterministic estimate fallback)."
+
+[lib]
+name = "mocha_text"
+path = "src/lib.rs"
+
+[dependencies]
+fontdue.workspace = true

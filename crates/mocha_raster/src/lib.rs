@@ -1,9 +1,11 @@
 //! A small, pure-Rust software rasterizer for Mocha Browser (Milestone 11).
 //!
 //! It turns a [`DisplayCommand`] list plus the document's decoded images into an
-//! RGBA pixel [`Surface`]. There is **no** GPU and no compositor; page text is
-//! drawn with a crude built-in debug font (see [`font`]). It applies a vertical
-//! scroll offset and clips every write to the surface bounds.
+//! RGBA pixel [`Surface`]. There is **no** GPU and no compositor. Page text is
+//! drawn with real anti-aliased proportional glyphs when a system font is active
+//! (via [`mocha_text`]), falling back to the crude built-in debug font (see
+//! [`font`]) otherwise. It applies a vertical scroll offset and clips every write
+//! to the surface bounds.
 //!
 //! For the desktop browser chrome, [`Surface`] also offers anti-aliased
 //! geometry helpers (rounded rectangles, pills, lines) and coverage blending
@@ -406,12 +408,14 @@ pub fn rasterize_at(
                 font_size,
                 color,
             } => {
-                surface.draw_text(
+                draw_text_run(
+                    surface,
                     text,
-                    px(*x),
-                    px(*y) - offset,
-                    text_scale(*font_size),
+                    *x,
+                    *y - offset as f32,
+                    *font_size,
                     *color,
+                    false,
                 );
             }
             DisplayCommand::DrawImage {
@@ -521,7 +525,13 @@ fn draw_control(
                 } else {
                     text.to_string()
                 };
-                surface.draw_text(&masked, x + 3, y + 3, 1, ink);
+                if mocha_text::is_active() {
+                    let size = ((h as f32) * 0.62).clamp(11.0, 18.0);
+                    let ty = y as f32 + (h as f32 - mocha_text::line_height(size)) / 2.0;
+                    draw_text_run(surface, &masked, x as f32 + 6.0, ty, size, ink, false);
+                } else {
+                    surface.draw_text(&masked, x + 3, y + 3, 1, ink);
+                }
             }
         }
     }
@@ -580,6 +590,44 @@ fn px(value: f32) -> i32 {
 /// 7 dots tall; this keeps it within the line without real metrics.
 fn text_scale(font_size: f32) -> i32 {
     ((font_size / GLYPH_HEIGHT as f32).round() as i32).max(1)
+}
+
+/// Draw a left-to-right text run with its top-left at `(x, y)` in device px.
+/// When a real font is active (`mocha_text`) this renders anti-aliased
+/// proportional glyphs at `font_size`; otherwise it falls back to the scaled
+/// debug bitmap font so output stays identical to the pre-font pipeline.
+fn draw_text_run(
+    surface: &mut Surface,
+    text: &str,
+    x: f32,
+    y: f32,
+    font_size: f32,
+    color: Color,
+    bold: bool,
+) {
+    if !mocha_text::is_active() {
+        surface.draw_text(text, px(x), px(y), text_scale(font_size), color);
+        return;
+    }
+    let baseline = y + mocha_text::ascent(font_size);
+    let mut pen = x;
+    for c in text.chars() {
+        if let Some(g) = mocha_text::glyph(c, font_size, bold) {
+            if g.width > 0 && g.height > 0 {
+                let gx = (pen + g.left as f32).round() as i32;
+                let gy = (baseline - g.top as f32).round() as i32;
+                for row in 0..g.height {
+                    for col in 0..g.width {
+                        let coverage = g.bitmap[row * g.width + col];
+                        if coverage > 0 {
+                            surface.blend_pixel(gx + col as i32, gy + row as i32, color, coverage);
+                        }
+                    }
+                }
+            }
+            pen += g.advance;
+        }
+    }
 }
 
 /// Pack an opaque-ish colour to `0x00RRGGBB` (alpha dropped; the surface is

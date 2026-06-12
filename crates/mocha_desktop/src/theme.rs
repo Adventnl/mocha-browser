@@ -49,29 +49,31 @@ pub struct BrowserTheme {
 
 impl Default for BrowserTheme {
     fn default() -> BrowserTheme {
+        // A modern light theme in the spirit of current mainstream browsers
+        // (neutral greys, a blue accent), without copying any brand palette.
         BrowserTheme {
-            window_background: rgb(0xf7, 0xf7, 0xf8),
-            tab_strip_background: rgb(0xe9, 0xea, 0xec),
-            toolbar_background: rgb(0xf5, 0xf6, 0xf7),
+            window_background: rgb(0xde, 0xe1, 0xe6),
+            tab_strip_background: rgb(0xde, 0xe1, 0xe6),
+            toolbar_background: rgb(0xff, 0xff, 0xff),
             active_tab_background: rgb(0xff, 0xff, 0xff),
-            inactive_tab_background: rgb(0xda, 0xdc, 0xe0),
-            tab_hover_background: rgb(0xe2, 0xe4, 0xe7),
+            inactive_tab_background: rgb(0xd2, 0xd6, 0xdc),
+            tab_hover_background: rgb(0xe8, 0xea, 0xed),
             tab_text: rgb(0x20, 0x21, 0x24),
-            address_bar_background: rgb(0xff, 0xff, 0xff),
-            address_bar_border: rgb(0xc9, 0xcb, 0xce),
-            address_bar_focused_border: rgb(0x3b, 0x82, 0xf6),
+            address_bar_background: rgb(0xf1, 0xf3, 0xf4),
+            address_bar_border: rgb(0xf1, 0xf3, 0xf4),
+            address_bar_focused_border: rgb(0x1a, 0x73, 0xe8),
             address_bar_text: rgb(0x20, 0x21, 0x24),
-            address_bar_placeholder: rgb(0x8a, 0x8d, 0x93),
-            button_hover_background: rgb(0xe2, 0xe4, 0xe7),
-            button_active_background: rgb(0xd0, 0xd3, 0xd7),
+            address_bar_placeholder: rgb(0x5f, 0x63, 0x68),
+            button_hover_background: rgb(0xe8, 0xea, 0xed),
+            button_active_background: rgb(0xd8, 0xda, 0xdd),
             page_background: rgb(0xff, 0xff, 0xff),
-            icon: rgb(0x45, 0x47, 0x4d),
-            icon_disabled: rgb(0xb4, 0xb6, 0xbb),
+            icon: rgb(0x5f, 0x63, 0x68),
+            icon_disabled: rgb(0xbd, 0xc1, 0xc6),
             text_secondary: rgb(0x5f, 0x63, 0x68),
-            chrome_border: rgb(0xd0, 0xd2, 0xd6),
+            chrome_border: rgb(0xda, 0xdc, 0xe0),
             card_background: rgb(0xff, 0xff, 0xff),
-            card_border: rgb(0xe0, 0xe2, 0xe6),
-            error_accent: rgb(0xb3, 0x3a, 0x2e),
+            card_border: rgb(0xe3, 0xe5, 0xe8),
+            error_accent: rgb(0xd9, 0x3a, 0x2e),
         }
     }
 }

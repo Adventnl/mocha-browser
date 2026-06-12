@@ -572,6 +572,7 @@ dependencies = [
  "mocha_paint",
  "mocha_raster",
  "mocha_storage",
+ "mocha_text",
  "mocha_url",
 ]
 
@@ -698,6 +699,7 @@ version = "0.1.0"
 dependencies = [
  "mocha_error",
  "mocha_style",
+ "mocha_text",
 ]
 
 [[package]]
@@ -774,6 +776,7 @@ dependencies = [
  "mocha_image",
  "mocha_layout",
  "mocha_paint",
+ "mocha_text",
 ]
 
 [[package]]
@@ -849,6 +852,13 @@ dependencies = [
  "mocha_css",
  "mocha_dom",
  "mocha_error",
+]
+
+[[package]]
+name = "mocha_text"
+version = "0.1.0"
+dependencies = [
+ "fontdue",
 ]
 
 [[package]]

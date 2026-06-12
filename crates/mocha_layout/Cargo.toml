@@ -7,5 +7,6 @@ repository.workspace = true
 description = "Simple box-model layout for Mocha Browser, consuming computed style (no CSS parsing)."
 
 [dependencies]
+mocha_text.workspace = true
 mocha_error.workspace = true
 mocha_style.workspace = true

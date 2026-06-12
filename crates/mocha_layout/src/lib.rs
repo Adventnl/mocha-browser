@@ -12,8 +12,10 @@
 //! - **anonymous block boxes** — inline content sitting among block siblings is
 //!   wrapped in [`LayoutBoxKind::AnonymousBlock`].
 //!
-//! Text is measured by estimate (`chars * font_size * 0.6`), not real font
-//! metrics; line height is `max_font_size * 1.2`.
+//! Text is measured through [`mocha_text`]: real proportional glyph metrics when
+//! a system font is active, otherwise the historical estimate
+//! (`chars * font_size * 0.6`, line height `font_size * 1.2`) so output stays
+//! deterministic in tests and on fontless systems.
 
 mod block;
 mod box_tree;

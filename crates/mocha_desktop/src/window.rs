@@ -34,6 +34,9 @@ const DRAG_THRESHOLD: f32 = 8.0;
 /// window is closed (or Escape). The caller decides what the first tab shows:
 /// a loaded document, the home page, or an internal error page.
 pub fn run(mut app: BrowserAppState, width: u32, height: u32) -> MochaResult<()> {
+    // Activate real, proportional, anti-aliased text for page content (the
+    // engine falls back to the debug font if no system font is found).
+    mocha_text::init_system_font();
     drain_console(&app);
 
     let mut window = Window::new(
