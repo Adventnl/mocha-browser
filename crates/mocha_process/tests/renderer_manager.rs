@@ -44,9 +44,13 @@ fn render_basic_document_in_child_process() {
 
 #[test]
 fn render_error_returns_error_not_panic() {
+    // A missing local file is a deterministic, offline render failure: the child
+    // returns a "renderer error" rather than panicking, and stays alive. (A real
+    // URL is no longer a reliable error source now that the engine renders real
+    // pages instead of rejecting them — Milestone 23.)
     let mut renderer = RendererProcess::spawn_with_path(renderer_bin()).unwrap();
     let err = renderer
-        .render_document("https://example.com/", 800, 600)
+        .render_document(&example_path("does/not/exist.html"), 800, 600)
         .unwrap_err();
     assert!(err.to_string().contains("renderer error"));
     assert!(renderer.is_alive());

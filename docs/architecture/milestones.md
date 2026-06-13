@@ -1,6 +1,6 @@
 # Milestone Roadmap
 
-Mocha Browser is built one milestone at a time. **Milestones 1–21 are implemented
+Mocha Browser is built one milestone at a time. **Milestones 1–23 are implemented
 today**; everything after them is direction, not code. Each milestone lists its
 goal, what is explicitly not included, and how completion is verified.
 
@@ -321,12 +321,56 @@ goal, what is explicitly not included, and how completion is verified.
   the full workspace gate, and a live load:
   `cargo run -p mocha_shell -- https://example.com/`.
 
-## Beyond Milestone 21 (direction, not code)
+## Milestone 22: Text quality — real font metrics — complete
 
-- **Expand compatibility coverage:** more cases, a server-backed compat mode for
-  cookies/storage/CSP, and broader categories — without promising full web
-  compatibility or importing web-platform-tests.
-- **Text quality** (real font metrics/glyph rasterization, font fallback, line
-  breaking), **JS/DOM and CSS/layout improvements**, **stronger sandboxing**,
-  **performance work**, **accessibility**, and **DevTools growth** — each a
-  separate, honest milestone.
+- **Goal:** replace the estimated, fixed-advance text path with **real
+  proportional font metrics and glyph rasterization** in the desktop shell
+  (system font loading and a real text-measurement path), plus a modern visual
+  theme.
+- **Not included:** web fonts (`@font-face`), complex text shaping / bidi /
+  ligatures, subpixel/hinted rendering, or rich font-fallback chains.
+- **Verification:** the full workspace gate; the desktop window renders page text
+  with measured proportional fonts instead of fixed-advance estimates.
+
+## Milestone 23: Forgiving HTML parsing — real content pages render — complete
+
+- **Goal:** stop the pipeline aborting the whole page on the first unrecognized
+  construct, so real pages render. The HTML tokenizer and tree builder become
+  **forgiving** (any tag accepted; malformed/mismatched/unclosed markup recovers;
+  implied end tags for `<p>` / list items / table cells; the full void-element
+  set; HTML character-reference decoding). The user-agent stylesheet gains the
+  common content tags (headings `h1`–`h6` bold, inline text semantics, lists
+  `ul`/`ol`/`li` with bullet/number markers, sectioning elements,
+  `blockquote`/`pre`, non-rendered head metadata). And the engine **fails open**:
+  a stylesheet, script, or image it cannot process is **skipped** and recorded as
+  a render *diagnostic* (surfaced in the desktop "N features not supported" badge,
+  the terminal shell's stderr, and the DevTools snapshot) instead of aborting.
+  Real content pages (e.g. `https://example.com/`, blogs, docs) now render their
+  text, headings, lists, links, and images.
+- **Not included:** the full HTML5 tree-construction algorithm (insertion modes,
+  foster parenting); **per-declaration CSS recovery** (an unsupported stylesheet
+  is still skipped wholesale — broader/finer CSS support is Milestone 24);
+  growing the JavaScript engine; HTTP/2-3 or Brotli; and app-style sites whose UI
+  is built by modern JavaScript.
+- **Verification:** `mocha_html` recovery / entity / implied-tag tests;
+  `mocha_style` UA-default + list-marker tests; `mocha_engine` fail-open tests (a
+  realistic document renders; unsupported CSS and an external script are skipped
+  with diagnostics); updated shell/integration tests asserting render-not-abort;
+  a `mocha_desktop` diagnostics-badge test; the updated `mocha_compat` manifest;
+  the full workspace gate; and a live load —
+  `cargo run -p mocha_shell -- https://example.com/` renders the page text
+  (which previously aborted on `<head>`).
+
+## Beyond Milestone 23 (direction, not code)
+
+- **Broaden CSS** (Milestone 24 direction): per-declaration error recovery (skip
+  the unsupported declaration, keep the rest of the sheet) plus the highest-impact
+  real-web features — `rgb()/rgba()/hsl()`, `%`/`em`/`rem`, `line-height`,
+  `text-align`, `font-family`, and common shorthands.
+- **Grow the JavaScript engine** toward modern ECMAScript in honest increments
+  (`try`/`catch`, classes, a real event loop + promises, `async`/`await`,
+  modules), so more real pages' scripts run instead of being skipped.
+- **Networking depth** (Brotli / `deflate`, keep-alive, HTTP/2), **layout depth**
+  (flexbox, positioning, floats, grid), **expanded compatibility coverage**,
+  **stronger sandboxing**, **performance**, **accessibility**, and **DevTools
+  growth** — each a separate, honest milestone.

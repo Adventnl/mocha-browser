@@ -2,7 +2,6 @@
 //! over local files and a local HTTP test server, plus cascade order and content
 //! type validation. No public internet is used.
 
-use mocha_error::MochaError;
 use mocha_net::test_server::{Reply, TestServer};
 use mocha_shell::{run_file, run_html, DisplayCommand};
 
@@ -79,7 +78,9 @@ fn stylesheet_order_and_inline_precedence_are_correct() {
 }
 
 #[test]
-fn missing_stylesheet_errors_clearly() {
+fn missing_stylesheet_is_skipped_not_fatal() {
+    // Milestone 23 fail-open: a stylesheet that 404s is skipped (the page renders
+    // with UA defaults) rather than aborting the whole document.
     let server = TestServer::start(vec![(
         "/index.html".to_string(),
         Reply::Html(
@@ -87,14 +88,14 @@ fn missing_stylesheet_errors_clearly() {
                 .to_string(),
         ),
     )]);
-    assert!(matches!(
-        run_file(&server.url("/index.html")).unwrap_err(),
-        MochaError::Network(_)
-    ));
+    let commands = run_file(&server.url("/index.html")).unwrap();
+    assert!(commands
+        .iter()
+        .any(|c| matches!(c, DisplayCommand::DrawText { text, .. } if text == "x")));
 }
 
 #[test]
-fn stylesheet_with_wrong_content_type_is_rejected() {
+fn stylesheet_with_wrong_content_type_is_skipped_not_fatal() {
     let server = TestServer::start(vec![
         (
             "/index.html".to_string(),
@@ -109,10 +110,10 @@ fn stylesheet_with_wrong_content_type_is_rejected() {
             Reply::Html("p { color: red; }".to_string()),
         ),
     ]);
-    assert!(matches!(
-        run_file(&server.url("/index.html")).unwrap_err(),
-        MochaError::Network(_)
-    ));
+    let commands = run_file(&server.url("/index.html")).unwrap();
+    assert!(commands
+        .iter()
+        .any(|c| matches!(c, DisplayCommand::DrawText { text, .. } if text == "x")));
 }
 
 #[test]
@@ -124,11 +125,12 @@ fn link_text_is_not_painted_and_inline_style_still_works() {
 }
 
 #[test]
-fn in_memory_external_link_is_unsupported() {
-    // run_html has no base URL, so an external <link> cannot be resolved.
+fn in_memory_external_link_is_skipped_not_fatal() {
+    // run_html has no base URL, so an external <link> cannot be resolved; it is
+    // skipped (fail-open) and the inline content still renders.
     let html = r#"<html><body><link rel="stylesheet" href="x.css"><p>Hi</p></body></html>"#;
-    assert!(matches!(
-        run_html(html).unwrap_err(),
-        MochaError::UnsupportedFeature(_)
-    ));
+    let commands = run_html(html).unwrap();
+    assert!(commands
+        .iter()
+        .any(|c| matches!(c, DisplayCommand::DrawText { text, .. } if text == "Hi")));
 }

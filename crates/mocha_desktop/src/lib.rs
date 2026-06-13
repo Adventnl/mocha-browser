@@ -48,6 +48,7 @@ pub struct DesktopPageState {
     scroll_y: f32,
     focused: Option<NodeId>,
     console_output: Vec<String>,
+    diagnostics: Vec<String>,
 }
 
 impl DesktopPageState {
@@ -69,6 +70,7 @@ impl DesktopPageState {
             scroll_y: 0.0,
             focused: None,
             console_output: page.console_output,
+            diagnostics: page.diagnostics,
         };
         state.clamp_scroll();
         state
@@ -132,6 +134,13 @@ impl DesktopPageState {
     /// Captured `console.log` output from the page's scripts.
     pub fn console_output(&self) -> &[String] {
         &self.console_output
+    }
+
+    /// Non-fatal render diagnostics: features (stylesheets, scripts, images) that
+    /// were skipped while the page still rendered (Milestone 23). Empty when the
+    /// page rendered with no skipped features.
+    pub fn diagnostics(&self) -> &[String] {
+        &self.diagnostics
     }
 
     /// The document base URL/final load URL, if this page came from file/http.
@@ -355,6 +364,30 @@ mod tests {
 
     fn form_state() -> DesktopPageState {
         DesktopPageState::from_html(FORM_HTML, 800, 600).unwrap()
+    }
+
+    #[test]
+    fn unsupported_features_surface_as_diagnostics_not_a_failed_load() {
+        // A page with unsupported CSS still loads (fail-open) and records a
+        // diagnostic rather than producing a load error.
+        let state = DesktopPageState::from_html(
+            "<html><body><style>p { float: left; }</style><p>Hi</p></body></html>",
+            800,
+            600,
+        )
+        .unwrap();
+        assert!(!state.diagnostics().is_empty());
+        assert!(state
+            .display_list()
+            .iter()
+            .any(|c| matches!(c, DisplayCommand::DrawText { text, .. } if text == "Hi")));
+    }
+
+    #[test]
+    fn a_clean_page_has_no_diagnostics() {
+        let state =
+            DesktopPageState::from_html("<html><body><p>Hi</p></body></html>", 800, 600).unwrap();
+        assert!(state.diagnostics().is_empty());
     }
 
     #[test]

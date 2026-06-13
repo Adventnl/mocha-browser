@@ -55,24 +55,22 @@ category = "html"
 expect_contains = "DrawText \"Link\""
 
 [[test]]
-name = "html_unsupported_title_tag"
+name = "html_title_tag_renders"
 path = "html/title.html"
 category = "html"
-status = "unsupported"
-expect_error_contains = "unsupported"
+expect_contains = "DrawText \"Body\""
 
 [[test]]
-name = "html_mismatched_tag_errors"
+name = "html_mismatched_tag_recovers"
 path = "html/mismatched-tag.html"
 category = "html"
-expect_error_contains = "mismatched closing tag"
+expect_contains = "DrawText \"oops\""
 
 [[test]]
-name = "html_unsupported_tag"
+name = "html_unknown_tag_renders"
 path = "html/unsupported-tag.html"
 category = "html"
-status = "unsupported"
-expect_error_contains = "unsupported"
+expect_contains = "DrawText \"scrolls\""
 
 # ======================= CSS =======================
 
@@ -143,46 +141,43 @@ category = "css"
 expect_contains = "color=#ff0000"
 
 [[test]]
-name = "css_unsupported_media_query"
+# These CSS features are unsupported; the cascade skips the offending stylesheet
+# (a diagnostic is recorded) and the page still renders with UA defaults
+# (Milestone 23 fail-open), so each case asserts the content renders.
+name = "css_unsupported_media_query_skipped"
 path = "css/unsupported-media-query.html"
 category = "css"
-status = "unsupported"
-expect_error_contains = "unsupported"
+expect_contains = "DrawText \"x\""
 
 [[test]]
-name = "css_unsupported_pseudo_class"
+name = "css_unsupported_pseudo_class_skipped"
 path = "css/unsupported-pseudo-class.html"
 category = "css"
-status = "unsupported"
-expect_error_contains = "unsupported"
+expect_contains = "DrawText \"x\""
 
 [[test]]
-name = "css_unsupported_attribute_selector"
+name = "css_unsupported_attribute_selector_skipped"
 path = "css/unsupported-attribute-selector.html"
 category = "css"
-status = "unsupported"
-expect_error_contains = "unsupported"
+expect_contains = "DrawText \"x\""
 
 [[test]]
-name = "css_unsupported_rgb_function"
+name = "css_unsupported_rgb_function_skipped"
 path = "css/unsupported-rgb-function.html"
 category = "css"
-status = "unsupported"
-expect_error_contains = "unsupported"
+expect_contains = "DrawText \"x\""
 
 [[test]]
-name = "css_unsupported_calc"
+name = "css_unsupported_calc_skipped"
 path = "css/unsupported-calc.html"
 category = "css"
-status = "unsupported"
-expect_error_contains = "unsupported"
+expect_contains = "DrawText \"x\""
 
 [[test]]
-name = "css_unsupported_var"
+name = "css_unsupported_var_skipped"
 path = "css/unsupported-var.html"
 category = "css"
-status = "unsupported"
-expect_error_contains = "unsupported"
+expect_contains = "DrawText \"x\""
 
 # ======================= Layout =======================
 
@@ -309,24 +304,24 @@ mode = "devtools"
 expect_contains = "log hello 42"
 
 [[test]]
-name = "js_step_limit_stops_infinite_loop"
+# The infinite loop is still bounded by the step limit; the script is skipped
+# (a diagnostic is recorded) and the rest of the page renders (fail-open).
+name = "js_step_limit_skips_infinite_loop"
 path = "js/step-limit.html"
 category = "js"
-expect_error_contains = "step limit"
+expect_contains = "DrawText \"ok\""
 
 [[test]]
-name = "js_unsupported_class"
+name = "js_unsupported_class_skipped"
 path = "js/unsupported-class.html"
 category = "js"
-status = "unsupported"
-expect_error_contains = "javascript error"
+expect_contains = "DrawText \"ok\""
 
 [[test]]
-name = "js_unsupported_try_catch"
+name = "js_unsupported_try_catch_skipped"
 path = "js/unsupported-try-catch.html"
 category = "js"
-status = "unsupported"
-expect_error_contains = "javascript error"
+expect_contains = "DrawText \"ok\""
 
 # ======================= DOM =======================
 
@@ -379,10 +374,10 @@ category = "dom"
 expect_contains = "DrawText \"Inj\""
 
 [[test]]
-name = "dom_script_error_aborts_render"
+name = "dom_script_error_is_skipped"
 path = "dom/script-error-aborts.html"
 category = "dom"
-expect_error_contains = "javascript error"
+expect_contains = "DrawText \"x\""
 
 # ======================= Events =======================
 
@@ -496,24 +491,26 @@ category = "images"
 expect_contains = "DrawImage"
 
 [[test]]
-name = "images_missing_image_errors"
+name = "images_missing_image_skipped"
 path = "images/missing-image.html"
 category = "images"
-expect_error_contains = "cannot read"
+expect_contains = "DrawText \"ok\""
 
 # ======================= Storage =======================
 
 [[test]]
-name = "storage_localstorage_requires_origin"
+# Web storage on an opaque origin still cannot be used, but the failing script is
+# skipped (a diagnostic is recorded) and the rest of the page renders (fail-open).
+name = "storage_localstorage_opaque_origin_skipped"
 path = "storage/localstorage-requires-origin.html"
 category = "storage"
-expect_error_contains = "web storage"
+expect_contains = "DrawText \"ok\""
 
 [[test]]
-name = "storage_cookie_requires_origin"
+name = "storage_cookie_opaque_origin_skipped"
 path = "storage/cookie-requires-origin.html"
 category = "storage"
-expect_error_contains = "web storage"
+expect_contains = "DrawText \"ok\""
 
 [[test]]
 name = "storage_localstorage_set_get"
@@ -556,11 +553,10 @@ status = "unsupported"
 expect_error_contains = "text/html"
 
 [[test]]
-name = "security_external_script_src_unsupported"
+name = "security_external_script_src_skipped"
 path = "security/external-script-src.html"
 category = "security"
-status = "unsupported"
-expect_error_contains = "unsupported"
+expect_contains = "DrawText \"ok\""
 
 [[test]]
 name = "security_csp_style_src"

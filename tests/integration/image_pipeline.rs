@@ -5,7 +5,6 @@
 
 use std::fs;
 
-use mocha_error::MochaError;
 use mocha_net::test_server::{Reply, TestServer};
 use mocha_shell::{run_file, DisplayCommand};
 
@@ -147,52 +146,58 @@ fn block_images_stack_vertically() {
     assert!(images[1].2 >= images[0].2 + images[0].4);
 }
 
+// Milestone 23 fail-open: a `<img>` that cannot be loaded/decoded becomes a
+// transparent placeholder and the page still renders (no abort). Earlier
+// milestones aborted the whole render on these cases; that is no longer fatal.
+
 #[test]
-fn http_text_plain_image_is_rejected() {
+fn http_text_plain_image_is_skipped_not_fatal() {
     let server = TestServer::start(vec![
         (
             "/index.html".to_string(),
-            Reply::Html(r#"<html><body><img src="pic.png"></body></html>"#.to_string()),
+            Reply::Html(r#"<html><body><img src="pic.png"><p>after</p></body></html>"#.to_string()),
         ),
         (
             "/pic.png".to_string(),
             Reply::Text("definitely not an image".to_string()),
         ),
     ]);
-    assert!(matches!(
-        run_file(&server.url("/index.html")).unwrap_err(),
-        MochaError::Network(_)
-    ));
+    let commands = run_file(&server.url("/index.html")).unwrap();
+    assert!(commands
+        .iter()
+        .any(|c| matches!(c, DisplayCommand::DrawText { text, .. } if text == "after")));
 }
 
 #[test]
-fn missing_image_fails_render_clearly() {
+fn missing_image_is_skipped_not_fatal() {
     let server = TestServer::start(vec![(
         "/index.html".to_string(),
-        Reply::Html(r#"<html><body><img src="gone.png"></body></html>"#.to_string()),
+        Reply::Html(r#"<html><body><img src="gone.png"><p>after</p></body></html>"#.to_string()),
     )]);
-    // The render fails (and emits no DrawImage) when the image cannot be loaded.
-    assert!(run_file(&server.url("/index.html")).is_err());
+    let commands = run_file(&server.url("/index.html")).unwrap();
+    assert!(commands
+        .iter()
+        .any(|c| matches!(c, DisplayCommand::DrawText { text, .. } if text == "after")));
 }
 
 #[test]
-fn missing_src_errors_clearly() {
+fn missing_src_image_is_skipped_not_fatal() {
     let server = TestServer::start(vec![(
         "/index.html".to_string(),
-        Reply::Html(r#"<html><body><img alt="no source"></body></html>"#.to_string()),
+        Reply::Html(r#"<html><body><img alt="no source"><p>after</p></body></html>"#.to_string()),
     )]);
-    assert!(matches!(
-        run_file(&server.url("/index.html")).unwrap_err(),
-        MochaError::Layout(_)
-    ));
+    let commands = run_file(&server.url("/index.html")).unwrap();
+    assert!(commands
+        .iter()
+        .any(|c| matches!(c, DisplayCommand::DrawText { text, .. } if text == "after")));
 }
 
 #[test]
-fn corrupt_image_fails_render_clearly() {
+fn corrupt_image_is_skipped_not_fatal() {
     let server = TestServer::start(vec![
         (
             "/index.html".to_string(),
-            Reply::Html(r#"<html><body><img src="pic.png"></body></html>"#.to_string()),
+            Reply::Html(r#"<html><body><img src="pic.png"><p>after</p></body></html>"#.to_string()),
         ),
         (
             "/pic.png".to_string(),
@@ -202,8 +207,8 @@ fn corrupt_image_fails_render_clearly() {
             },
         ),
     ]);
-    assert!(matches!(
-        run_file(&server.url("/index.html")).unwrap_err(),
-        MochaError::Image(_)
-    ));
+    let commands = run_file(&server.url("/index.html")).unwrap();
+    assert!(commands
+        .iter()
+        .any(|c| matches!(c, DisplayCommand::DrawText { text, .. } if text == "after")));
 }

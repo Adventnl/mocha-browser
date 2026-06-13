@@ -1,12 +1,14 @@
 # Limitations
 
-Mocha Browser is at **Milestone 20** (multi-tab desktop shell with a SQLite
+Mocha Browser is at **Milestone 23** (multi-tab desktop shell with a SQLite
 profile, minimal cookies + origin-aware web storage, a security policy
 foundation, a multi-process prototype, a sandbox prototype, a headless
-DevTools snapshot foundation, and a compatibility test harness, crash corpus,
-visual regression, and performance baseline). It is an
-experimental engine with a minimal desktop frontend, not a usable browser. This document is deliberately
-explicit about what does not exist so the project never overclaims.
+DevTools snapshot foundation, a compatibility test harness, crash corpus,
+visual regression, and performance baseline; real proportional page font metrics
+in M22; and forgiving, fail-open HTML parsing that lets real content pages render
+in M23). It is an experimental engine with a minimal desktop frontend, not a
+usable browser. This document is deliberately explicit about what does not exist
+so the project never overclaims.
 
 The supported subset is enumerated precisely in
 [compatibility-level-1.md](compatibility-level-1.md) and held in place by the
@@ -34,9 +36,12 @@ says nothing about modern-web compatibility.
   hand-rolled). Limits: no certificate-error interstitial or override, no
   revocation checking (CRL/OCSP), no HSTS, no client certificates, no OS trust
   store, and TLS state is not surfaced in the UI (no padlock).
-- **Real HTML5 parsing algorithm** — the tokenizer and tree builder accept a
-  tiny hand-written grammar and a fixed tag set; there is no spec-compliant
-  tokenization, no insertion modes, and no error recovery.
+- **Real HTML5 parsing algorithm** — the tokenizer and tree builder are a small
+  hand-written grammar, not the spec's state machine: no insertion modes and no
+  foster parenting. Since Milestone 23 they are **forgiving** — any tag name is
+  accepted, malformed/mismatched/unclosed markup recovers, a few implied end tags
+  are applied, and HTML character references are decoded — but this is still a
+  pragmatic subset, not spec-compliant parsing.
 - **Incremental invalidation** — scripts mutate the DOM, but style/layout/paint
   re-run **once** over the final DOM (coarse invalidation); there is no
   incremental relayout.
@@ -84,7 +89,13 @@ says nothing about modern-web compatibility.
   [tabs-and-session.md](tabs-and-session.md),
   [profile-storage.md](profile-storage.md), and
   [cookies-and-web-storage.md](cookies-and-web-storage.md).
-- **Modern web compatibility** — Mocha cannot browse real websites.
+- **Modern web compatibility** — since Milestone 23, Mocha can render real
+  *content* pages (their text, headings, lists, links, and images) because the
+  pipeline now **fails open**: a stylesheet, script, or image it cannot process is
+  skipped (and reported as a diagnostic) instead of aborting the whole page. It
+  still cannot run app-style sites that build their UI with modern JavaScript, and
+  most modern CSS is not yet *applied* (the offending stylesheet is currently
+  skipped wholesale — finer-grained CSS recovery is a later milestone).
 
 ## CSS support (Milestone 2)
 
@@ -104,7 +115,10 @@ Supported:
   keywords for `display` (`block`/`inline`/`none`) and `font-weight`
   (`normal`/`bold`).
 
-Not supported (returns a clear error):
+Not supported — since Milestone 23, encountering any of these makes the cascade
+**skip that whole stylesheet** (a diagnostic is recorded) and render with what
+remains, rather than aborting the page; finer-grained per-declaration recovery is
+a later milestone:
 
 - `!important`, origin layers, user styles, animations, transitions.
 - Media queries, pseudo-classes, pseudo-elements, attribute selectors.
@@ -244,23 +258,29 @@ See [forms-and-controls.md](forms-and-controls.md) for detail.
 - **`form.submit()` never navigates** — it records a request the embedder may
   inspect; the shell only notes it on stderr.
 
-## Supported HTML tags
+## HTML tags
 
-Only these element names are accepted. Any other tag is an `UnsupportedFeature`
-error (it is **not** silently skipped):
-
-```text
-html  body  h1  h2  p  div  span  a  style  script  link  img
-form  input  button  label  textarea  select  option
-```
-
-`style`, `script`, and `textarea` are raw-text elements; `link`, `img`, and
-`input` are void elements. Plus doctype declarations and comments. (`<link>`
+Since Milestone 23 **any** element name is accepted; unknown tags become ordinary
+elements (block-level by default). The user-agent stylesheet gives sensible
+defaults to the common content tags — headings (`h1`–`h6`, bold), inline text
+semantics (`em`/`strong`/`code`/`sub`/`sup`/…), lists (`ul`/`ol`/`li`, with
+bullet/number markers), sectioning elements, `blockquote`, `pre` — and treats
+head metadata (`head`/`meta`/`title`/`link`/`style`/`script`/`noscript`) as
+non-rendered. `style`, `script`, and `textarea` are raw-text elements; the full
+HTML void set (`area base br col embed hr img input link meta param source track
+wbr`) is recognized. Plus doctype declarations and comments. (`<link>`
 participates only as `rel="stylesheet"`; `<script src>` is parsed but not
-executed.)
+executed — it is skipped with a diagnostic.)
 
 ## Honesty rule
 
-Unsupported behaviour fails with a clear `MochaError` (commonly
-`UnsupportedFeature`, `NotImplemented`, `Parse`, `Layout`, or `InvalidUrl`).
 Mocha never returns a fake or placeholder result that pretends a feature works.
+Since Milestone 23 the *granularity* of failure is per-feature, not per-page:
+when a stylesheet, script, or image cannot be processed it is **skipped** and the
+reason is recorded as a render diagnostic (surfaced in the desktop "N features not
+supported" badge, the terminal shell's stderr, and the DevTools snapshot) while
+the rest of the page renders. This matches how the HTML/CSS specs define
+forward-compatible parsing (unknown constructs are dropped, not fatal). Genuinely
+fatal conditions still fail with a clear `MochaError` (commonly `Network` for a
+transport failure, `UnsupportedFeature` for a non-HTML content type, `Io`, or
+`InvalidUrl`).

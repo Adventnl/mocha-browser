@@ -1,12 +1,25 @@
-//! Minimal HTML parsing for Mocha Browser: tokenizer plus a stack-based tree
-//! builder that produces a [`mocha_dom::Document`].
+//! Minimal but **forgiving** HTML parsing for Mocha Browser: a tokenizer plus a
+//! stack-based tree builder that produces a [`mocha_dom::Document`].
 //!
-//! **This is not the [HTML5 tree construction algorithm].** There is no error
-//! recovery, no implied tags, and no foster parenting. `<style>` and `<script>`
-//! are accepted and their raw text is captured as a text child (`<style>` CSS is
-//! extracted later by `mocha_style`; `<script>` JavaScript is executed by the
-//! shell pipeline via `mocha_js_dom`). Only a small set of element names is
-//! accepted; anything else is a clear [`MochaError`] rather than a silent skip.
+//! **This is not the full [HTML5 tree construction algorithm]** — there are no
+//! insertion modes and no foster parenting — but, unlike earlier milestones, it
+//! now *recovers* from real-world markup instead of rejecting it:
+//!
+//! - **Any element name is accepted.** Unknown tags become ordinary elements
+//!   (they style as `display: block` by default), so a page is never rejected
+//!   for containing `<head>`, `<nav>`, `<table>`, `<article>`, … .
+//! - **Mismatched and stray end tags recover.** An end tag closes to the nearest
+//!   matching open ancestor (auto-closing any unclosed elements in between); an
+//!   end tag with no matching open element is ignored.
+//! - **A handful of implied end tags** are applied so common optional-tag markup
+//!   nests correctly: a block-level start tag closes an open `<p>`, and a new
+//!   `<li>`/`<option>`/`<dt>`/`<dd>`/`<tr>`/`<td>`/`<th>` closes the previous one.
+//! - **Unclosed tags at end-of-input are auto-closed** rather than erroring.
+//!
+//! `<style>`/`<script>`/`<textarea>` raw text is captured as a text child
+//! (`<style>` CSS is extracted by `mocha_style`; `<script>` JavaScript is run by
+//! the engine via `mocha_js_dom`; `<textarea>` text is the control's value).
+//! The only errors `parse_html` can still return are DOM-invariant violations.
 //!
 //! [HTML5 tree construction algorithm]: https://html.spec.whatwg.org/multipage/parsing.html#tree-construction
 
@@ -15,29 +28,28 @@ mod tokenizer;
 pub use tokenizer::{tokenize, HtmlToken};
 
 use mocha_dom::{Document, NodeId};
-use mocha_error::{MochaError, MochaResult};
+use mocha_error::MochaResult;
 
-/// Element names the tree builder accepts.
-///
-/// `style` and `script` are accepted so their raw text can be extracted later
-/// (`style` for CSS, `script` for inline JavaScript); their contents are not laid
-/// out or painted. `textarea` also uses raw text: its content becomes the
-/// control's initial value (Milestone 10). Encountering any other tag (start or
-/// end) is an [`MochaError::UnsupportedFeature`] error, not a silent skip.
-pub const SUPPORTED_TAGS: &[&str] = &[
-    "html", "body", "h1", "h2", "p", "div", "span", "a", "style", "script", "link", "img", "form",
-    "input", "button", "label", "textarea", "select", "option",
+/// Void elements have no content and no end tag. They are appended but never
+/// pushed onto the open-element stack. This is the full HTML void-element set.
+pub const VOID_TAGS: &[&str] = &[
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source",
+    "track", "wbr",
 ];
 
-/// Void elements have no content and no end tag (e.g. `<link rel="stylesheet">`,
-/// `<img src="...">`, and `<input type="text">`). They are appended but never
-/// pushed onto the open-element stack.
-pub const VOID_TAGS: &[&str] = &["link", "img", "input"];
+/// Inline-level element names, used to decide whether a start tag is "block-like"
+/// for implied `<p>` closing. Anything not listed here is treated as block-level.
+const INLINE_TAGS: &[&str] = &[
+    "a", "span", "em", "strong", "b", "i", "u", "s", "small", "code", "kbd", "samp", "var", "cite",
+    "q", "abbr", "mark", "sub", "sup", "time", "img", "label", "input", "button", "textarea",
+    "select", "br", "font", "big", "tt", "wbr",
+];
 
 /// Parse an HTML source string into a [`Document`].
 ///
-/// The pipeline is: [`tokenize`] then a stack-based tree builder. Mismatched or
-/// unclosed tags, and unsupported tags, are reported as errors.
+/// The pipeline is [`tokenize`] then a stack-based tree builder. Malformed markup
+/// is recovered (see the module docs); the result is always a usable document
+/// unless a DOM-tree invariant is violated.
 pub fn parse_html(input: &str) -> MochaResult<Document> {
     let tokens = tokenize(input)?;
     build_tree(tokens)
@@ -70,7 +82,7 @@ fn build_tree(tokens: Vec<HtmlToken>) -> MochaResult<Document> {
                 attributes,
                 self_closing,
             } => {
-                check_supported(&name)?;
+                close_implied(&mut open, &name);
                 let element = document.create_element(name.clone(), attributes);
                 document.append_child(current_parent(root, &open), element)?;
                 if !self_closing && !VOID_TAGS.contains(&name.as_str()) {
@@ -78,32 +90,19 @@ fn build_tree(tokens: Vec<HtmlToken>) -> MochaResult<Document> {
                 }
             }
             HtmlToken::EndTag { name } => {
-                check_supported(&name)?;
-                match open.last() {
-                    None => {
-                        return Err(MochaError::Parse(format!(
-                            "stray closing tag </{name}> with no open element"
-                        )));
-                    }
-                    Some((_, open_name)) if *open_name != name => {
-                        return Err(MochaError::Parse(format!(
-                            "mismatched closing tag: expected </{open_name}> but found </{name}>"
-                        )));
-                    }
-                    Some(_) => {
-                        open.pop();
-                    }
+                if name.is_empty() {
+                    continue;
+                }
+                // Close to the nearest matching open ancestor, auto-closing any
+                // unclosed elements in between. A stray end tag is ignored.
+                if let Some(pos) = open.iter().rposition(|(_, open_name)| *open_name == name) {
+                    open.truncate(pos);
                 }
             }
         }
     }
 
-    if let Some((_, name)) = open.last() {
-        return Err(MochaError::Parse(format!(
-            "unclosed tag: <{name}> was never closed"
-        )));
-    }
-
+    // Any still-open elements at end-of-input are auto-closed (no error).
     Ok(document)
 }
 
@@ -111,13 +110,34 @@ fn current_parent(root: NodeId, open: &[(NodeId, String)]) -> NodeId {
     open.last().map(|(id, _)| *id).unwrap_or(root)
 }
 
-fn check_supported(name: &str) -> MochaResult<()> {
-    if SUPPORTED_TAGS.contains(&name) {
-        return Ok(());
+/// Apply implied end tags before inserting a `new_tag` start tag: pop open
+/// elements that HTML would implicitly close. Handles the common optional-tag
+/// cases (`p`, list items, definition lists, table rows/cells) — not the full
+/// spec — so real-world markup nests the way authors expect.
+fn close_implied(open: &mut Vec<(NodeId, String)>, new_tag: &str) {
+    while let Some((_, top)) = open.last() {
+        let top = top.as_str();
+        let implied = match new_tag {
+            "li" => top == "li",
+            "dt" | "dd" => top == "dt" || top == "dd",
+            "option" => top == "option" || top == "optgroup",
+            "optgroup" => top == "option" || top == "optgroup",
+            "tr" => top == "tr" || top == "td" || top == "th",
+            "td" | "th" => top == "td" || top == "th",
+            "thead" | "tbody" | "tfoot" => top == "tr" || top == "td" || top == "th",
+            _ => false,
+        } || (top == "p" && is_block_level(new_tag));
+        if implied {
+            open.pop();
+        } else {
+            break;
+        }
     }
-    Err(MochaError::UnsupportedFeature(format!(
-        "tag <{name}> is not supported"
-    )))
+}
+
+/// Whether a start tag is block-level for the purpose of implied `<p>` closing.
+fn is_block_level(tag: &str) -> bool {
+    !INLINE_TAGS.contains(&tag)
 }
 
 #[cfg(test)]
@@ -182,9 +202,17 @@ mod tests {
     }
 
     #[test]
-    fn reject_unsupported_tag() {
-        let error = parse_html("<marquee>").unwrap_err();
-        assert!(matches!(error, MochaError::UnsupportedFeature(_)));
+    fn any_tag_is_accepted() {
+        // Tags outside the old allow-list now parse as ordinary elements.
+        let document = parse_html(
+            "<html><head><title>T</title></head><body><nav><ul><li>x</li></ul></nav></body></html>",
+        )
+        .unwrap();
+        let tags = collect_tags(&document);
+        for expected in ["html", "head", "title", "body", "nav", "ul", "li"] {
+            assert!(tags.contains(&expected.to_string()), "missing <{expected}>");
+        }
+        assert_eq!(collect_text(&document), vec!["T", "x"]);
     }
 
     #[test]
@@ -207,30 +235,82 @@ mod tests {
     }
 
     #[test]
-    fn reject_mismatched_closing_tag() {
-        let error = parse_html("<p></div>").unwrap_err();
-        match error {
-            MochaError::Parse(message) => {
-                assert!(message.contains("expected </p>"));
-                assert!(message.contains("found </div>"));
-            }
-            other => panic!("expected Parse error, got {other:?}"),
-        }
+    fn mismatched_closing_tag_recovers() {
+        // `</div>` has no matching open <div>, so it is ignored; the <p> is then
+        // auto-closed at end-of-input. No error.
+        let document = parse_html("<p>hi</div>").unwrap();
+        assert_eq!(collect_tags(&document), vec!["p"]);
+        assert_eq!(collect_text(&document), vec!["hi"]);
     }
 
     #[test]
-    fn reject_unclosed_tag() {
-        let error = parse_html("<p>text").unwrap_err();
-        match error {
-            MochaError::Parse(message) => assert!(message.contains("unclosed")),
-            other => panic!("expected Parse error, got {other:?}"),
-        }
+    fn end_tag_auto_closes_intervening_open_elements() {
+        // </div> closes the <span> and <b> opened inside it.
+        let document = parse_html("<div><span><b>x</div>after").unwrap();
+        let order = document.traverse_depth_first(document.root_id()).unwrap();
+        let div = order[1];
+        // "after" is a sibling of the div (the div closed), not nested inside it.
+        let after = order
+            .iter()
+            .find(|&&id| matches!(&document.node(id).unwrap().kind, NodeKind::Text(t) if t.text == "after"))
+            .copied()
+            .unwrap();
+        assert_eq!(document.parent(after).unwrap(), Some(document.root_id()));
+        assert_ne!(document.parent(after).unwrap(), Some(div));
     }
 
     #[test]
-    fn reject_stray_end_tag() {
-        let error = parse_html("</p>").unwrap_err();
-        assert!(matches!(error, MochaError::Parse(_)));
+    fn unclosed_tag_is_auto_closed() {
+        let document = parse_html("<p>text").unwrap();
+        assert_eq!(collect_tags(&document), vec!["p"]);
+        assert_eq!(collect_text(&document), vec!["text"]);
+    }
+
+    #[test]
+    fn stray_end_tag_is_ignored() {
+        let document = parse_html("</p>hello").unwrap();
+        assert_eq!(collect_tags(&document), Vec::<String>::new());
+        assert_eq!(collect_text(&document), vec!["hello"]);
+    }
+
+    #[test]
+    fn block_start_tag_closes_open_paragraph() {
+        // `<p>a<p>b` and `<p>a<div>b` — the second block start closes the first <p>.
+        let document = parse_html("<p>a<p>b</p>").unwrap();
+        let order = document.traverse_depth_first(document.root_id()).unwrap();
+        let paragraphs: Vec<_> = order
+            .iter()
+            .filter(|&&id| document.tag_name(id).unwrap() == Some("p"))
+            .collect();
+        assert_eq!(paragraphs.len(), 2);
+        // The two <p> elements are siblings (the first did not contain the second).
+        assert_eq!(
+            document.parent(*paragraphs[1]).unwrap(),
+            document.parent(*paragraphs[0]).unwrap()
+        );
+    }
+
+    #[test]
+    fn list_item_auto_closes_previous_sibling() {
+        let document = parse_html("<ul><li>one<li>two</ul>").unwrap();
+        let ul = document
+            .traverse_depth_first(document.root_id())
+            .unwrap()
+            .into_iter()
+            .find(|&id| document.tag_name(id).unwrap() == Some("ul"))
+            .unwrap();
+        // Two <li> children, not nested.
+        assert_eq!(document.children(ul).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn full_void_set_does_not_capture_following_siblings() {
+        let document =
+            parse_html("<body><br><hr><meta charset=\"utf-8\"><p>after</p></body>").unwrap();
+        assert_eq!(
+            collect_tags(&document),
+            vec!["body", "br", "hr", "meta", "p"]
+        );
     }
 
     #[test]
@@ -253,9 +333,11 @@ mod tests {
     }
 
     #[test]
-    fn unterminated_style_is_rejected() {
-        let error = parse_html("<style>p { color: red; }").unwrap_err();
-        assert!(matches!(error, MochaError::Parse(_)));
+    fn unterminated_style_recovers() {
+        // No `</style>`: the CSS is captured to EOF as the style's text child.
+        let document = parse_html("<style>p { color: red; }").unwrap();
+        assert_eq!(collect_tags(&document), vec!["style"]);
+        assert_eq!(collect_text(&document), vec!["p { color: red; }"]);
     }
 
     #[test]
@@ -281,9 +363,10 @@ mod tests {
     }
 
     #[test]
-    fn unterminated_script_is_rejected() {
-        let error = parse_html("<script>doStuff();").unwrap_err();
-        assert!(matches!(error, MochaError::Parse(_)));
+    fn unterminated_script_recovers() {
+        let document = parse_html("<script>doStuff();").unwrap();
+        assert_eq!(collect_tags(&document), vec!["script"]);
+        assert_eq!(collect_text(&document), vec!["doStuff();"]);
     }
 
     #[test]
@@ -393,9 +476,10 @@ mod tests {
     }
 
     #[test]
-    fn unterminated_textarea_is_rejected() {
-        let error = parse_html("<textarea>oops").unwrap_err();
-        assert!(matches!(error, MochaError::Parse(_)));
+    fn unterminated_textarea_recovers() {
+        let document = parse_html("<textarea>oops").unwrap();
+        assert_eq!(collect_tags(&document), vec!["textarea"]);
+        assert_eq!(collect_text(&document), vec!["oops"]);
     }
 
     #[test]

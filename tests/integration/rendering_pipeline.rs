@@ -216,23 +216,22 @@ fn box_model_example_emits_backgrounds_and_borders() {
 }
 
 #[test]
-fn unsupported_css_property_fails_clearly() {
+fn unsupported_css_property_is_skipped_not_fatal() {
+    // Milestone 23 fail-open: an unsupported property is skipped, not fatal.
     let html = "<html><body><style>p { float: left; }</style><p>x</p></body></html>";
-    let error = run_html(html).unwrap_err();
-    assert!(matches!(
-        error,
-        mocha_error::MochaError::UnsupportedFeature(_)
-    ));
+    let commands = run_html(html).unwrap();
+    assert!(commands
+        .iter()
+        .any(|c| matches!(c, DisplayCommand::DrawText { text, .. } if text == "x")));
 }
 
 #[test]
-fn unsupported_css_unit_fails_clearly() {
+fn unsupported_css_unit_is_skipped_not_fatal() {
     let html = "<html><body><style>p { font-size: 2em; }</style><p>x</p></body></html>";
-    let error = run_html(html).unwrap_err();
-    assert!(matches!(
-        error,
-        mocha_error::MochaError::UnsupportedFeature(_)
-    ));
+    let commands = run_html(html).unwrap();
+    assert!(commands
+        .iter()
+        .any(|c| matches!(c, DisplayCommand::DrawText { text, .. } if text == "x")));
 }
 
 #[test]

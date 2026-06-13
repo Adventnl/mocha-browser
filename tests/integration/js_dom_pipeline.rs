@@ -7,7 +7,6 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use mocha_dom::Document;
-use mocha_error::MochaError;
 use mocha_js_dom::{collect_inline_scripts, DomRuntime};
 use mocha_shell::{run_html, DisplayCommand};
 
@@ -55,21 +54,22 @@ fn script_style_mutation_changes_final_paint() {
 }
 
 #[test]
-fn script_error_fails_render_clearly() {
-    let html = r#"<html><body><script>boom.bang();</script></body></html>"#;
-    assert!(matches!(
-        run_html(html).unwrap_err(),
-        MochaError::JavaScript(_)
-    ));
+fn script_error_is_skipped_not_fatal() {
+    // Milestone 23 fail-open: a script runtime error is skipped, not fatal.
+    let html = r#"<html><body><script>boom.bang();</script><p>Hi</p></body></html>"#;
+    let commands = run_html(html).unwrap();
+    assert!(commands
+        .iter()
+        .any(|c| matches!(c, DisplayCommand::DrawText { text, .. } if text == "Hi")));
 }
 
 #[test]
-fn external_script_is_unsupported() {
-    let html = r#"<html><body><script src="x.js"></script></body></html>"#;
-    assert!(matches!(
-        run_html(html).unwrap_err(),
-        MochaError::UnsupportedFeature(_)
-    ));
+fn external_script_is_skipped_not_fatal() {
+    let html = r#"<html><body><script src="x.js"></script><p>Hi</p></body></html>"#;
+    let commands = run_html(html).unwrap();
+    assert!(commands
+        .iter()
+        .any(|c| matches!(c, DisplayCommand::DrawText { text, .. } if text == "Hi")));
 }
 
 #[test]

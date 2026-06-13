@@ -847,11 +847,10 @@ mod tests {
             "<html><body><p>Hi</p></body></html>",
         )
         .unwrap();
-        std::fs::write(
-            dir.join("css/float.html"),
-            "<html><body><style>p{float:left}</style><p>x</p></body></html>",
-        )
-        .unwrap();
+        // A non-HTML document still fails clearly (its content type is rejected),
+        // which keeps the harness's "unsupported" classification meaningful now
+        // that unsupported *CSS* is skipped rather than fatal (Milestone 23).
+        std::fs::write(dir.join("css/note.txt"), "plain text, not html").unwrap();
         let manifest = r#"
             [[test]]
             name = "ok"
@@ -861,7 +860,7 @@ mod tests {
 
             [[test]]
             name = "unsup"
-            path = "css/float.html"
+            path = "css/note.txt"
             category = "css"
             status = "unsupported"
             expect_error_contains = "unsupported"

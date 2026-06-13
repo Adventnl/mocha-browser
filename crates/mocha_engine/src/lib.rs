@@ -101,6 +101,11 @@ pub struct RenderedPage {
     /// The form a script asked to submit via `form.submit()` (the embedder
     /// decides whether to act on it); `None` if no request was made.
     pub submitted_form: Option<NodeId>,
+    /// Non-fatal diagnostics gathered while rendering (Milestone 23). When a
+    /// stylesheet, script, or image cannot be processed it is **skipped** — the
+    /// page still renders — and the reason is recorded here. Empty when the page
+    /// rendered with no skipped features.
+    pub diagnostics: Vec<String>,
 }
 
 impl RenderedPage {
@@ -183,10 +188,22 @@ fn render_html_with_base(
         mut form_state,
         console_output,
         submitted_form,
-    } = run_document_scripts(mocha_html::parse_html(html)?, base)?;
+        mut diagnostics,
+    } = run_document_scripts(mocha_html::parse_html(html)?, base);
 
-    let stylesheets = collect_stylesheets(&document, base)?;
-    let images = load_images(&document, base)?;
+    // Author CSS is fail-open: if the stylesheets cannot be parsed/loaded, skip
+    // them (render with UA defaults) rather than aborting the whole page.
+    let stylesheets = match collect_stylesheets(&document, base) {
+        Ok(stylesheets) => stylesheets,
+        Err(error) => {
+            diagnostics.push(format!("author CSS skipped: {error}"));
+            Vec::new()
+        }
+    };
+
+    let (images, image_diagnostics) = load_images(&document, base);
+    diagnostics.extend(image_diagnostics);
+
     let LayoutResult {
         layout_root,
         display_list,
@@ -204,6 +221,7 @@ fn render_html_with_base(
         document_height,
         console_output,
         submitted_form,
+        diagnostics,
     })
 }
 
@@ -240,45 +258,79 @@ struct ScriptOutcome {
     form_state: FormState,
     console_output: Vec<String>,
     submitted_form: Option<NodeId>,
+    diagnostics: Vec<String>,
 }
 
 /// Initialize form state, run inline `<script>`s in document order, then pending
 /// timers, returning the mutated document, final form state, captured console
-/// output, and any `form.submit()` request. Coarse invalidation: scripts run
-/// once before style/layout. Unsupported control types error during init; a
-/// script (parse/runtime) error aborts the render.
-fn run_document_scripts(document: Document, base: Option<&Url>) -> MochaResult<ScriptOutcome> {
-    let scripts = mocha_js_dom::collect_inline_scripts(&document)?;
+/// output, any `form.submit()` request, and non-fatal diagnostics.
+///
+/// Milestone 23 makes this **fail-open**: an external `<script src>`, a script
+/// parse/runtime error, an unsupported control type, or a timer error is recorded
+/// as a diagnostic and skipped — the document still renders. (Per-feature
+/// JavaScript depth grows in a later milestone; here a script that cannot run is
+/// simply not run.)
+fn run_document_scripts(document: Document, base: Option<&Url>) -> ScriptOutcome {
+    let scripts = match mocha_js_dom::collect_inline_scripts(&document) {
+        Ok(scripts) => scripts,
+        // External `<script src>` (or another collection failure): skip script
+        // execution entirely, but still render the document and its form state.
+        Err(error) => {
+            return no_script_outcome(document, vec![format!("scripts skipped: {error}")])
+        }
+    };
     if scripts.is_empty() {
-        let form_state = mocha_forms::build_form_state(&document)?;
-        return Ok(ScriptOutcome {
-            document,
-            form_state,
-            console_output: Vec::new(),
-            submitted_form: None,
-        });
+        return no_script_outcome(document, Vec::new());
     }
+
     let shared = Rc::new(RefCell::new(document));
     // The document URL gives scripts an origin for `document.cookie` and web
     // storage (Milestone 15); `None` for in-memory HTML leaves them unavailable.
     let mut runtime = mocha_js_dom::DomRuntime::with_url(shared.clone(), base.cloned());
-    runtime.init_form_state()?;
-    for source in &scripts {
-        runtime.run_script(source)?;
+    let mut diagnostics = Vec::new();
+    if let Err(error) = runtime.init_form_state() {
+        diagnostics.push(format!("form controls skipped: {error}"));
     }
-    runtime.run_pending_timers()?;
+    for source in &scripts {
+        if let Err(error) = runtime.run_script(source) {
+            diagnostics.push(format!("script error: {error}"));
+        }
+    }
+    if let Err(error) = runtime.run_pending_timers() {
+        diagnostics.push(format!("timer error: {error}"));
+    }
     let console_output = runtime.take_console_output();
     let submitted_form = runtime.take_pending_submission();
     // JS closures captured in listeners/timers may still reference the bridge, so
     // clone the final document and form state out rather than unwrapping the Rcs.
     let document = shared.borrow().clone();
     let form_state = runtime.form_state().borrow().clone();
-    Ok(ScriptOutcome {
+    ScriptOutcome {
         document,
         form_state,
         console_output,
         submitted_form,
-    })
+        diagnostics,
+    }
+}
+
+/// The no-scripts outcome: build form state (fail-open on unsupported controls)
+/// and carry any prior diagnostics.
+fn no_script_outcome(document: Document, mut diagnostics: Vec<String>) -> ScriptOutcome {
+    let form_state = match mocha_forms::build_form_state(&document) {
+        Ok(form_state) => form_state,
+        Err(error) => {
+            diagnostics.push(format!("form controls skipped: {error}"));
+            FormState::new()
+        }
+    };
+    ScriptOutcome {
+        document,
+        form_state,
+        console_output: Vec::new(),
+        submitted_form: None,
+        diagnostics,
+    }
 }
 
 // === stylesheets ============================================================
@@ -295,40 +347,72 @@ fn collect_stylesheets(document: &Document, base: Option<&Url>) -> MochaResult<V
 
 // === images =================================================================
 
-/// Discover, load, and decode every `<img>` to RGBA. Returns the pixels (indexed
-/// by `image_id`) and the node→id map. With no base URL, any `<img>` is a clear
-/// error.
-fn load_images(document: &Document, base: Option<&Url>) -> MochaResult<Vec<RasterImage>> {
-    let store = build_image_store(document, base)?;
-    Ok(store.decoded)
-}
-
-#[derive(Default)]
-struct ImageStore {
-    by_node: HashMap<NodeId, usize>,
-    decoded: Vec<RasterImage>,
-}
-
-fn build_image_store(document: &Document, base: Option<&Url>) -> MochaResult<ImageStore> {
-    let images = mocha_resources::discover_images(document)?;
-    if images.is_empty() {
-        return Ok(ImageStore::default());
+/// Discover, load, and decode every `<img>` to RGBA. Returns the decoded pixels
+/// (one entry per discovered `<img>` in document order, indexed by `image_id`)
+/// plus non-fatal diagnostics.
+///
+/// Milestone 23 makes images fail-open: an `<img>` that cannot be loaded or
+/// decoded (404, unsupported format, missing base URL) becomes a 1×1 transparent
+/// placeholder so `image_id` indices stay aligned with discovery order, and the
+/// reason is recorded as a diagnostic. The page renders without that image.
+fn load_images(document: &Document, base: Option<&Url>) -> (Vec<RasterImage>, Vec<String>) {
+    let discovered = discover_images_lenient(document);
+    if discovered.is_empty() {
+        return (Vec::new(), Vec::new());
     }
-    let base = base.ok_or_else(|| {
-        MochaError::UnsupportedFeature(
-            "images require a document base URL (load via file/http, not in-memory HTML)"
-                .to_string(),
-        )
-    })?;
+    let Some(base) = base else {
+        return (
+            Vec::new(),
+            vec!["images skipped: in-memory HTML has no base URL".to_string()],
+        );
+    };
     let mut loader = DefaultLoader::new();
-    let mut store = ImageStore::default();
-    for (node, src) in images {
-        let decoded = mocha_resources::load_image_rgba(&src, base, &mut loader)?;
-        let id = store.decoded.len();
-        store.decoded.push(decoded);
-        store.by_node.insert(node, id);
+    let mut decoded = Vec::with_capacity(discovered.len());
+    let mut diagnostics = Vec::new();
+    for (_node, src) in &discovered {
+        match mocha_resources::load_image_rgba(src, base, &mut loader) {
+            Ok(image) => decoded.push(image),
+            Err(error) => {
+                diagnostics.push(format!("image '{src}' skipped: {error}"));
+                decoded.push(placeholder_image());
+            }
+        }
     }
-    Ok(store)
+    (decoded, diagnostics)
+}
+
+/// A 1×1 transparent stand-in for an `<img>` that could not be loaded/decoded.
+fn placeholder_image() -> RasterImage {
+    RasterImage {
+        width: 1,
+        height: 1,
+        rgba: vec![0, 0, 0, 0],
+    }
+}
+
+/// Discover `<img>` elements with a non-empty `src`, in document order, **without
+/// erroring** on a src-less `<img>` (it is simply skipped). This is the lenient
+/// counterpart to `mocha_resources::discover_images`; the decode pass and the
+/// layout-time node→image map both use it so they agree on order and indexing.
+fn discover_images_lenient(document: &Document) -> Vec<(NodeId, String)> {
+    let mut images = Vec::new();
+    let Ok(order) = document.traverse_depth_first(document.root_id()) else {
+        return images;
+    };
+    for id in order {
+        if document.tag_name(id).ok().flatten() != Some("img") {
+            continue;
+        }
+        if let Some(src) = document
+            .get_attribute(id, "src")
+            .ok()
+            .flatten()
+            .filter(|src| !src.is_empty())
+        {
+            images.push((id, src.to_string()));
+        }
+    }
+    images
 }
 
 // === style + layout =========================================================
@@ -355,12 +439,13 @@ fn build_layout(
 }
 
 /// Rebuild the `<img>` node→image_id map (discovery order matches decode order).
+/// Uses the same lenient discovery as [`load_images`] so indices line up even
+/// when some images were skipped (placeholders).
 fn image_node_map(document: &Document, image_count: usize) -> MochaResult<HashMap<NodeId, usize>> {
     if image_count == 0 {
         return Ok(HashMap::new());
     }
-    let images = mocha_resources::discover_images(document)?;
-    Ok(images
+    Ok(discover_images_lenient(document)
         .into_iter()
         .enumerate()
         .map(|(id, (node, _src))| (node, id))
@@ -613,6 +698,73 @@ mod tests {
             .display_list
             .iter()
             .any(|c| matches!(c, DisplayCommand::DrawImage { image_id: 0, .. })));
+    }
+
+    #[test]
+    fn realistic_document_with_head_and_unknown_tags_renders() {
+        // A real-world-shaped document: doctype, a <head> with metadata, and a
+        // <body> using tags outside the old allow-list. None of this aborts now.
+        let page = render_html(
+            r#"<!doctype html>
+            <html>
+              <head><meta charset="utf-8"><title>Example</title></head>
+              <body>
+                <header><h1>Welcome</h1></header>
+                <nav><ul><li>Home</li><li>About</li></ul></nav>
+                <main><p>Hello&nbsp;from the real web &amp; beyond.</p></main>
+              </body>
+            </html>"#,
+            &RenderOptions::default(),
+        )
+        .unwrap();
+        let text = drawn_text(&page);
+        assert!(text.contains(&"Welcome".to_string()));
+        assert!(text.iter().any(|t| t.contains("Home")));
+        // The list marker was emitted as leading inline text.
+        assert!(text.iter().any(|t| t.contains('•')));
+        // The entities decoded: `&amp;` became a literal `&` in the text runs.
+        let joined = text.join(" ");
+        assert!(
+            joined.contains('&') && !joined.contains("&amp;"),
+            "entities should decode; joined runs: {joined}"
+        );
+        assert!(
+            page.diagnostics.is_empty(),
+            "clean page: {:?}",
+            page.diagnostics
+        );
+    }
+
+    #[test]
+    fn unsupported_css_is_skipped_not_fatal() {
+        // A stylesheet using unsupported CSS must not abort the page; the content
+        // still renders and the skip is recorded as a diagnostic.
+        let page = render_html(
+            r#"<html><body><style>p:hover { color: rgb(1, 2, 3); }</style><p>Hi</p></body></html>"#,
+            &RenderOptions::default(),
+        )
+        .unwrap();
+        assert!(drawn_text(&page).contains(&"Hi".to_string()));
+        assert!(
+            page.diagnostics.iter().any(|d| d.contains("CSS")),
+            "expected a CSS diagnostic, got {:?}",
+            page.diagnostics
+        );
+    }
+
+    #[test]
+    fn external_script_is_skipped_not_fatal() {
+        let page = render_html(
+            r#"<html><body><script src="app.js"></script><p>Hi</p></body></html>"#,
+            &RenderOptions::default(),
+        )
+        .unwrap();
+        assert!(drawn_text(&page).contains(&"Hi".to_string()));
+        assert!(
+            page.diagnostics.iter().any(|d| d.contains("script")),
+            "expected a script diagnostic, got {:?}",
+            page.diagnostics
+        );
     }
 
     #[test]

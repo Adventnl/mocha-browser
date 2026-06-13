@@ -349,7 +349,25 @@ fn build_node(
 
             let mut child_ancestors = ancestors.to_vec();
             child_ancestors.push(descriptor);
-            let children = build_children(document, id, stylesheets, &style, &child_ancestors)?;
+            let mut children = build_children(document, id, stylesheets, &style, &child_ancestors)?;
+
+            // A list item gets its marker as leading inline text (Mocha has no
+            // list-item box model). The marker reuses the `<li>`'s own node id.
+            if data.tag_name == "li" {
+                if let Some(marker) = list_marker(document, id) {
+                    children.insert(
+                        0,
+                        StyledNode {
+                            node_id: id,
+                            text: Some(marker),
+                            style: ComputedStyle::for_text(&style),
+                            replaced: None,
+                            control: None,
+                            children: Vec::new(),
+                        },
+                    );
+                }
+            }
 
             Ok(Some(StyledNode {
                 node_id: id,
@@ -429,15 +447,25 @@ fn specified_values(
 }
 
 /// The user-agent default declarations for a tag.
+///
+/// Milestone 23 broadens this from the original ~19-tag set to the common
+/// content elements of real pages. Unknown tags fall through to `display: block`,
+/// so any element name still gets a sensible box.
 fn ua_defaults(tag: &str) -> Vec<(CssProperty, CssValue)> {
     let mut defaults = Vec::new();
 
     let display = match tag {
-        // Form controls are inline-level replaced items (Mocha has no
-        // `inline-block`); `<form>` falls through to block. Options render only
-        // as part of their `<select>`, never as their own boxes.
-        "span" | "a" | "img" | "label" | "input" | "button" | "textarea" | "select" => "inline",
-        "style" | "script" | "link" | "option" => "none",
+        // Non-rendered metadata / head content. `option` renders only as part of
+        // its `<select>`, never as its own box.
+        "head" | "meta" | "title" | "base" | "link" | "style" | "script" | "noscript"
+        | "template" | "option" => "none",
+        // Inline-level text semantics, replaced elements, and form controls
+        // (Mocha has no `inline-block`).
+        "span" | "a" | "img" | "label" | "input" | "button" | "textarea" | "select" | "em"
+        | "strong" | "b" | "i" | "u" | "s" | "small" | "code" | "kbd" | "samp" | "var" | "cite"
+        | "q" | "abbr" | "mark" | "sub" | "sup" | "time" | "br" | "font" | "big" | "tt" => "inline",
+        // Everything else — structure, sectioning, lists, tables, and any unknown
+        // tag — is block-level.
         _ => "block",
     };
     defaults.push((CssProperty::Display, CssValue::Keyword(display.to_string())));
@@ -447,12 +475,40 @@ fn ua_defaults(tag: &str) -> Vec<(CssProperty, CssValue)> {
         defaults.push((CssProperty::Color, CssValue::Color(Color::rgb(0, 0, 238))));
     }
 
-    // Only headings carry a UA font-size; other elements inherit so author
-    // `font-size` changes propagate to descendants.
-    match tag {
-        "h1" => defaults.push((CssProperty::FontSize, CssValue::LengthPx(32.0))),
-        "h2" => defaults.push((CssProperty::FontSize, CssValue::LengthPx(24.0))),
-        _ => {}
+    // Heading font sizes. Other elements inherit so author `font-size` changes
+    // propagate to descendants.
+    let heading_size = match tag {
+        "h1" => Some(32.0),
+        "h2" => Some(24.0),
+        "h3" => Some(19.0),
+        "h4" => Some(16.0),
+        "h5" => Some(13.0),
+        "h6" => Some(11.0),
+        _ => None,
+    };
+    if let Some(size) = heading_size {
+        defaults.push((CssProperty::FontSize, CssValue::LengthPx(size)));
+    }
+
+    // Bold weight for headings and bold inline semantics.
+    if matches!(
+        tag,
+        "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "b" | "strong"
+    ) {
+        defaults.push((
+            CssProperty::FontWeight,
+            CssValue::Keyword("bold".to_string()),
+        ));
+    }
+
+    // A simple left indent for lists and blockquotes (Mocha has no list-item or
+    // margin model beyond this — markers are emitted as leading inline text).
+    if matches!(tag, "ul" | "ol") {
+        defaults.push((CssProperty::PaddingLeft, CssValue::LengthPx(40.0)));
+    }
+    if tag == "blockquote" {
+        defaults.push((CssProperty::MarginLeft, CssValue::LengthPx(40.0)));
+        defaults.push((CssProperty::MarginRight, CssValue::LengthPx(40.0)));
     }
 
     if tag == "body" {
@@ -467,6 +523,28 @@ fn ua_defaults(tag: &str) -> Vec<(CssProperty, CssValue)> {
     }
 
     defaults
+}
+
+/// The list marker for an `<li>`, emitted as leading inline text: a bullet for
+/// `<ul>` (and stray `<li>`), or a `"1. "`, `"2. "`, … number for `<ol>`. Returns
+/// `None` when the element is not a list item with an element parent.
+fn list_marker(document: &Document, id: NodeId) -> Option<String> {
+    let parent = document.parent(id).ok()??;
+    let parent_tag = document.tag_name(parent).ok()??;
+    if parent_tag != "ol" {
+        return Some("• ".to_string());
+    }
+    // Ordered list: the 1-based position among the parent's <li> children.
+    let mut position = 0;
+    for &child in document.children(parent).ok()?.iter() {
+        if document.tag_name(child).ok().flatten() == Some("li") {
+            position += 1;
+            if child == id {
+                break;
+            }
+        }
+    }
+    Some(format!("{position}. "))
 }
 
 fn edge(values: &HashMap<CssProperty, CssValue>, property: CssProperty) -> f32 {
@@ -754,6 +832,86 @@ mod tests {
         let select_node = &form_node.children[2];
         assert_eq!(select_node.style.display, Display::Inline);
         assert_eq!(select_node.children[0].style.display, Display::None); // option
+    }
+
+    #[test]
+    fn common_content_tags_get_sensible_ua_display() {
+        let mut document = Document::new();
+        let root = document.root_id();
+        let head = document.create_element("head", Vec::new());
+        let nav = document.create_element("nav", Vec::new());
+        let em = document.create_element("em", Vec::new());
+        let li = document.create_element("li", Vec::new());
+        document.append_child(root, head).unwrap();
+        document.append_child(root, nav).unwrap();
+        document.append_child(root, em).unwrap();
+        document.append_child(root, li).unwrap();
+
+        let tree = build_style_tree(&document, &[]).unwrap();
+        let by = |n: NodeId| tree.children.iter().find(|c| c.node_id == n).unwrap();
+        assert_eq!(by(head).style.display, Display::None);
+        assert_eq!(by(nav).style.display, Display::Block);
+        assert_eq!(by(em).style.display, Display::Inline);
+        assert_eq!(by(li).style.display, Display::Block);
+    }
+
+    #[test]
+    fn headings_are_bold_and_sized_by_level() {
+        let mut document = Document::new();
+        let root = document.root_id();
+        let mut ids = Vec::new();
+        for tag in ["h1", "h2", "h3", "h4", "h5", "h6"] {
+            let h = document.create_element(tag, Vec::new());
+            document.append_child(root, h).unwrap();
+            ids.push(h);
+        }
+        let tree = build_style_tree(&document, &[]).unwrap();
+        let sizes: Vec<f32> = ids
+            .iter()
+            .map(|&id| {
+                let node = tree.children.iter().find(|c| c.node_id == id).unwrap();
+                assert_eq!(node.style.font_weight, FontWeight::Bold);
+                node.style.font_size
+            })
+            .collect();
+        // Strictly decreasing h1 > h2 > … > h6.
+        assert!(sizes.windows(2).all(|w| w[0] > w[1]), "sizes: {sizes:?}");
+    }
+
+    #[test]
+    fn unordered_list_item_gets_a_bullet_marker() {
+        let mut document = Document::new();
+        let root = document.root_id();
+        let ul = document.create_element("ul", Vec::new());
+        let li = document.create_element("li", Vec::new());
+        let text = document.create_text("item");
+        document.append_child(root, ul).unwrap();
+        document.append_child(ul, li).unwrap();
+        document.append_child(li, text).unwrap();
+
+        let tree = build_style_tree(&document, &[]).unwrap();
+        let ul_node = &tree.children[0];
+        let li_node = &ul_node.children[0];
+        // The marker is the first inline text child of the <li>.
+        assert_eq!(li_node.children[0].text.as_deref(), Some("• "));
+        assert_eq!(li_node.children[1].text.as_deref(), Some("item"));
+    }
+
+    #[test]
+    fn ordered_list_items_are_numbered() {
+        let mut document = Document::new();
+        let root = document.root_id();
+        let ol = document.create_element("ol", Vec::new());
+        let li1 = document.create_element("li", Vec::new());
+        let li2 = document.create_element("li", Vec::new());
+        document.append_child(root, ol).unwrap();
+        document.append_child(ol, li1).unwrap();
+        document.append_child(ol, li2).unwrap();
+
+        let tree = build_style_tree(&document, &[]).unwrap();
+        let ol_node = &tree.children[0];
+        assert_eq!(ol_node.children[0].children[0].text.as_deref(), Some("1. "));
+        assert_eq!(ol_node.children[1].children[0].text.as_deref(), Some("2. "));
     }
 
     #[test]

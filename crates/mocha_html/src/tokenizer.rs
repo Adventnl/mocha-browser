@@ -1,17 +1,24 @@
-//! A small, deliberately incomplete HTML tokenizer.
+//! A small, deliberately incomplete — but **forgiving** — HTML tokenizer.
 //!
 //! This is **not** the [HTML5 tokenization state machine]. It recognises a tiny
 //! grammar: doctype, comments, start/end tags, quoted/unquoted/valueless
-//! attributes, and text. `<style>` uses a minimal raw-text mode — its body is
-//! captured verbatim until `</style>` so CSS containing `<`/`>` is preserved —
-//! but this is not the full HTML raw-text/RCDATA algorithm. Anything malformed
-//! (an unterminated tag, comment, attribute quote, or `<style>`) is reported as
-//! a [`MochaError::Parse`] error instead of being silently recovered.
+//! attributes, and text. `<style>`/`<script>`/`<textarea>` use a minimal raw-text
+//! mode — their body is captured verbatim until the matching close tag so their
+//! contents are preserved — but this is not the full HTML raw-text/RCDATA
+//! algorithm.
+//!
+//! Unlike earlier milestones, malformed input is now **recovered**, not rejected:
+//! an unterminated tag/comment/attribute/raw-text block simply ends at EOF, an
+//! unknown `<!` declaration is consumed as a bogus comment, and a stray `<` that
+//! does not start a construct becomes literal text. The tokenizer therefore never
+//! fails on real-world HTML; it only ever returns `Ok`. HTML character references
+//! (`&amp;`, `&#160;`, `&#xA0;`, …) are decoded in text and attribute values
+//! (but not inside raw-text elements, where `&` is literal).
 //!
 //! [HTML5 tokenization state machine]: https://html.spec.whatwg.org/multipage/parsing.html#tokenization
 
 use mocha_dom::Attribute;
-use mocha_error::{MochaError, MochaResult};
+use mocha_error::MochaResult;
 
 /// A single lexical token produced by [`tokenize`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,8 +47,11 @@ pub enum HtmlToken {
 
 /// Tokenize an HTML source string into a flat list of [`HtmlToken`]s.
 ///
-/// Whitespace-only text runs are dropped, and the whitespace inside retained
-/// text runs is collapsed to single spaces and trimmed at the ends.
+/// Whitespace-only text runs collapse to a single space, and the whitespace
+/// inside retained text runs is collapsed to single spaces and trimmed at the
+/// ends. The function is infallible for any input — malformed markup is
+/// recovered rather than rejected — but keeps the [`MochaResult`] return type so
+/// callers do not need to change.
 pub fn tokenize(input: &str) -> MochaResult<Vec<HtmlToken>> {
     Tokenizer::new(input).run()
 }
@@ -63,13 +73,13 @@ impl Tokenizer {
         let mut tokens = Vec::new();
         while let Some(&c) = self.chars.get(self.pos) {
             if c == '<' {
-                let token = self.read_markup()?;
-                // `<style>` and `<script>` switch to a minimal raw-text mode: the
-                // body is read verbatim until the matching close tag, so CSS or JS
-                // containing `<`, `>`, or significant whitespace is preserved
+                let token = self.read_markup();
+                // `<style>`/`<script>`/`<textarea>` switch to a minimal raw-text
+                // mode: the body is read verbatim until the matching close tag, so
+                // contents containing `<`, `>`, or significant whitespace survive
                 // rather than being tokenized as HTML. The close tag is then read
                 // by the main loop. This is not the full HTML raw-text/RCDATA
-                // algorithm (no `</style` / `</script` escaping subtleties).
+                // algorithm.
                 let raw_tag = match &token {
                     HtmlToken::StartTag {
                         name,
@@ -80,7 +90,7 @@ impl Tokenizer {
                 };
                 tokens.push(token);
                 if let Some(tag) = raw_tag {
-                    let raw = self.read_raw_text_until_close(&tag)?;
+                    let raw = self.read_raw_text_until_close(&tag);
                     if !raw.is_empty() {
                         tokens.push(HtmlToken::Text(raw));
                     }
@@ -92,21 +102,19 @@ impl Tokenizer {
         Ok(tokens)
     }
 
-    /// Read raw element content up to (but not consuming) the closing
-    /// `</tag>`, matched case-insensitively. The text is returned verbatim — no
-    /// whitespace collapsing — so CSS survives intact. Returns a [`MochaError::Parse`]
-    /// error if the closing tag is never found.
-    fn read_raw_text_until_close(&mut self, tag: &str) -> MochaResult<String> {
+    /// Read raw element content up to (but not consuming) the closing `</tag>`,
+    /// matched case-insensitively. The text is returned verbatim — no whitespace
+    /// collapsing and no entity decoding — so CSS/JS survive intact. If the close
+    /// tag is never found, recovers by returning everything to EOF.
+    fn read_raw_text_until_close(&mut self, tag: &str) -> String {
         let start = self.pos;
         while self.pos < self.chars.len() {
             if self.matches_close_tag(tag) {
-                return Ok(self.chars[start..self.pos].iter().collect());
+                break;
             }
             self.pos += 1;
         }
-        Err(MochaError::Parse(format!(
-            "unterminated <{tag}>: missing </{tag}>"
-        )))
+        self.chars[start..self.pos].iter().collect()
     }
 
     /// Whether the input at the current position is `</tag>` (or `</tag >`),
@@ -127,13 +135,12 @@ impl Tokenizer {
         )
     }
 
-    /// Read a run of text up to the next `<` and normalise its whitespace.
+    /// Read a run of text up to the next `<`, normalise its whitespace, and decode
+    /// HTML character references.
     ///
-    /// Returns `None` when the run is whitespace-only (so block-level whitespace
-    /// between tags disappears). For runs with content, internal whitespace is
-    /// collapsed to single spaces and a single leading/trailing space is
-    /// preserved when present — this keeps the spaces around inline elements
-    /// (e.g. `Hello <span>red</span> world`) intact for inline layout.
+    /// Returns `Some(" ")` for a whitespace-only run (so inter-tag whitespace
+    /// separating inline content survives), and otherwise a normalised, entity-
+    /// decoded string. Layout keeps edge whitespace invisible.
     fn read_text(&mut self) -> Option<String> {
         let start = self.pos;
         while let Some(&c) = self.chars.get(self.pos) {
@@ -143,29 +150,30 @@ impl Tokenizer {
             self.pos += 1;
         }
         let raw: String = self.chars[start..self.pos].iter().collect();
-        normalize_text(&raw)
+        normalize_text(&raw).map(|text| decode_entities(&text))
     }
 
-    /// Read a markup construct that begins at the current `<`.
-    fn read_markup(&mut self) -> MochaResult<HtmlToken> {
-        // Look past the '<' to decide which construct this is.
+    /// Read a markup construct that begins at the current `<`. A `<` that does not
+    /// start a valid construct (e.g. `a < b`) is emitted as literal text.
+    fn read_markup(&mut self) -> HtmlToken {
         match self.chars.get(self.pos + 1) {
             Some('!') => self.read_bang(),
             Some('/') => self.read_end_tag(),
             Some(c) if c.is_ascii_alphabetic() => self.read_start_tag(),
-            _ => Err(MochaError::Parse(format!(
-                "unexpected character after '<' at position {}",
-                self.pos
-            ))),
+            _ => {
+                // Not a tag/comment/doctype: treat the '<' as literal text.
+                self.pos += 1;
+                HtmlToken::Text("<".to_string())
+            }
         }
     }
 
-    /// Read either a comment (`<!--`) or a doctype (`<!doctype ...>`).
-    fn read_bang(&mut self) -> MochaResult<HtmlToken> {
+    /// Read a comment (`<!--`), a doctype (`<!doctype ...>`), or — for any other
+    /// `<!` construct (CDATA, bogus declaration) — consume to `>` as a comment.
+    fn read_bang(&mut self) -> HtmlToken {
         if self.starts_with("<!--") {
             return self.read_comment();
         }
-        // Case-insensitively match `<!doctype`.
         let rest: String = self.chars[self.pos..]
             .iter()
             .take(9)
@@ -174,29 +182,42 @@ impl Tokenizer {
         if rest == "<!doctype" {
             return self.read_doctype();
         }
-        Err(MochaError::Parse(format!(
-            "unsupported '<!' declaration at position {}",
-            self.pos
-        )))
+        self.read_bogus_declaration()
     }
 
-    fn read_comment(&mut self) -> MochaResult<HtmlToken> {
+    /// Consume an unrecognised `<!...>` construct up to and including `>` (or EOF)
+    /// and keep its body as a comment (comments produce no rendered box).
+    fn read_bogus_declaration(&mut self) -> HtmlToken {
+        self.pos += 2; // consume "<!"
+        let start = self.pos;
+        while let Some(&c) = self.chars.get(self.pos) {
+            if c == '>' {
+                break;
+            }
+            self.pos += 1;
+        }
+        let body: String = self.chars[start..self.pos].iter().collect();
+        if self.chars.get(self.pos) == Some(&'>') {
+            self.pos += 1;
+        }
+        HtmlToken::Comment(body.trim().to_string())
+    }
+
+    fn read_comment(&mut self) -> HtmlToken {
         self.pos += 4; // consume "<!--"
         let start = self.pos;
         while self.pos < self.chars.len() && !self.starts_with("-->") {
             self.pos += 1;
         }
-        if self.pos >= self.chars.len() {
-            return Err(MochaError::Parse(
-                "unterminated comment: missing '-->'".to_string(),
-            ));
-        }
         let body: String = self.chars[start..self.pos].iter().collect();
-        self.pos += 3; // consume "-->"
-        Ok(HtmlToken::Comment(body.trim().to_string()))
+        if self.starts_with("-->") {
+            self.pos += 3; // consume "-->"
+        }
+        // An unterminated comment simply ends at EOF (recovered, not an error).
+        HtmlToken::Comment(body.trim().to_string())
     }
 
-    fn read_doctype(&mut self) -> MochaResult<HtmlToken> {
+    fn read_doctype(&mut self) -> HtmlToken {
         self.pos += 9; // consume "<!doctype"
         let start = self.pos;
         while let Some(&c) = self.chars.get(self.pos) {
@@ -205,43 +226,37 @@ impl Tokenizer {
             }
             self.pos += 1;
         }
-        if self.chars.get(self.pos) != Some(&'>') {
-            return Err(MochaError::Parse(
-                "unterminated doctype: missing '>'".to_string(),
-            ));
-        }
         let body: String = self.chars[start..self.pos].iter().collect();
-        self.pos += 1; // consume '>'
-        Ok(HtmlToken::Doctype(body.trim().to_string()))
-    }
-
-    fn read_end_tag(&mut self) -> MochaResult<HtmlToken> {
-        self.pos += 2; // consume "</"
-        let name = self.read_tag_name()?;
-        self.skip_whitespace();
-        if self.chars.get(self.pos) != Some(&'>') {
-            return Err(MochaError::Parse(format!(
-                "malformed end tag </{name}>: missing '>'"
-            )));
+        if self.chars.get(self.pos) == Some(&'>') {
+            self.pos += 1; // consume '>'
         }
-        self.pos += 1; // consume '>'
-        Ok(HtmlToken::EndTag { name })
+        HtmlToken::Doctype(body.trim().to_string())
     }
 
-    fn read_start_tag(&mut self) -> MochaResult<HtmlToken> {
+    fn read_end_tag(&mut self) -> HtmlToken {
+        self.pos += 2; // consume "</"
+        let name = self.read_tag_name();
+        // Consume up to and including '>' (recover past any junk like `</p foo>`).
+        while let Some(&c) = self.chars.get(self.pos) {
+            self.pos += 1;
+            if c == '>' {
+                break;
+            }
+        }
+        HtmlToken::EndTag { name }
+    }
+
+    fn read_start_tag(&mut self) -> HtmlToken {
         self.pos += 1; // consume "<"
-        let name = self.read_tag_name()?;
+        let name = self.read_tag_name();
         let mut attributes = Vec::new();
         let mut self_closing = false;
 
         loop {
             self.skip_whitespace();
             match self.chars.get(self.pos) {
-                None => {
-                    return Err(MochaError::Parse(format!(
-                        "unterminated start tag <{name}>: missing '>'"
-                    )));
-                }
+                // EOF mid-tag: recover by ending the tag here.
+                None => break,
                 Some('>') => {
                     self.pos += 1;
                     break;
@@ -252,22 +267,28 @@ impl Tokenizer {
                         self.pos += 2;
                         break;
                     }
-                    return Err(MochaError::Parse(format!(
-                        "unexpected '/' inside start tag <{name}>"
-                    )));
+                    // A stray '/' inside the tag: skip it and keep reading.
+                    self.pos += 1;
                 }
-                Some(_) => attributes.push(self.read_attribute()?),
+                // A new '<' before this tag closed: the tag was unterminated;
+                // recover by ending it here without consuming the '<'.
+                Some('<') => break,
+                Some(_) => {
+                    if let Some(attribute) = self.read_attribute() {
+                        attributes.push(attribute);
+                    }
+                }
             }
         }
 
-        Ok(HtmlToken::StartTag {
+        HtmlToken::StartTag {
             name,
             attributes,
             self_closing,
-        })
+        }
     }
 
-    fn read_tag_name(&mut self) -> MochaResult<String> {
+    fn read_tag_name(&mut self) -> String {
         let start = self.pos;
         while let Some(&c) = self.chars.get(self.pos) {
             if c.is_ascii_alphanumeric() {
@@ -276,30 +297,29 @@ impl Tokenizer {
                 break;
             }
         }
-        if self.pos == start {
-            return Err(MochaError::Parse(format!(
-                "expected a tag name at position {}",
-                self.pos
-            )));
-        }
-        let name: String = self.chars[start..self.pos].iter().collect();
-        Ok(name.to_ascii_lowercase())
+        // An empty name (e.g. `</>`) is allowed; the tree builder ignores it.
+        self.chars[start..self.pos]
+            .iter()
+            .collect::<String>()
+            .to_ascii_lowercase()
     }
 
-    fn read_attribute(&mut self) -> MochaResult<Attribute> {
-        // Attribute name: up to whitespace, '=', '>', or '/'.
+    /// Read one attribute, returning `None` when there is nothing parseable (so
+    /// the start-tag loop makes progress without producing junk attributes).
+    fn read_attribute(&mut self) -> Option<Attribute> {
+        // Attribute name: up to whitespace, '=', '>', '/', or '<'.
         let start = self.pos;
         while let Some(&c) = self.chars.get(self.pos) {
-            if c.is_whitespace() || c == '=' || c == '>' || c == '/' {
+            if c.is_whitespace() || c == '=' || c == '>' || c == '/' || c == '<' {
                 break;
             }
             self.pos += 1;
         }
         if self.pos == start {
-            return Err(MochaError::Parse(format!(
-                "expected an attribute name at position {}",
-                self.pos
-            )));
+            // The current char is one of `= / <` with no preceding name: skip it
+            // so the caller's loop advances (recovery for input like `<div =x>`).
+            self.pos += 1;
+            return None;
         }
         let name: String = self.chars[start..self.pos]
             .iter()
@@ -309,18 +329,21 @@ impl Tokenizer {
         self.skip_whitespace();
         if self.chars.get(self.pos) != Some(&'=') {
             // Valueless attribute: value is the empty string.
-            return Ok(Attribute {
+            return Some(Attribute {
                 name,
                 value: String::new(),
             });
         }
         self.pos += 1; // consume '='
         self.skip_whitespace();
-        let value = self.read_attribute_value()?;
-        Ok(Attribute { name, value })
+        let value = self.read_attribute_value();
+        Some(Attribute {
+            name,
+            value: decode_entities(&value),
+        })
     }
 
-    fn read_attribute_value(&mut self) -> MochaResult<String> {
+    fn read_attribute_value(&mut self) -> String {
         match self.chars.get(self.pos) {
             Some(&quote @ ('"' | '\'')) => {
                 self.pos += 1; // consume opening quote
@@ -331,30 +354,23 @@ impl Tokenizer {
                     }
                     self.pos += 1;
                 }
-                if self.chars.get(self.pos) != Some(&quote) {
-                    return Err(MochaError::Parse(
-                        "unterminated quoted attribute value".to_string(),
-                    ));
-                }
                 let value: String = self.chars[start..self.pos].iter().collect();
-                self.pos += 1; // consume closing quote
-                Ok(value)
+                if self.chars.get(self.pos) == Some(&quote) {
+                    self.pos += 1; // consume closing quote
+                }
+                // An unterminated quoted value simply ends at EOF (recovered).
+                value
             }
             _ => {
-                // Unquoted value: up to whitespace or '>'.
+                // Unquoted value: up to whitespace, '>', or '<'.
                 let start = self.pos;
                 while let Some(&c) = self.chars.get(self.pos) {
-                    if c.is_whitespace() || c == '>' {
+                    if c.is_whitespace() || c == '>' || c == '<' {
                         break;
                     }
                     self.pos += 1;
                 }
-                if self.pos == start {
-                    return Err(MochaError::Parse(
-                        "expected an attribute value after '='".to_string(),
-                    ));
-                }
-                Ok(self.chars[start..self.pos].iter().collect())
+                self.chars[start..self.pos].iter().collect()
             }
         }
     }
@@ -379,8 +395,8 @@ impl Tokenizer {
 
 /// Whether a tag's body is parsed as raw text (its contents are not HTML).
 /// `textarea`'s raw text becomes the control's initial value, so its whitespace
-/// must survive verbatim (this is a simplification of HTML's RCDATA mode: no
-/// character references are decoded).
+/// must survive verbatim (a simplification of HTML's RCDATA mode: no character
+/// references are decoded).
 fn is_raw_text_tag(name: &str) -> bool {
     matches!(name, "style" | "script" | "textarea")
 }
@@ -389,13 +405,7 @@ fn is_raw_text_tag(name: &str) -> bool {
 /// and preserve a single leading/trailing space when the run has content.
 ///
 /// A whitespace-only run collapses to a single space `" "` (rather than being
-/// dropped) so that inter-tag whitespace separating inline content — e.g.
-/// `<input> <input>` or `Text <img> after` — survives tokenization and renders
-/// as one space. This space stays invisible where it should: inline formatting
-/// ignores spaces at line/block edges, and block layout discards inline groups
-/// that produce no line boxes (so indentation between block elements adds no
-/// visible text or box). This is a deliberately small whitespace policy, not the
-/// full HTML whitespace-processing algorithm.
+/// dropped) so that inter-tag whitespace separating inline content survives.
 fn normalize_text(text: &str) -> Option<String> {
     let core = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if core.is_empty() {
@@ -410,6 +420,116 @@ fn normalize_text(text: &str) -> Option<String> {
         normalised.push(' ');
     }
     Some(normalised)
+}
+
+/// Decode HTML character references in `input`. Recognises numeric references
+/// (`&#160;`, `&#xA0;`) and a common named set; an unrecognised or unterminated
+/// reference is left literal (the `&` and following text pass through unchanged).
+fn decode_entities(input: &str) -> String {
+    if !input.contains('&') {
+        return input.to_string();
+    }
+    let chars: Vec<char> = input.chars().collect();
+    let mut out = String::with_capacity(input.len());
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] != '&' {
+            out.push(chars[i]);
+            i += 1;
+            continue;
+        }
+        // Look for a terminating ';' within a small window after '&'.
+        if let Some(semi) = (i + 1..(i + 32).min(chars.len())).find(|&j| chars[j] == ';') {
+            if semi > i + 1 {
+                let name: String = chars[i + 1..semi].iter().collect();
+                if let Some(decoded) = decode_reference(&name) {
+                    out.push(decoded);
+                    i = semi + 1;
+                    continue;
+                }
+            }
+        }
+        // Not a recognised reference: emit the '&' literally.
+        out.push('&');
+        i += 1;
+    }
+    out
+}
+
+/// Decode the body of a single reference (the text between `&` and `;`).
+fn decode_reference(name: &str) -> Option<char> {
+    if let Some(rest) = name.strip_prefix('#') {
+        let code = if let Some(hex) = rest.strip_prefix(['x', 'X']) {
+            u32::from_str_radix(hex, 16).ok()?
+        } else {
+            rest.parse::<u32>().ok()?
+        };
+        return char::from_u32(code);
+    }
+    named_entity(name)
+}
+
+/// The common named character references. This is a pragmatic subset of the full
+/// HTML named-character-reference table, covering what real content pages use.
+fn named_entity(name: &str) -> Option<char> {
+    let c = match name {
+        "amp" => '&',
+        "lt" => '<',
+        "gt" => '>',
+        "quot" => '"',
+        "apos" => '\'',
+        "nbsp" => '\u{a0}',
+        "copy" => '©',
+        "reg" => '®',
+        "trade" => '™',
+        "mdash" => '—',
+        "ndash" => '–',
+        "hellip" => '…',
+        "lsquo" => '‘',
+        "rsquo" => '’',
+        "ldquo" => '“',
+        "rdquo" => '”',
+        "laquo" => '«',
+        "raquo" => '»',
+        "times" => '×',
+        "divide" => '÷',
+        "deg" => '°',
+        "middot" => '·',
+        "bull" => '•',
+        "dagger" => '†',
+        "sect" => '§',
+        "para" => '¶',
+        "euro" => '€',
+        "pound" => '£',
+        "cent" => '¢',
+        "yen" => '¥',
+        "plusmn" => '±',
+        "frac12" => '½',
+        "frac14" => '¼',
+        "frac34" => '¾',
+        "micro" => 'µ',
+        "agrave" => 'à',
+        "aacute" => 'á',
+        "acirc" => 'â',
+        "atilde" => 'ã',
+        "auml" => 'ä',
+        "aring" => 'å',
+        "ccedil" => 'ç',
+        "egrave" => 'è',
+        "eacute" => 'é',
+        "ecirc" => 'ê',
+        "euml" => 'ë',
+        "iacute" => 'í',
+        "ntilde" => 'ñ',
+        "oacute" => 'ó',
+        "ocirc" => 'ô',
+        "ouml" => 'ö',
+        "uacute" => 'ú',
+        "uuml" => 'ü',
+        "szlig" => 'ß',
+        _ => return None,
+    };
+    Some(c)
 }
 
 #[cfg(test)]
@@ -454,7 +574,6 @@ mod tests {
 
     #[test]
     fn leading_and_trailing_spaces_are_preserved_around_content() {
-        // Spaces adjacent to inline elements must survive (collapsed to one).
         assert_eq!(
             tokenize("Hello \n  world ").unwrap(),
             vec![HtmlToken::Text("Hello world ".into())]
@@ -467,9 +586,6 @@ mod tests {
 
     #[test]
     fn whitespace_only_text_collapses_to_single_space() {
-        // A whitespace-only run between tags becomes a single space (not dropped),
-        // so inter-tag whitespace separating inline content survives. Layout keeps
-        // it invisible at block/line edges.
         let tokens = tokenize("<p>   </p>").unwrap();
         assert_eq!(
             tokens,
@@ -489,8 +605,6 @@ mod tests {
 
     #[test]
     fn whitespace_between_void_tags_is_preserved_as_one_space() {
-        // <input> <input>: the inter-tag space must survive so controls render
-        // separated. (input is a void element; here we just check tokens.)
         let tokens = tokenize("<input> <input>").unwrap();
         assert_eq!(
             tokens,
@@ -559,21 +673,101 @@ mod tests {
         }
     }
 
+    // --- recovery (Milestone 23): malformed input no longer errors -----------
+
     #[test]
-    fn unterminated_comment_is_a_parse_error() {
-        let error = tokenize("<!-- oops").unwrap_err();
-        assert!(matches!(error, MochaError::Parse(_)));
+    fn unterminated_comment_recovers_at_eof() {
+        let tokens = tokenize("<!-- oops").unwrap();
+        assert_eq!(tokens, vec![HtmlToken::Comment("oops".to_string())]);
     }
 
     #[test]
-    fn unterminated_tag_is_a_parse_error() {
-        let error = tokenize("<div").unwrap_err();
-        assert!(matches!(error, MochaError::Parse(_)));
+    fn unterminated_tag_recovers_at_eof() {
+        let tokens = tokenize("<div").unwrap();
+        assert_eq!(
+            tokens,
+            vec![HtmlToken::StartTag {
+                name: "div".to_string(),
+                attributes: Vec::new(),
+                self_closing: false,
+            }]
+        );
+    }
+
+    #[test]
+    fn unterminated_style_recovers_at_eof() {
+        // No `</style>`: the body is captured to EOF and no error is produced.
+        let tokens = tokenize("<style>p { color: red; }").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                HtmlToken::StartTag {
+                    name: "style".into(),
+                    attributes: Vec::new(),
+                    self_closing: false,
+                },
+                HtmlToken::Text("p { color: red; }".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn stray_left_angle_bracket_becomes_text() {
+        // `a < b` — the `<` is not a tag start, so it is literal text.
+        let tokens = tokenize("a < b").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                HtmlToken::Text("a ".into()),
+                HtmlToken::Text("<".into()),
+                HtmlToken::Text(" b".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn unknown_bang_declaration_is_consumed_as_comment() {
+        let tokens = tokenize("<![CDATA[x]]>after").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                HtmlToken::Comment("[CDATA[x]]".into()),
+                HtmlToken::Text("after".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn numeric_and_named_entities_decode_in_text() {
+        let tokens = tokenize("A&amp;B &#169; &#x41; &nbsp;end").unwrap();
+        assert_eq!(tokens, vec![HtmlToken::Text("A&B © A \u{a0}end".into())]);
+    }
+
+    #[test]
+    fn entities_decode_in_attribute_values() {
+        let tokens = tokenize(r#"<a href="?a=1&amp;b=2">"#).unwrap();
+        match &tokens[0] {
+            HtmlToken::StartTag { attributes, .. } => {
+                assert_eq!(attributes[0].value, "?a=1&b=2");
+            }
+            other => panic!("expected start tag, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unknown_entity_is_left_literal() {
+        let tokens = tokenize("x &notareal; y").unwrap();
+        assert_eq!(tokens, vec![HtmlToken::Text("x &notareal; y".into())]);
+    }
+
+    #[test]
+    fn entities_are_not_decoded_inside_raw_text() {
+        let tokens = tokenize("<script>if (a &amp;&amp; b) {}</script>").unwrap();
+        assert_eq!(tokens[1], HtmlToken::Text("if (a &amp;&amp; b) {}".into()));
     }
 
     #[test]
     fn style_body_is_raw_text_and_not_tokenized_as_markup() {
-        // The `<` inside the CSS must not start an HTML tag.
         let tokens = tokenize(r#"<style>/* <not-a-tag> */ p { color: red; }</style>"#).unwrap();
         assert_eq!(
             tokens,
@@ -595,15 +789,6 @@ mod tests {
     fn style_body_preserves_whitespace_verbatim() {
         let tokens = tokenize("<style>  p  {  }  </style>").unwrap();
         assert_eq!(tokens[1], HtmlToken::Text("  p  {  }  ".into()));
-    }
-
-    #[test]
-    fn unterminated_style_is_a_parse_error() {
-        let error = tokenize("<style>p { color: red; }").unwrap_err();
-        match error {
-            MochaError::Parse(message) => assert!(message.contains("</style>")),
-            other => panic!("expected Parse error, got {other:?}"),
-        }
     }
 
     #[test]

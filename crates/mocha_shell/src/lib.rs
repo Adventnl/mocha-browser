@@ -43,6 +43,7 @@ fn render_options(options: RunOptions) -> RenderOptions {
 pub fn render_request(input: &str, options: RunOptions) -> MochaResult<String> {
     let mut page = render_url(input, &render_options(options))?;
     report_side_effects(&page.console_output, page.submitted_form.is_some());
+    report_diagnostics(&page.diagnostics);
 
     let mut output = String::new();
     if options.show_headers {
@@ -133,6 +134,22 @@ fn report_side_effects(console_output: &[String], submitted: bool) {
         eprintln!(
             "mocha: a script called form.submit(); form navigation is not performed by the shell"
         );
+    }
+}
+
+/// Report non-fatal render diagnostics (skipped stylesheets/scripts/images) to
+/// stderr, so the page still renders to stdout while the honesty rule is kept:
+/// every skipped feature is named, not silently dropped (Milestone 23).
+fn report_diagnostics(diagnostics: &[String]) {
+    if diagnostics.is_empty() {
+        return;
+    }
+    eprintln!(
+        "mocha: {} feature(s) not supported on this page (rendered without them):",
+        diagnostics.len()
+    );
+    for line in diagnostics {
+        eprintln!("  - {line}");
     }
 }
 
@@ -270,12 +287,14 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_css_property_fails_clearly() {
+    fn unsupported_css_is_skipped_not_fatal() {
+        // Milestone 23 fail-open: an unsupported CSS property no longer aborts the
+        // page — the declaration is skipped and the content still renders.
         let html = "<html><body><style>p { float: left; }</style><p>Hi</p></body></html>";
-        assert!(matches!(
-            run_html(html).unwrap_err(),
-            MochaError::UnsupportedFeature(_)
-        ));
+        let commands = run_html(html).unwrap();
+        assert!(commands
+            .iter()
+            .any(|c| matches!(c, DisplayCommand::DrawText { text, .. } if text == "Hi")));
     }
 
     #[test]
@@ -585,20 +604,22 @@ mod tests {
     }
 
     #[test]
-    fn script_error_aborts_render_clearly() {
-        let html = r#"<html><body><script>noSuchThing.boom();</script></body></html>"#;
-        assert!(matches!(
-            run_html(html).unwrap_err(),
-            MochaError::JavaScript(_)
-        ));
+    fn script_error_is_skipped_not_fatal() {
+        // A script runtime error no longer aborts the render; the document content
+        // still renders (Milestone 23 fail-open).
+        let html = r#"<html><body><script>noSuchThing.boom();</script><p>Hi</p></body></html>"#;
+        let commands = run_html(html).unwrap();
+        assert!(commands
+            .iter()
+            .any(|c| matches!(c, DisplayCommand::DrawText { text, .. } if text == "Hi")));
     }
 
     #[test]
-    fn external_script_src_is_unsupported() {
-        let html = r#"<html><body><script src="app.js"></script></body></html>"#;
-        assert!(matches!(
-            run_html(html).unwrap_err(),
-            MochaError::UnsupportedFeature(_)
-        ));
+    fn external_script_src_is_skipped_not_fatal() {
+        let html = r#"<html><body><script src="app.js"></script><p>Hi</p></body></html>"#;
+        let commands = run_html(html).unwrap();
+        assert!(commands
+            .iter()
+            .any(|c| matches!(c, DisplayCommand::DrawText { text, .. } if text == "Hi")));
     }
 }
