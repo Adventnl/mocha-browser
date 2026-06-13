@@ -66,8 +66,9 @@ pub fn run(mut app: BrowserAppState, width: u32, height: u32) -> MochaResult<()>
     let mut last_tab_count = app.tabs.len();
     let mut tab_tween: Option<Tween> = None;
     let mut escape_was_down = false;
+    let mut should_quit = false;
 
-    while window.is_open() {
+    while window.is_open() && !should_quit {
         let now = clock.elapsed().as_millis();
 
         // Resize → re-render at the new viewport and rebuild the surface.
@@ -129,7 +130,7 @@ pub fn run(mut app: BrowserAppState, width: u32, height: u32) -> MochaResult<()>
         }
         escape_was_down = escape_down;
         for key in window.get_keys_pressed(KeyRepeat::Yes) {
-            if (ctrl || alt) && handle_shortcut(&mut app, key, shift, ctrl, alt) {
+            if (ctrl || alt) && handle_shortcut(&mut app, key, shift, ctrl, alt, &mut should_quit) {
                 continue;
             }
             match key {
@@ -233,6 +234,7 @@ fn handle_shortcut(
     shift: bool,
     ctrl: bool,
     alt: bool,
+    should_quit: &mut bool,
 ) -> bool {
     let run = |app: &mut BrowserAppState, action: BrowserAction| {
         if let Err(error) = app.dispatch(action) {
@@ -256,6 +258,7 @@ fn handle_shortcut(
             let id = app.tabs.active_id();
             run(app, BrowserAction::CloseTab(id));
         }
+        Key::Q => *should_quit = true,
         Key::R => run(app, BrowserAction::Reload),
         Key::L => app.focus_address_bar(),
         Key::D => run(app, BrowserAction::ToggleBookmark),
