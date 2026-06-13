@@ -64,57 +64,8 @@ pub fn render_browser(
             app.scroll_y(),
             chrome_top,
         );
-        render_diagnostics_badge(surface, app, fonts, theme);
     }
     render_chrome(surface, app, fonts, theme, input);
-}
-
-/// A small, non-blocking badge in the page's top-right corner shown when the
-/// current page rendered with skipped features (Milestone 23 fail-open): some
-/// stylesheets, scripts, or images could not be processed but the page still
-/// rendered. It reports the count; the detail is in the DevTools snapshot. This
-/// replaces the old full-page "could not be rendered" error for real pages.
-fn render_diagnostics_badge(
-    surface: &mut Surface,
-    app: &BrowserAppState,
-    fonts: &mut Fonts,
-    theme: &BrowserTheme,
-) {
-    let count = app.tabs.active().page().diagnostics().len();
-    if count == 0 {
-        return;
-    }
-    let label = if count == 1 {
-        "1 feature not supported".to_string()
-    } else {
-        format!("{count} features not supported")
-    };
-    let viewport = app.chrome.page_viewport();
-    let size = 12.5;
-    let pad = 10.0;
-    let dot = 16.0; // leading warning-dot column
-    let width = fonts.measure(&label, size) + pad * 2.0 + dot;
-    let height = 24.0;
-    let x = (viewport.x + viewport.width - width - 12.0).max(viewport.x + 12.0);
-    let y = viewport.y + 12.0;
-    surface.draw_pill(x, y, width, height, theme.button_hover_background);
-    let dot_r = 3.5;
-    surface.draw_rounded_rect(
-        x + pad,
-        y + height / 2.0 - dot_r,
-        dot_r * 2.0,
-        dot_r * 2.0,
-        dot_r,
-        theme.error_accent,
-    );
-    fonts.draw(
-        surface,
-        &label,
-        x + pad + dot,
-        y + (height - fonts.line_height(size)) / 2.0 + 1.0,
-        size,
-        theme.text_secondary,
-    );
 }
 
 /// Paint the chrome bands (tab strip, toolbar, hairline) and their contents.
@@ -439,7 +390,13 @@ fn render_toolbar(
     let metrics = chrome.metrics;
 
     // Navigation buttons: (rect, element, icon, enabled).
-    let buttons: [(Rect, ChromeElement, IconDraw, bool); 4] = [
+    #[allow(clippy::type_complexity)]
+    let buttons: [(
+        Rect,
+        ChromeElement,
+        fn(&mut Surface, Rect, mocha_layout::Color),
+        bool,
+    ); 4] = [
         (
             chrome.back_button(),
             ChromeElement::BackButton,
@@ -789,39 +746,6 @@ mod tests {
             }
         }
         assert!(non_white > 0, "page content painted in the viewport");
-    }
-
-    #[test]
-    fn diagnostics_badge_draws_in_page_corner() {
-        use std::io::Write;
-        let dir = std::env::temp_dir().join(format!("mocha_desktop_diag_{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("diag.html");
-        std::fs::File::create(&path)
-            .unwrap()
-            .write_all(b"<html><body><style>p { float: left; }</style><p>Hi</p></body></html>")
-            .unwrap();
-        let url = path.to_string_lossy().replace('\\', "/");
-
-        let app = BrowserAppState::load(&url, 1200, 800).unwrap();
-        // The page rendered (not an error view) but carries a diagnostic.
-        assert!(app.tabs.active().internal_view().is_none());
-        assert!(!app.tabs.active().page().diagnostics().is_empty());
-
-        let surface = render(&app, ChromeInput::default());
-        // The badge paints non-background pixels in the page's top-right corner.
-        let viewport = app.chrome.page_viewport();
-        let mut non_white = 0;
-        for dy in 8..40u32 {
-            for dx in (viewport.width as u32).saturating_sub(220)..viewport.width as u32 {
-                if surface.pixel(dx, viewport.y as u32 + dy) != Some(0x00ff_ffff) {
-                    non_white += 1;
-                }
-            }
-        }
-        assert!(non_white > 20, "diagnostics badge drawn in the page corner");
-
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

@@ -797,6 +797,7 @@ impl BrowserAppState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tab::InternalView;
     use std::path::PathBuf;
 
     fn example_path(name: &str) -> String {
