@@ -391,12 +391,7 @@ fn render_toolbar(
 
     // Navigation buttons: (rect, element, icon, enabled).
     #[allow(clippy::type_complexity)]
-    let buttons: [(
-        Rect,
-        ChromeElement,
-        fn(&mut Surface, Rect, mocha_layout::Color),
-        bool,
-    ); 4] = [
+    let buttons: [(Rect, ChromeElement, IconDraw, bool); 4] = [
         (
             chrome.back_button(),
             ChromeElement::BackButton,
