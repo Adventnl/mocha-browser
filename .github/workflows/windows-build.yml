@@ -1,12 +1,13 @@
 name: Windows Build
 
-# Builds the Mocha.exe desktop browser on every push to main and publishes it,
-# so the newest build is always downloadable from:
-#   - the run's "Artifacts" (Actions tab), and
-#   - the rolling "latest" release: /releases/latest
+# Builds the Mocha.exe desktop browser and publishes it:
+#   - every push to main updates the rolling "latest" prerelease, and
+#   - pushing a version tag (v*) cuts a permanent, named release.
+# The build is also downloadable from each run's "Artifacts" (Actions tab).
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   workflow_dispatch:
 
 concurrency:
@@ -50,7 +51,25 @@ jobs:
           path: dist/MochaBrowser
           if-no-files-found: error
 
-      # Publish a permanent, always-current download under the "latest" tag.
+      # A version tag (v1.2.3) cuts a permanent, named release.
+      - name: Publish versioned release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Mocha Browser ${{ github.ref_name }}
+          prerelease: false
+          body: >-
+            Mocha Browser ${{ github.ref_name }} — a from-scratch browser engine
+            (real DNS/TCP/TLS/HTTP networking; HTML/CSS/flexbox layout and paint).
+            Download `MochaBrowser-windows-x64.zip`, unzip, and run `Mocha.exe`.
+            Tip: launch from a terminal with `MOCHA_NET_LOG=1` to watch the live
+            network stack.
+          files: |
+            dist/MochaBrowser-windows-x64.zip
+            dist/MochaBrowser/Mocha.exe
+
+      # Every push to main refreshes the rolling "latest" prerelease.
       - name: Publish rolling "latest" release
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
@@ -65,3 +84,4 @@ jobs:
           files: |
             dist/MochaBrowser-windows-x64.zip
             dist/MochaBrowser/Mocha.exe
+
