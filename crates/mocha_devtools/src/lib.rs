@@ -414,6 +414,7 @@ fn style_properties(style: &ComputedStyle) -> StylePropertiesSnapshot {
         display: match style.display {
             Display::Block => "block",
             Display::Inline => "inline",
+            Display::Flex => "flex",
             Display::None => "none",
         }
         .to_string(),

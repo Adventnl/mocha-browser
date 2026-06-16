@@ -84,7 +84,13 @@ pub(crate) fn layout_block(styled: &StyledNode, x: f32, y: f32, available_width:
     let content_x = x + left_margin + border + padding.left;
     let content_y = y + margin.top + border + padding.top;
 
-    let (children, children_height) = layout_children(styled, content_x, content_y, content_width);
+    // A flex container lays its children out in a flex formatting context;
+    // every other block uses normal block/inline flow.
+    let (children, children_height) = if style.display == Display::Flex {
+        crate::flex::layout_flex(styled, content_x, content_y, content_width)
+    } else {
+        layout_children(styled, content_x, content_y, content_width)
+    };
     let content_height = style.height.unwrap_or(children_height);
 
     let border_box_height = content_height + padding.vertical() + 2.0 * border;
@@ -212,7 +218,7 @@ fn margin_box_height(layout_box: &LayoutBox, margin: &StyleEdges) -> f32 {
 }
 
 fn is_block_level(node: &StyledNode) -> bool {
-    node.text.is_none() && node.style.display == Display::Block
+    node.text.is_none() && matches!(node.style.display, Display::Block | Display::Flex)
 }
 
 fn edges(style_edges: &StyleEdges) -> EdgeSizes {

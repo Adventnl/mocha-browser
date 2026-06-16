@@ -21,6 +21,7 @@ mod block;
 mod box_tree;
 mod context;
 mod debug;
+mod flex;
 mod geometry;
 mod inline;
 mod line;
@@ -142,6 +143,94 @@ mod tests {
             },
         )
         .unwrap()
+    }
+
+    /// A fixed-size block (explicit width/height), for deterministic flex tests.
+    fn fixed_block(node_id: usize, w: f32, h: f32) -> StyledNode {
+        let mut style = block_style();
+        style.width = Some(w);
+        style.height = Some(h);
+        element(node_id, style, Vec::new())
+    }
+
+    fn flex_container(
+        justify: mocha_style::JustifyContent,
+        gap: f32,
+        children: Vec<StyledNode>,
+    ) -> StyledNode {
+        let mut style = block_style();
+        style.display = Display::Flex;
+        style.justify_content = justify;
+        style.align_items = mocha_style::AlignItems::Start;
+        style.gap = gap;
+        element(100, style, children)
+    }
+
+    #[test]
+    fn flex_row_justify_center_centers_items() {
+        let root = flex_container(
+            mocha_style::JustifyContent::Center,
+            0.0,
+            vec![fixed_block(1, 100.0, 50.0), fixed_block(2, 100.0, 50.0)],
+        );
+        let tree = layout(&root, 1000.0);
+        // Two items, 200px total, centered in 1000 => start at 400.
+        assert!((tree.children[0].rect.x - 400.0).abs() < 1.0);
+        assert!((tree.children[1].rect.x - 500.0).abs() < 1.0);
+        // Same row: equal y.
+        assert_eq!(tree.children[0].rect.y, tree.children[1].rect.y);
+    }
+
+    #[test]
+    fn flex_row_space_between_pushes_items_to_edges() {
+        let root = flex_container(
+            mocha_style::JustifyContent::SpaceBetween,
+            0.0,
+            vec![fixed_block(1, 100.0, 50.0), fixed_block(2, 100.0, 50.0)],
+        );
+        let tree = layout(&root, 1000.0);
+        assert!((tree.children[0].rect.x - 0.0).abs() < 1.0);
+        assert!((tree.children[1].rect.x - 900.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn flex_row_gap_separates_items() {
+        let root = flex_container(
+            mocha_style::JustifyContent::Start,
+            20.0,
+            vec![fixed_block(1, 100.0, 50.0), fixed_block(2, 100.0, 50.0)],
+        );
+        let tree = layout(&root, 1000.0);
+        assert!((tree.children[0].rect.x - 0.0).abs() < 1.0);
+        // Second item after the first + the 20px gap.
+        assert!((tree.children[1].rect.x - 120.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn flex_grow_fills_free_space() {
+        let mut grower = fixed_block(1, 100.0, 50.0);
+        grower.style.width = None; // grow controls the width
+        grower.style.flex_grow = 1.0;
+        let root = flex_container(mocha_style::JustifyContent::Start, 0.0, vec![grower]);
+        let tree = layout(&root, 1000.0);
+        // The single growing item expands to fill the container width.
+        assert!(tree.children[0].rect.width > 900.0);
+    }
+
+    #[test]
+    fn flex_column_stacks_items_vertically() {
+        let mut style = block_style();
+        style.display = Display::Flex;
+        style.flex_direction = mocha_style::FlexDirection::Column;
+        let root = element(
+            100,
+            style,
+            vec![fixed_block(1, 100.0, 40.0), fixed_block(2, 100.0, 40.0)],
+        );
+        let tree = layout(&root, 1000.0);
+        assert_eq!(tree.children[0].rect.x, tree.children[1].rect.x);
+        // Second item below the first.
+        assert!(tree.children[1].rect.y >= tree.children[0].rect.y + 40.0);
     }
 
     // --- tree walking helpers ----------------------------------------------

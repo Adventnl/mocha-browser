@@ -30,8 +30,56 @@ pub enum Display {
     Block,
     /// Inline-level.
     Inline,
+    /// A flex container (block-level; its children form a flex context).
+    Flex,
     /// Generates no box.
     None,
+}
+
+/// `flex-direction`: the main axis of a flex container.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FlexDirection {
+    /// Left to right.
+    #[default]
+    Row,
+    /// Right to left.
+    RowReverse,
+    /// Top to bottom.
+    Column,
+    /// Bottom to top.
+    ColumnReverse,
+}
+
+/// `justify-content`: distribution of items along the main axis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum JustifyContent {
+    /// Pack at the main-start (the default).
+    #[default]
+    Start,
+    /// Pack at the main-end.
+    End,
+    /// Pack around the center.
+    Center,
+    /// First item at start, last at end, equal space between.
+    SpaceBetween,
+    /// Equal space around each item.
+    SpaceAround,
+    /// Equal space between and around each item.
+    SpaceEvenly,
+}
+
+/// `align-items`: alignment of items along the cross axis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AlignItems {
+    /// Stretch to fill the cross size (the default).
+    #[default]
+    Stretch,
+    /// Align to cross-start.
+    Start,
+    /// Align to cross-end.
+    End,
+    /// Center on the cross axis.
+    Center,
 }
 
 /// The computed `font-weight` value.
@@ -104,6 +152,16 @@ pub struct ComputedStyle {
     pub line_height: Option<f32>,
     /// Whether the block centers horizontally (`margin-left`/`right: auto`).
     pub center_horizontally: bool,
+    /// `flex-direction` (only meaningful when `display: flex`).
+    pub flex_direction: FlexDirection,
+    /// `justify-content` (main-axis distribution).
+    pub justify_content: JustifyContent,
+    /// `align-items` (cross-axis alignment).
+    pub align_items: AlignItems,
+    /// `gap` between flex items in pixels.
+    pub gap: f32,
+    /// `flex-grow` factor for this element as a flex item.
+    pub flex_grow: f32,
 }
 
 impl ComputedStyle {
@@ -125,6 +183,11 @@ impl ComputedStyle {
             max_width: None,
             line_height: None,
             center_horizontally: false,
+            flex_direction: FlexDirection::Row,
+            justify_content: JustifyContent::Start,
+            align_items: AlignItems::Stretch,
+            gap: 0.0,
+            flex_grow: 0.0,
         }
     }
 
@@ -147,6 +210,11 @@ impl ComputedStyle {
             max_width: None,
             line_height: parent.line_height,
             center_horizontally: false,
+            flex_direction: FlexDirection::Row,
+            justify_content: JustifyContent::Start,
+            align_items: AlignItems::Stretch,
+            gap: 0.0,
+            flex_grow: 0.0,
         }
     }
 
@@ -221,6 +289,23 @@ impl ComputedStyle {
             },
             center_horizontally: is_auto(CssProperty::MarginLeft)
                 && is_auto(CssProperty::MarginRight),
+            flex_direction: values
+                .get(&CssProperty::FlexDirection)
+                .and_then(as_flex_direction)
+                .unwrap_or(FlexDirection::Row),
+            justify_content: values
+                .get(&CssProperty::JustifyContent)
+                .and_then(as_justify_content)
+                .unwrap_or(JustifyContent::Start),
+            align_items: values
+                .get(&CssProperty::AlignItems)
+                .and_then(as_align_items)
+                .unwrap_or(AlignItems::Stretch),
+            gap: len(CssProperty::Gap).unwrap_or(0.0),
+            flex_grow: match values.get(&CssProperty::FlexGrow) {
+                Some(CssValue::Number(n)) => *n,
+                _ => 0.0,
+            },
         }
     }
 }
@@ -643,7 +728,49 @@ fn as_display(value: &CssValue) -> Option<Display> {
         CssValue::Keyword(keyword) => match keyword.as_str() {
             "block" => Some(Display::Block),
             "inline" => Some(Display::Inline),
+            "flex" => Some(Display::Flex),
             "none" => Some(Display::None),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn as_flex_direction(value: &CssValue) -> Option<FlexDirection> {
+    match value {
+        CssValue::Keyword(k) => match k.as_str() {
+            "row" => Some(FlexDirection::Row),
+            "row-reverse" => Some(FlexDirection::RowReverse),
+            "column" => Some(FlexDirection::Column),
+            "column-reverse" => Some(FlexDirection::ColumnReverse),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn as_justify_content(value: &CssValue) -> Option<JustifyContent> {
+    match value {
+        CssValue::Keyword(k) => match k.as_str() {
+            "flex-start" | "start" | "left" => Some(JustifyContent::Start),
+            "flex-end" | "end" | "right" => Some(JustifyContent::End),
+            "center" => Some(JustifyContent::Center),
+            "space-between" => Some(JustifyContent::SpaceBetween),
+            "space-around" => Some(JustifyContent::SpaceAround),
+            "space-evenly" => Some(JustifyContent::SpaceEvenly),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn as_align_items(value: &CssValue) -> Option<AlignItems> {
+    match value {
+        CssValue::Keyword(k) => match k.as_str() {
+            "stretch" => Some(AlignItems::Stretch),
+            "flex-start" | "start" | "baseline" => Some(AlignItems::Start),
+            "flex-end" | "end" => Some(AlignItems::End),
+            "center" => Some(AlignItems::Center),
             _ => None,
         },
         _ => None,

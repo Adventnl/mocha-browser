@@ -466,6 +466,51 @@ fn build_declarations(name: &str, tokens: &[CssToken]) -> MochaResult<Vec<Declar
         "text-align" => Ok(single(CssProperty::TextAlign, text_align_value(tokens)?)),
         "line-height" => Ok(single(CssProperty::LineHeight, line_height_value(tokens)?)),
         "max-width" => Ok(single(CssProperty::MaxWidth, length(tokens)?)),
+        "flex-direction" => Ok(single(
+            CssProperty::FlexDirection,
+            ident_keyword(tokens, &["row", "row-reverse", "column", "column-reverse"])?,
+        )),
+        "justify-content" => Ok(single(
+            CssProperty::JustifyContent,
+            ident_keyword(
+                tokens,
+                &[
+                    "flex-start",
+                    "flex-end",
+                    "center",
+                    "space-between",
+                    "space-around",
+                    "space-evenly",
+                    "start",
+                    "end",
+                    "left",
+                    "right",
+                ],
+            )?,
+        )),
+        "align-items" => Ok(single(
+            CssProperty::AlignItems,
+            ident_keyword(
+                tokens,
+                &[
+                    "stretch",
+                    "flex-start",
+                    "flex-end",
+                    "center",
+                    "baseline",
+                    "start",
+                    "end",
+                ],
+            )?,
+        )),
+        "gap" | "grid-gap" => Ok(single(
+            CssProperty::Gap,
+            length(&tokens[..1.min(tokens.len())])?,
+        )),
+        "row-gap" | "column-gap" => Ok(single(CssProperty::Gap, length(tokens)?)),
+        "flex-grow" => Ok(single(CssProperty::FlexGrow, number_value(tokens)?)),
+        // `flex: <grow> [shrink] [basis]` — take the leading grow number.
+        "flex" => flex_shorthand(tokens),
         "font-size" => Ok(single(CssProperty::FontSize, length(tokens)?)),
         "width" => Ok(single(CssProperty::Width, length_or_auto(tokens)?)),
         "height" => Ok(single(CssProperty::Height, length_or_auto(tokens)?)),
@@ -503,21 +548,67 @@ fn build_declarations(name: &str, tokens: &[CssToken]) -> MochaResult<Vec<Declar
     }
 }
 
-/// `display`: map the many real keywords onto Mocha's block/inline/none model
-/// (`flex`/`grid`/`table`/`flow-root` behave as block; `inline-*` as inline).
+/// `display`: `flex`/`inline-flex` become a flex container; `grid`/`table`/etc.
+/// fall back to block; `inline-*` to inline; `none` generates no box.
 fn display_value(tokens: &[CssToken]) -> MochaResult<CssValue> {
     match tokens {
         [CssToken::Ident(name)] => {
             let lower = name.to_ascii_lowercase();
             let mapped = match lower.as_str() {
                 "none" => "none",
-                "inline" | "inline-block" | "inline-flex" | "inline-grid" => "inline",
+                "flex" | "inline-flex" => "flex",
+                "inline" | "inline-block" | "inline-grid" => "inline",
                 _ => "block",
             };
             Ok(CssValue::Keyword(mapped.to_string()))
         }
         _ => Err(MochaError::Parse("expected a display keyword".to_string())),
     }
+}
+
+/// Match a single-ident value against an allow-list, returning it as a keyword.
+fn ident_keyword(tokens: &[CssToken], allowed: &[&str]) -> MochaResult<CssValue> {
+    match tokens {
+        [CssToken::Ident(name)] => {
+            let lower = name.to_ascii_lowercase();
+            if allowed.contains(&lower.as_str()) {
+                Ok(CssValue::Keyword(lower))
+            } else {
+                Err(MochaError::UnsupportedFeature(format!(
+                    "unsupported keyword '{name}'"
+                )))
+            }
+        }
+        _ => Err(MochaError::Parse("expected a single keyword".to_string())),
+    }
+}
+
+/// A unitless number value.
+fn number_value(tokens: &[CssToken]) -> MochaResult<CssValue> {
+    match tokens {
+        [CssToken::Number(n)] => Ok(CssValue::Number(*n)),
+        _ => Err(MochaError::Parse("expected a number".to_string())),
+    }
+}
+
+/// `flex` shorthand: keep the flex-grow factor (`none`→0, `auto`/`1`→1, the
+/// first number otherwise).
+fn flex_shorthand(tokens: &[CssToken]) -> MochaResult<Vec<Declaration>> {
+    let grow = match tokens.first() {
+        Some(CssToken::Ident(name)) if name.eq_ignore_ascii_case("none") => 0.0,
+        Some(CssToken::Ident(name)) if name.eq_ignore_ascii_case("auto") => 1.0,
+        _ => tokens
+            .iter()
+            .find_map(|t| match t {
+                CssToken::Number(n) => Some(*n),
+                _ => None,
+            })
+            .unwrap_or(1.0),
+    };
+    Ok(vec![Declaration {
+        property: CssProperty::FlexGrow,
+        value: CssValue::Number(grow),
+    }])
 }
 
 /// `font-weight`: `bold`/`bolder` (and numeric ≥ 600) are bold, else normal.

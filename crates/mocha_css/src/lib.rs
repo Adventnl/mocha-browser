@@ -137,6 +137,16 @@ pub enum CssProperty {
     LineHeight,
     /// `max-width`
     MaxWidth,
+    /// `flex-direction`
+    FlexDirection,
+    /// `justify-content`
+    JustifyContent,
+    /// `align-items`
+    AlignItems,
+    /// `gap` (row/column gap, resolved to a single value)
+    Gap,
+    /// `flex-grow`
+    FlexGrow,
 }
 
 /// A single `property: value` pair.
