@@ -10,7 +10,7 @@
 
 use std::cmp::Ordering;
 use std::io::{ErrorKind, Read, Write};
-use std::net::TcpStream;
+use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
 use mocha_error::{MochaError, MochaResult};
@@ -117,12 +117,37 @@ fn fetch_once(url: &Url, cookie_header: Option<&str>, tls: &TlsClient) -> MochaR
         target = url.request_target(),
     );
 
+    crate::net_log::trace(format!(
+        "{} {}://{}{}",
+        "GET",
+        url.scheme.as_str(),
+        authority,
+        url.request_target()
+    ));
+    // DNS: resolve the host to its IP address(es) (only when tracing).
+    if crate::net_log::is_on() {
+        match (host, port).to_socket_addrs() {
+            Ok(addrs) => {
+                let ips: Vec<String> = addrs.map(|a| a.ip().to_string()).collect();
+                crate::net_log::trace(format!("  DNS {host} -> {}", ips.join(", ")));
+            }
+            Err(error) => crate::net_log::trace(format!("  DNS {host} failed: {error}")),
+        }
+    }
+
     let bytes = match url.scheme {
         Scheme::Https => tls.exchange(host, port, request.as_bytes())?,
         _ => {
             let mut stream = TcpStream::connect((host, port)).map_err(|error| {
                 MochaError::Network(format!("cannot connect to {authority}: {error}"))
             })?;
+            crate::net_log::trace(format!(
+                "  TCP connected to {}",
+                stream
+                    .peer_addr()
+                    .map(|a| a.to_string())
+                    .unwrap_or_else(|_| authority.clone())
+            ));
             stream.set_read_timeout(Some(TIMEOUT)).ok();
             stream.set_write_timeout(Some(TIMEOUT)).ok();
             stream
@@ -132,7 +157,14 @@ fn fetch_once(url: &Url, cookie_header: Option<&str>, tls: &TlsClient) -> MochaR
         }
     };
 
-    parse_response(&bytes)
+    let response = parse_response(&bytes)?;
+    crate::net_log::trace(format!(
+        "  <- {} ({} bytes, {})",
+        response.status,
+        response.body.len(),
+        header(&response.headers, "content-type").unwrap_or("?")
+    ));
+    Ok(response)
 }
 
 /// Read a `Connection: close` response to its end.

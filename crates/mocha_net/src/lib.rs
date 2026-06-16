@@ -19,6 +19,7 @@ mod cache;
 mod content_type;
 mod file;
 mod http;
+mod net_log;
 mod tls;
 
 #[cfg(any(test, feature = "test-util"))]

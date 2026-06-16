@@ -96,6 +96,12 @@ impl TlsClient {
         let mut tcp = TcpStream::connect((host, port)).map_err(|error| {
             MochaError::Network(format!("cannot connect to {host}:{port}: {error}"))
         })?;
+        crate::net_log::trace(format!(
+            "  TCP connected to {}",
+            tcp.peer_addr()
+                .map(|a| a.to_string())
+                .unwrap_or_else(|_| format!("{host}:{port}"))
+        ));
         tcp.set_read_timeout(Some(TIMEOUT)).ok();
         tcp.set_write_timeout(Some(TIMEOUT)).ok();
 
@@ -106,6 +112,14 @@ impl TlsClient {
         stream.write_all(request).map_err(|error| {
             MochaError::Network(format!("tls connection to {host}:{port} failed: {error}"))
         })?;
+        crate::net_log::trace(format!(
+            "  TLS handshake ok ({}), certificate verified",
+            stream
+                .conn
+                .protocol_version()
+                .map(|v| format!("{v:?}"))
+                .unwrap_or_else(|| "TLS".to_string())
+        ));
         read_response_bytes(&mut stream)
             .map_err(|error| MochaError::Network(format!("tls read from {host}:{port}: {error}")))
     }
