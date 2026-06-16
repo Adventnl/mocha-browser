@@ -9,7 +9,7 @@
 //! the tallest item on it, so an inline image taller than the text raises the
 //! line height. Baseline / `vertical-align` is not modelled: items are top-aligned.
 
-use mocha_style::{Color, ControlBox, NodeId};
+use mocha_style::{Color, ControlBox, NodeId, TextAlign};
 
 use crate::box_tree::{LayoutBox, LayoutBoxKind};
 use crate::geometry::Rect;
@@ -172,6 +172,7 @@ pub(crate) fn layout_items(
     content_x: f32,
     content_y: f32,
     available_width: f32,
+    align: TextAlign,
 ) -> (Vec<LayoutBox>, f32) {
     let mut lines: Vec<LayoutBox> = Vec::new();
     let mut runs: Vec<LayoutBox> = Vec::new();
@@ -196,6 +197,8 @@ pub(crate) fn layout_items(
                 available_width,
                 line_height_px,
                 line_font,
+                cursor_x,
+                align,
                 &mut runs,
             ));
             line_top += line_height_px;
@@ -222,6 +225,8 @@ pub(crate) fn layout_items(
             available_width,
             line_height_px,
             line_font,
+            cursor_x,
+            align,
             &mut runs,
         ));
         line_top += line_height_px;
@@ -230,14 +235,29 @@ pub(crate) fn layout_items(
     (lines, line_top - content_y)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn finish_line(
     content_x: f32,
     line_top: f32,
     available_width: f32,
     height: f32,
     font: f32,
+    used_width: f32,
+    align: TextAlign,
     runs: &mut Vec<LayoutBox>,
 ) -> LayoutBox {
+    // Horizontal alignment: shift every run by the line's free space.
+    let factor = match align {
+        TextAlign::Left => 0.0,
+        TextAlign::Center => 0.5,
+        TextAlign::Right => 1.0,
+    };
+    if factor > 0.0 {
+        let shift = ((available_width - used_width) * factor).max(0.0);
+        if shift > 0.0 {
+            shift_runs(runs, shift);
+        }
+    }
     let mut line = LayoutBox::anonymous(
         LayoutBoxKind::LineBox,
         Rect {
@@ -250,4 +270,11 @@ fn finish_line(
     );
     line.font_size = font;
     line
+}
+
+/// Shift every run on a line right by `shift` px (for center/right alignment).
+fn shift_runs(runs: &mut [LayoutBox], shift: f32) {
+    for run in runs.iter_mut() {
+        run.rect.x += shift;
+    }
 }

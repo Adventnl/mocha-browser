@@ -43,6 +43,21 @@ pub enum FontWeight {
     Bold,
 }
 
+/// The computed `text-align` value (inline content alignment within its block).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TextAlign {
+    /// Start of the line (the default).
+    #[default]
+    Left,
+    /// Centered within the line box.
+    Center,
+    /// End of the line.
+    Right,
+}
+
+/// The base font size used to resolve `rem` (the initial root font size).
+pub const ROOT_FONT_SIZE: f32 = 16.0;
+
 /// Per-side lengths used for `margin` and `padding`.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct EdgeSizes {
@@ -81,6 +96,14 @@ pub struct ComputedStyle {
     pub border_width: f32,
     /// `border-color` (defaults to the computed `color`).
     pub border_color: Color,
+    /// `text-align` (inherited): how inline content aligns within its line box.
+    pub text_align: TextAlign,
+    /// `max-width` in pixels, or `None`.
+    pub max_width: Option<f32>,
+    /// Resolved `line-height` in pixels, or `None` to use the font's metrics.
+    pub line_height: Option<f32>,
+    /// Whether the block centers horizontally (`margin-left`/`right: auto`).
+    pub center_horizontally: bool,
 }
 
 impl ComputedStyle {
@@ -98,6 +121,10 @@ impl ComputedStyle {
             padding: EdgeSizes::default(),
             border_width: 0.0,
             border_color: Color::BLACK,
+            text_align: TextAlign::Left,
+            max_width: None,
+            line_height: None,
+            center_horizontally: false,
         }
     }
 
@@ -116,6 +143,10 @@ impl ComputedStyle {
             padding: EdgeSizes::default(),
             border_width: 0.0,
             border_color: parent.color,
+            text_align: parent.text_align,
+            max_width: None,
+            line_height: parent.line_height,
+            center_horizontally: false,
         }
     }
 
@@ -129,6 +160,20 @@ impl ComputedStyle {
             .get(&CssProperty::Color)
             .and_then(as_color)
             .unwrap_or(parent.color);
+        // Font size resolves first (em is relative to the parent font size, rem to
+        // the root); other lengths then resolve em against this element's size.
+        let font_size = values
+            .get(&CssProperty::FontSize)
+            .and_then(|v| resolve_length(v, parent.font_size))
+            .unwrap_or(parent.font_size);
+        let len = |property: CssProperty| -> Option<f32> {
+            values
+                .get(&property)
+                .and_then(|v| resolve_length(v, font_size))
+        };
+        let is_auto = |property: CssProperty| -> bool {
+            matches!(values.get(&property), Some(CssValue::Keyword(k)) if k == "auto")
+        };
         ComputedStyle {
             display: values
                 .get(&CssProperty::Display)
@@ -139,37 +184,43 @@ impl ComputedStyle {
                 .get(&CssProperty::BackgroundColor)
                 .and_then(as_color)
                 .unwrap_or(Color::TRANSPARENT),
-            font_size: values
-                .get(&CssProperty::FontSize)
-                .and_then(as_length)
-                .unwrap_or(parent.font_size),
+            font_size,
             font_weight: values
                 .get(&CssProperty::FontWeight)
                 .and_then(as_font_weight)
                 .unwrap_or(parent.font_weight),
-            width: values.get(&CssProperty::Width).and_then(as_length),
-            height: values.get(&CssProperty::Height).and_then(as_length),
+            width: len(CssProperty::Width),
+            height: len(CssProperty::Height),
             margin: EdgeSizes {
-                top: edge(values, CssProperty::MarginTop),
-                right: edge(values, CssProperty::MarginRight),
-                bottom: edge(values, CssProperty::MarginBottom),
-                left: edge(values, CssProperty::MarginLeft),
+                top: len(CssProperty::MarginTop).unwrap_or(0.0),
+                right: len(CssProperty::MarginRight).unwrap_or(0.0),
+                bottom: len(CssProperty::MarginBottom).unwrap_or(0.0),
+                left: len(CssProperty::MarginLeft).unwrap_or(0.0),
             },
             padding: EdgeSizes {
-                top: edge(values, CssProperty::PaddingTop),
-                right: edge(values, CssProperty::PaddingRight),
-                bottom: edge(values, CssProperty::PaddingBottom),
-                left: edge(values, CssProperty::PaddingLeft),
+                top: len(CssProperty::PaddingTop).unwrap_or(0.0),
+                right: len(CssProperty::PaddingRight).unwrap_or(0.0),
+                bottom: len(CssProperty::PaddingBottom).unwrap_or(0.0),
+                left: len(CssProperty::PaddingLeft).unwrap_or(0.0),
             },
-            border_width: values
-                .get(&CssProperty::BorderWidth)
-                .and_then(as_length)
-                .unwrap_or(0.0),
+            border_width: len(CssProperty::BorderWidth).unwrap_or(0.0),
             // `border-color` defaults to the element's own color (like currentColor).
             border_color: values
                 .get(&CssProperty::BorderColor)
                 .and_then(as_color)
                 .unwrap_or(color),
+            text_align: values
+                .get(&CssProperty::TextAlign)
+                .and_then(as_text_align)
+                .unwrap_or(parent.text_align),
+            max_width: len(CssProperty::MaxWidth),
+            line_height: match values.get(&CssProperty::LineHeight) {
+                Some(CssValue::Number(n)) => Some(n * font_size),
+                Some(other) => resolve_length(other, font_size).or(parent.line_height),
+                None => parent.line_height,
+            },
+            center_horizontally: is_auto(CssProperty::MarginLeft)
+                && is_auto(CssProperty::MarginRight),
         }
     }
 }
@@ -475,6 +526,15 @@ fn ua_defaults(tag: &str) -> Vec<(CssProperty, CssValue)> {
         defaults.push((CssProperty::Color, CssValue::Color(Color::rgb(0, 0, 238))));
     }
 
+    // The legacy `<center>` element centers its inline content (text-align
+    // inherits, so descendants center too). `<th>` cells are centered + bold.
+    if matches!(tag, "center" | "th") {
+        defaults.push((
+            CssProperty::TextAlign,
+            CssValue::Keyword("center".to_string()),
+        ));
+    }
+
     // Heading font sizes. Other elements inherit so author `font-size` changes
     // propagate to descendants.
     let heading_size = match tag {
@@ -547,10 +607,6 @@ fn list_marker(document: &Document, id: NodeId) -> Option<String> {
     Some(format!("{position}. "))
 }
 
-fn edge(values: &HashMap<CssProperty, CssValue>, property: CssProperty) -> f32 {
-    values.get(&property).and_then(as_length).unwrap_or(0.0)
-}
-
 fn as_color(value: &CssValue) -> Option<Color> {
     match value {
         CssValue::Color(color) => Some(*color),
@@ -558,9 +614,26 @@ fn as_color(value: &CssValue) -> Option<Color> {
     }
 }
 
-fn as_length(value: &CssValue) -> Option<f32> {
+/// Resolve a length value to pixels. `px` is absolute; `em` is relative to
+/// `font_size`; `rem` to the root font size. Percent and other values return
+/// `None` (resolved later by layout, or unsupported in this context).
+fn resolve_length(value: &CssValue, font_size: f32) -> Option<f32> {
     match value {
         CssValue::LengthPx(px) => Some(*px),
+        CssValue::Em(n) => Some(n * font_size),
+        CssValue::Rem(n) => Some(n * ROOT_FONT_SIZE),
+        _ => None,
+    }
+}
+
+fn as_text_align(value: &CssValue) -> Option<TextAlign> {
+    match value {
+        CssValue::Keyword(keyword) => match keyword.as_str() {
+            "center" => Some(TextAlign::Center),
+            "right" => Some(TextAlign::Right),
+            "left" => Some(TextAlign::Left),
+            _ => None,
+        },
         _ => None,
     }
 }

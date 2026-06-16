@@ -451,25 +451,28 @@ fn build_declarations(name: &str, tokens: &[CssToken]) -> MochaResult<Vec<Declar
     let single = |property: CssProperty, value: CssValue| vec![Declaration { property, value }];
 
     match name {
-        "display" => Ok(single(
-            CssProperty::Display,
-            keyword(tokens, &["block", "inline", "none"])?,
-        )),
-        "font-weight" => Ok(single(
-            CssProperty::FontWeight,
-            keyword(tokens, &["normal", "bold"])?,
-        )),
+        "display" => Ok(single(CssProperty::Display, display_value(tokens)?)),
+        "font-weight" => Ok(single(CssProperty::FontWeight, font_weight_value(tokens)?)),
         "color" => Ok(single(CssProperty::Color, color(tokens)?)),
         "background-color" => Ok(single(CssProperty::BackgroundColor, color(tokens)?)),
+        // `background` shorthand: take any color in it, ignore image/position.
+        "background" => background_shorthand(tokens),
         "border-color" => Ok(single(CssProperty::BorderColor, color(tokens)?)),
-        "font-size" => Ok(single(CssProperty::FontSize, length(tokens)?)),
-        "width" => Ok(single(CssProperty::Width, length(tokens)?)),
-        "height" => Ok(single(CssProperty::Height, length(tokens)?)),
         "border-width" => Ok(single(CssProperty::BorderWidth, length(tokens)?)),
-        "margin-top" => Ok(single(CssProperty::MarginTop, length(tokens)?)),
-        "margin-right" => Ok(single(CssProperty::MarginRight, length(tokens)?)),
-        "margin-bottom" => Ok(single(CssProperty::MarginBottom, length(tokens)?)),
-        "margin-left" => Ok(single(CssProperty::MarginLeft, length(tokens)?)),
+        // `border`/`border-*` shorthand: pull out a width and/or a color.
+        "border" | "border-top" | "border-right" | "border-bottom" | "border-left" => {
+            border_shorthand(tokens)
+        }
+        "text-align" => Ok(single(CssProperty::TextAlign, text_align_value(tokens)?)),
+        "line-height" => Ok(single(CssProperty::LineHeight, line_height_value(tokens)?)),
+        "max-width" => Ok(single(CssProperty::MaxWidth, length(tokens)?)),
+        "font-size" => Ok(single(CssProperty::FontSize, length(tokens)?)),
+        "width" => Ok(single(CssProperty::Width, length_or_auto(tokens)?)),
+        "height" => Ok(single(CssProperty::Height, length_or_auto(tokens)?)),
+        "margin-top" => Ok(single(CssProperty::MarginTop, length_or_auto(tokens)?)),
+        "margin-right" => Ok(single(CssProperty::MarginRight, length_or_auto(tokens)?)),
+        "margin-bottom" => Ok(single(CssProperty::MarginBottom, length_or_auto(tokens)?)),
+        "margin-left" => Ok(single(CssProperty::MarginLeft, length_or_auto(tokens)?)),
         "padding-top" => Ok(single(CssProperty::PaddingTop, length(tokens)?)),
         "padding-right" => Ok(single(CssProperty::PaddingRight, length(tokens)?)),
         "padding-bottom" => Ok(single(CssProperty::PaddingBottom, length(tokens)?)),
@@ -482,6 +485,7 @@ fn build_declarations(name: &str, tokens: &[CssToken]) -> MochaResult<Vec<Declar
                 CssProperty::MarginBottom,
                 CssProperty::MarginLeft,
             ],
+            true,
         ),
         "padding" => expand_box_shorthand(
             tokens,
@@ -491,105 +495,215 @@ fn build_declarations(name: &str, tokens: &[CssToken]) -> MochaResult<Vec<Declar
                 CssProperty::PaddingBottom,
                 CssProperty::PaddingLeft,
             ],
+            false,
         ),
         other => Err(MochaError::UnsupportedFeature(format!(
-            "CSS property '{other}' is not supported in Milestone 2"
+            "CSS property '{other}' is not supported"
         ))),
     }
 }
 
+/// `display`: map the many real keywords onto Mocha's block/inline/none model
+/// (`flex`/`grid`/`table`/`flow-root` behave as block; `inline-*` as inline).
+fn display_value(tokens: &[CssToken]) -> MochaResult<CssValue> {
+    match tokens {
+        [CssToken::Ident(name)] => {
+            let lower = name.to_ascii_lowercase();
+            let mapped = match lower.as_str() {
+                "none" => "none",
+                "inline" | "inline-block" | "inline-flex" | "inline-grid" => "inline",
+                _ => "block",
+            };
+            Ok(CssValue::Keyword(mapped.to_string()))
+        }
+        _ => Err(MochaError::Parse("expected a display keyword".to_string())),
+    }
+}
+
+/// `font-weight`: `bold`/`bolder` (and numeric ≥ 600) are bold, else normal.
+fn font_weight_value(tokens: &[CssToken]) -> MochaResult<CssValue> {
+    let bold = match tokens {
+        [CssToken::Ident(name)] => matches!(name.to_ascii_lowercase().as_str(), "bold" | "bolder"),
+        [CssToken::Number(n)] => *n >= 600.0,
+        _ => return Err(MochaError::Parse("expected a font-weight".to_string())),
+    };
+    Ok(CssValue::Keyword(
+        if bold { "bold" } else { "normal" }.to_string(),
+    ))
+}
+
+/// `text-align`: normalize to `left`/`right`/`center` (`start`→left, `end`→right,
+/// `justify`→left).
+fn text_align_value(tokens: &[CssToken]) -> MochaResult<CssValue> {
+    match tokens {
+        [CssToken::Ident(name)] => {
+            let value = match name.to_ascii_lowercase().as_str() {
+                "center" => "center",
+                "right" | "end" => "right",
+                "left" | "start" | "justify" => "left",
+                other => {
+                    return Err(MochaError::UnsupportedFeature(format!(
+                        "text-align '{other}' is not supported"
+                    )))
+                }
+            };
+            Ok(CssValue::Keyword(value.to_string()))
+        }
+        _ => Err(MochaError::Parse(
+            "expected a text-align keyword".to_string(),
+        )),
+    }
+}
+
+/// `line-height`: a unitless multiplier ([`CssValue::Number`]), a length, or
+/// `normal` (≈ 1.2).
+fn line_height_value(tokens: &[CssToken]) -> MochaResult<CssValue> {
+    match tokens {
+        [CssToken::Number(n)] => Ok(CssValue::Number(*n)),
+        [CssToken::Ident(name)] if name.eq_ignore_ascii_case("normal") => Ok(CssValue::Number(1.2)),
+        [token] => Ok(dimension_value(token)?),
+        _ => Err(MochaError::Parse("expected a line-height".to_string())),
+    }
+}
+
+/// `background` shorthand: keep any color found, ignore the rest (images,
+/// position, repeat). Errors only when no color is present (so it's skipped).
+fn background_shorthand(tokens: &[CssToken]) -> MochaResult<Vec<Declaration>> {
+    for token in tokens {
+        if let Ok(CssValue::Color(c)) = color(std::slice::from_ref(token)) {
+            return Ok(vec![Declaration {
+                property: CssProperty::BackgroundColor,
+                value: CssValue::Color(c),
+            }]);
+        }
+    }
+    // rgb()/hsl() span several tokens; try the whole list too.
+    if let Ok(value @ CssValue::Color(_)) = color(tokens) {
+        return Ok(vec![Declaration {
+            property: CssProperty::BackgroundColor,
+            value,
+        }]);
+    }
+    Err(MochaError::UnsupportedFeature(
+        "background shorthand without a usable color".to_string(),
+    ))
+}
+
+/// `border`/`border-*` shorthand: emit a `border-width` for any length and a
+/// `border-color` for any color (the line style is ignored).
+fn border_shorthand(tokens: &[CssToken]) -> MochaResult<Vec<Declaration>> {
+    let mut decls = Vec::new();
+    for token in tokens {
+        if let Ok(value) = length(std::slice::from_ref(token)) {
+            decls.push(Declaration {
+                property: CssProperty::BorderWidth,
+                value,
+            });
+        } else if let Ok(value @ CssValue::Color(_)) = color(std::slice::from_ref(token)) {
+            decls.push(Declaration {
+                property: CssProperty::BorderColor,
+                value,
+            });
+        }
+    }
+    if decls.is_empty() {
+        return Err(MochaError::UnsupportedFeature(
+            "border shorthand with no width or color".to_string(),
+        ));
+    }
+    Ok(decls)
+}
+
 /// Expand a 1–4 value box shorthand (margin/padding) into four longhands.
+/// `allow_auto` accepts the `auto` keyword (margins) for centering.
 fn expand_box_shorthand(
     tokens: &[CssToken],
     [top, right, bottom, left]: [CssProperty; 4],
+    allow_auto: bool,
 ) -> MochaResult<Vec<Declaration>> {
     let mut values = Vec::new();
     for token in tokens {
-        values.push(length_value(token)?);
+        if allow_auto {
+            if let CssToken::Ident(name) = token {
+                if name.eq_ignore_ascii_case("auto") {
+                    values.push(CssValue::Keyword("auto".to_string()));
+                    continue;
+                }
+            }
+        }
+        values.push(dimension_value(token)?);
     }
     let (t, r, b, l) = match values.as_slice() {
-        [all] => (*all, *all, *all, *all),
-        [v, h] => (*v, *h, *v, *h),
-        [t, h, b] => (*t, *h, *b, *h),
-        [t, r, b, l] => (*t, *r, *b, *l),
+        [all] => (all, all, all, all),
+        [v, h] => (v, h, v, h),
+        [t, h, b] => (t, h, b, h),
+        [t, r, b, l] => (t, r, b, l),
         _ => {
             return Err(MochaError::Parse(
-                "box shorthand expects between 1 and 4 length values".to_string(),
+                "box shorthand expects between 1 and 4 values".to_string(),
             ))
         }
     };
     Ok(vec![
         Declaration {
             property: top,
-            value: CssValue::LengthPx(t),
+            value: t.clone(),
         },
         Declaration {
             property: right,
-            value: CssValue::LengthPx(r),
+            value: r.clone(),
         },
         Declaration {
             property: bottom,
-            value: CssValue::LengthPx(b),
+            value: b.clone(),
         },
         Declaration {
             property: left,
-            value: CssValue::LengthPx(l),
+            value: l.clone(),
         },
     ])
 }
 
-fn keyword(tokens: &[CssToken], allowed: &[&str]) -> MochaResult<CssValue> {
-    match tokens {
-        [CssToken::Ident(name)] => {
-            let lower = name.to_ascii_lowercase();
-            if allowed.contains(&lower.as_str()) {
-                Ok(CssValue::Keyword(lower))
-            } else {
-                Err(MochaError::UnsupportedFeature(format!(
-                    "unsupported keyword value '{name}' (expected one of {allowed:?})"
-                )))
-            }
-        }
-        _ => Err(MochaError::Parse(format!(
-            "expected a single keyword, found {tokens:?}"
-        ))),
-    }
-}
-
+/// A single length value (px/em/rem/%/pt or unitless 0).
 fn length(tokens: &[CssToken]) -> MochaResult<CssValue> {
     match tokens {
-        [token] => Ok(CssValue::LengthPx(length_value(token)?)),
-        _ => {
-            reject_function(tokens)?;
-            Err(MochaError::Parse(format!(
-                "expected a single length, found {tokens:?}"
-            )))
+        [token] => dimension_value(token),
+        _ => Err(MochaError::Parse(format!(
+            "expected a single length, found {tokens:?}"
+        ))),
+    }
+}
+
+/// A length, or the `auto` keyword (for width/height/margins).
+fn length_or_auto(tokens: &[CssToken]) -> MochaResult<CssValue> {
+    if let [CssToken::Ident(name)] = tokens {
+        if name.eq_ignore_ascii_case("auto") {
+            return Ok(CssValue::Keyword("auto".to_string()));
         }
     }
+    length(tokens)
 }
 
-/// If the value looks like a function call (`name(...)`, e.g. `calc()`, `var()`,
-/// `rgb()`), report it as a clear unsupported-feature error.
-fn reject_function(tokens: &[CssToken]) -> MochaResult<()> {
-    if let [CssToken::Ident(name), CssToken::Delim('('), ..] = tokens {
-        return Err(MochaError::UnsupportedFeature(format!(
-            "CSS function '{name}()' is not supported in Milestone 2"
-        )));
-    }
-    Ok(())
-}
-
-/// Convert a single token to a pixel length, rejecting non-`px` units.
-fn length_value(token: &CssToken) -> MochaResult<f32> {
+/// Convert a single dimension token to a typed [`CssValue`].
+fn dimension_value(token: &CssToken) -> MochaResult<CssValue> {
     match token {
-        CssToken::Dimension(value, unit) if unit == "px" => Ok(*value),
-        CssToken::Dimension(_, unit) => Err(MochaError::UnsupportedFeature(format!(
-            "CSS unit '{unit}' is not supported in Milestone 2 (use px)"
-        ))),
-        // Unitless zero is allowed; any other bare number requires a unit.
-        CssToken::Number(value) if *value == 0.0 => Ok(0.0),
+        CssToken::Dimension(value, unit) => match unit.as_str() {
+            "px" => Ok(CssValue::LengthPx(*value)),
+            "em" => Ok(CssValue::Em(*value)),
+            "rem" => Ok(CssValue::Rem(*value)),
+            "%" => Ok(CssValue::Percent(*value)),
+            "pt" => Ok(CssValue::LengthPx(*value * 96.0 / 72.0)),
+            "pc" => Ok(CssValue::LengthPx(*value * 16.0)),
+            "in" => Ok(CssValue::LengthPx(*value * 96.0)),
+            "cm" => Ok(CssValue::LengthPx(*value * 96.0 / 2.54)),
+            "mm" => Ok(CssValue::LengthPx(*value * 96.0 / 25.4)),
+            other => Err(MochaError::UnsupportedFeature(format!(
+                "CSS unit '{other}' is not supported"
+            ))),
+        },
+        CssToken::Number(value) if *value == 0.0 => Ok(CssValue::LengthPx(0.0)),
         CssToken::Number(_) => Err(MochaError::Parse(
-            "lengths require a 'px' unit (except 0)".to_string(),
+            "lengths require a unit (except 0)".to_string(),
         )),
         other => Err(MochaError::Parse(format!(
             "expected a length, found {other:?}"
@@ -597,25 +711,105 @@ fn length_value(token: &CssToken) -> MochaResult<f32> {
     }
 }
 
+/// Parse a color value: hex, a named color, `transparent`, or a
+/// `rgb()/rgba()/hsl()/hsla()` function.
 fn color(tokens: &[CssToken]) -> MochaResult<CssValue> {
     match tokens {
         [CssToken::Hash(hex)] => Ok(CssValue::Color(parse_hex_color(hex)?)),
         [CssToken::Ident(name)] => {
             let lower = name.to_ascii_lowercase();
+            if lower == "transparent" {
+                return Ok(CssValue::Color(crate::Color {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 0,
+                }));
+            }
             named_color(&lower).map(CssValue::Color).ok_or_else(|| {
-                MochaError::UnsupportedFeature(format!(
-                    "color '{name}' is not supported in Milestone 2"
-                ))
+                MochaError::UnsupportedFeature(format!("color '{name}' is not supported"))
             })
         }
-        // rgb()/rgba()/hsl() tokenize as an ident followed by '(' and more tokens.
-        _ => {
-            reject_function(tokens)?;
-            Err(MochaError::UnsupportedFeature(
-                "unsupported color value (use a named color or hex)".to_string(),
-            ))
+        [CssToken::Ident(name), CssToken::Delim('('), rest @ ..] => {
+            color_function(&name.to_ascii_lowercase(), rest)
+        }
+        _ => Err(MochaError::UnsupportedFeature(
+            "unsupported color value".to_string(),
+        )),
+    }
+}
+
+/// Parse the arguments of `rgb()/rgba()/hsl()/hsla()` (a trailing `)` may be
+/// present). Commas and slashes between components are ignored.
+fn color_function(name: &str, args: &[CssToken]) -> MochaResult<CssValue> {
+    let mut numbers: Vec<f32> = Vec::new();
+    for token in args {
+        match token {
+            CssToken::Number(n) => numbers.push(*n),
+            CssToken::Dimension(n, unit) if unit == "%" => numbers.push(*n),
+            _ => {} // skip commas, '/', ')', whitespace
         }
     }
+    let color = match name {
+        "rgb" | "rgba" if numbers.len() >= 3 => crate::Color {
+            r: numbers[0].clamp(0.0, 255.0) as u8,
+            g: numbers[1].clamp(0.0, 255.0) as u8,
+            b: numbers[2].clamp(0.0, 255.0) as u8,
+            a: numbers
+                .get(3)
+                .map(|a| (a.clamp(0.0, 1.0) * 255.0) as u8)
+                .unwrap_or(255),
+        },
+        "hsl" | "hsla" if numbers.len() >= 3 => {
+            let (r, g, b) = hsl_to_rgb(numbers[0], numbers[1] / 100.0, numbers[2] / 100.0);
+            crate::Color {
+                r,
+                g,
+                b,
+                a: numbers
+                    .get(3)
+                    .map(|a| (a.clamp(0.0, 1.0) * 255.0) as u8)
+                    .unwrap_or(255),
+            }
+        }
+        _ => {
+            return Err(MochaError::UnsupportedFeature(format!(
+                "color function '{name}()' is not supported"
+            )))
+        }
+    };
+    Ok(CssValue::Color(color))
+}
+
+/// Convert HSL (h in degrees, s and l in `0..=1`) to 8-bit RGB.
+fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
+    let h = h.rem_euclid(360.0) / 360.0;
+    let s = s.clamp(0.0, 1.0);
+    let l = l.clamp(0.0, 1.0);
+    if s == 0.0 {
+        let v = (l * 255.0).round() as u8;
+        return (v, v, v);
+    }
+    let q = if l < 0.5 {
+        l * (1.0 + s)
+    } else {
+        l + s - l * s
+    };
+    let p = 2.0 * l - q;
+    let hue = |t: f32| {
+        let t = t.rem_euclid(1.0);
+        let c = if t < 1.0 / 6.0 {
+            p + (q - p) * 6.0 * t
+        } else if t < 1.0 / 2.0 {
+            q
+        } else if t < 2.0 / 3.0 {
+            p + (q - p) * (2.0 / 3.0 - t) * 6.0
+        } else {
+            p
+        };
+        (c * 255.0).round() as u8
+    };
+    (hue(h + 1.0 / 3.0), hue(h), hue(h - 1.0 / 3.0))
 }
 
 #[cfg(test)]
@@ -793,10 +987,45 @@ mod tests {
 
     #[test]
     fn unsupported_unit_is_skipped() {
-        let sheet = parse_stylesheet("p { font-size: 2em; color: blue; }").unwrap();
+        // `vh` needs viewport units Mocha doesn't resolve yet: that declaration
+        // is dropped while the supported `color` is kept.
+        let sheet = parse_stylesheet("p { font-size: 2vh; color: blue; }").unwrap();
         let rule = &sheet.rules[0];
         assert_eq!(rule.declarations.len(), 1);
         assert_eq!(rule.declarations[0].property, CssProperty::Color);
+    }
+
+    #[test]
+    fn relative_units_and_functions_parse() {
+        // em/rem/% and rgb()/hsl() now parse into typed values.
+        let rule = only_rule("p { font-size: 2em; width: 50%; color: rgb(255, 0, 0); }");
+        assert!(rule
+            .declarations
+            .iter()
+            .any(|d| d.value == CssValue::Em(2.0)));
+        assert!(rule
+            .declarations
+            .iter()
+            .any(|d| d.value == CssValue::Percent(50.0)));
+        assert!(rule
+            .declarations
+            .iter()
+            .any(|d| matches!(d.value, CssValue::Color(c) if c.r == 255 && c.g == 0 && c.b == 0)));
+    }
+
+    #[test]
+    fn text_align_and_margin_auto_parse() {
+        let rule = only_rule("div { text-align: center; margin: 0 auto; }");
+        assert!(rule
+            .declarations
+            .iter()
+            .any(|d| d.property == CssProperty::TextAlign
+                && d.value == CssValue::Keyword("center".into())));
+        assert!(rule
+            .declarations
+            .iter()
+            .any(|d| d.property == CssProperty::MarginLeft
+                && d.value == CssValue::Keyword("auto".into())));
     }
 
     #[test]

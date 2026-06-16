@@ -4,7 +4,7 @@
 //! Margin collapse is **not** implemented: each block advances its parent by its
 //! full margin-box height. Floats and positioning are not implemented.
 
-use mocha_style::{Display, EdgeSizes as StyleEdges, StyledNode};
+use mocha_style::{Display, EdgeSizes as StyleEdges, StyledNode, TextAlign};
 
 use crate::box_tree::{LayoutBox, LayoutBoxKind};
 use crate::geometry::{EdgeSizes, Rect};
@@ -65,23 +65,35 @@ pub(crate) fn layout_block(styled: &StyledNode, x: f32, y: f32, available_width:
         };
     }
 
-    let content_width = style.width.unwrap_or_else(|| {
+    let mut content_width = style.width.unwrap_or_else(|| {
         (available_width - margin.horizontal() - padding.horizontal() - 2.0 * border).max(0.0)
     });
-    let content_x = x + margin.left + border + padding.left;
+    // `max-width` caps the content width.
+    if let Some(max) = style.max_width {
+        content_width = content_width.min(max.max(0.0));
+    }
+
+    let border_box_width = content_width + padding.horizontal() + 2.0 * border;
+    // `margin: 0 auto` (or `margin-left/right: auto`) centers a block whose box
+    // is narrower than the containing block.
+    let left_margin = if style.center_horizontally && border_box_width < available_width {
+        (available_width - border_box_width) / 2.0
+    } else {
+        margin.left
+    };
+    let content_x = x + left_margin + border + padding.left;
     let content_y = y + margin.top + border + padding.top;
 
     let (children, children_height) = layout_children(styled, content_x, content_y, content_width);
     let content_height = style.height.unwrap_or(children_height);
 
-    let border_box_width = content_width + padding.horizontal() + 2.0 * border;
     let border_box_height = content_height + padding.vertical() + 2.0 * border;
 
     LayoutBox {
         node_id: Some(styled.node_id),
         kind: LayoutBoxKind::Block,
         rect: Rect {
-            x: x + margin.left,
+            x: x + left_margin,
             y: y + margin.top,
             width: border_box_width,
             height: border_box_height,
@@ -116,7 +128,13 @@ fn layout_children(
 
     let has_block = visible.iter().any(|child| is_block_level(child));
     if !has_block {
-        return inline::layout_inline(&visible, content_x, content_y, content_width);
+        return inline::layout_inline(
+            &visible,
+            content_x,
+            content_y,
+            content_width,
+            parent.style.text_align,
+        );
     }
 
     let mut boxes = Vec::new();
@@ -130,6 +148,7 @@ fn layout_children(
                 content_x,
                 &mut cursor_y,
                 content_width,
+                parent.style.text_align,
                 &mut boxes,
             );
             let block_box = layout_block(child, content_x, cursor_y, content_width);
@@ -144,6 +163,7 @@ fn layout_children(
         content_x,
         &mut cursor_y,
         content_width,
+        parent.style.text_align,
         &mut boxes,
     );
 
@@ -160,12 +180,14 @@ fn flush_inline_group(
     content_x: f32,
     cursor_y: &mut f32,
     content_width: f32,
+    align: TextAlign,
     boxes: &mut Vec<LayoutBox>,
 ) {
     if inline_group.is_empty() {
         return;
     }
-    let (lines, height) = inline::layout_inline(inline_group, content_x, *cursor_y, content_width);
+    let (lines, height) =
+        inline::layout_inline(inline_group, content_x, *cursor_y, content_width, align);
     if lines.is_empty() {
         inline_group.clear();
         return;

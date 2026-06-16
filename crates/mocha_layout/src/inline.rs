@@ -7,7 +7,7 @@
 //! walked transparently; an inline `<img>` becomes a replaced atom;
 //! `display: none` nodes contribute nothing.
 
-use mocha_style::{Display, StyledNode};
+use mocha_style::{Display, StyledNode, TextAlign};
 
 use crate::box_tree::LayoutBox;
 use crate::line::{layout_items, ControlAtom, ImageAtom, InlineItem, Word};
@@ -19,13 +19,14 @@ pub(crate) fn layout_inline(
     content_x: f32,
     content_y: f32,
     available_width: f32,
+    align: TextAlign,
 ) -> (Vec<LayoutBox>, f32) {
     let mut items = Vec::new();
     let mut pending_space = false;
     for child in inline_children {
         collect_items(child, &mut items, &mut pending_space);
     }
-    layout_items(&items, content_x, content_y, available_width)
+    layout_items(&items, content_x, content_y, available_width, align)
 }
 
 /// Walk an inline subtree in document order, appending one [`InlineItem`] per

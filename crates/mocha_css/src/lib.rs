@@ -79,8 +79,16 @@ pub fn named_color(name: &str) -> Option<Color> {
 pub enum CssValue {
     /// A bare keyword such as `block` or `bold`.
     Keyword(String),
-    /// A length in pixels (the only supported unit).
+    /// A length in pixels.
     LengthPx(f32),
+    /// A length in `em` (relative to the element's font size).
+    Em(f32),
+    /// A length in `rem` (relative to the root font size).
+    Rem(f32),
+    /// A percentage (resolved against the containing block during layout).
+    Percent(f32),
+    /// A unitless number (e.g. a `line-height` multiplier).
+    Number(f32),
     /// A color value.
     Color(Color),
 }
@@ -123,6 +131,12 @@ pub enum CssProperty {
     BorderWidth,
     /// `border-color`
     BorderColor,
+    /// `text-align`
+    TextAlign,
+    /// `line-height`
+    LineHeight,
+    /// `max-width`
+    MaxWidth,
 }
 
 /// A single `property: value` pair.
