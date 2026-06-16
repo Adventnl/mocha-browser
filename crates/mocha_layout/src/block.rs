@@ -37,6 +37,7 @@ pub(crate) fn layout_block(styled: &StyledNode, x: f32, y: f32, available_width:
             background_color: style.background_color,
             border_width: border,
             border_color: style.border_color,
+            border_radius: style.border_radius,
             children: Vec::new(),
         };
     }
@@ -61,6 +62,7 @@ pub(crate) fn layout_block(styled: &StyledNode, x: f32, y: f32, available_width:
             background_color: style.background_color,
             border_width: border,
             border_color: style.border_color,
+            border_radius: style.border_radius,
             children: Vec::new(),
         };
     }
@@ -109,6 +111,7 @@ pub(crate) fn layout_block(styled: &StyledNode, x: f32, y: f32, available_width:
         background_color: style.background_color,
         border_width: border,
         border_color: style.border_color,
+        border_radius: style.border_radius,
         children,
     }
 }

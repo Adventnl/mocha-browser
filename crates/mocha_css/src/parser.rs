@@ -509,6 +509,11 @@ fn build_declarations(name: &str, tokens: &[CssToken]) -> MochaResult<Vec<Declar
         )),
         "row-gap" | "column-gap" => Ok(single(CssProperty::Gap, length(tokens)?)),
         "flex-grow" => Ok(single(CssProperty::FlexGrow, number_value(tokens)?)),
+        // `border-radius`: take the first radius value (no per-corner / elliptical).
+        "border-radius" => Ok(single(
+            CssProperty::BorderRadius,
+            length(&tokens[..1.min(tokens.len())])?,
+        )),
         // `flex: <grow> [shrink] [basis]` — take the leading grow number.
         "flex" => flex_shorthand(tokens),
         "font-size" => Ok(single(CssProperty::FontSize, length(tokens)?)),

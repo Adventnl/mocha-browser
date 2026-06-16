@@ -115,6 +115,7 @@ impl InlineItem {
                 background_color: Color::TRANSPARENT,
                 border_width: 0.0,
                 border_color: w.color,
+                border_radius: 0.0,
                 children: Vec::new(),
             },
             InlineItem::Image(i) => LayoutBox {
@@ -131,6 +132,7 @@ impl InlineItem {
                 background_color: Color::TRANSPARENT,
                 border_width: 0.0,
                 border_color: Color::BLACK,
+                border_radius: 0.0,
                 children: Vec::new(),
             },
             InlineItem::Control(c) => LayoutBox {
@@ -147,6 +149,7 @@ impl InlineItem {
                 background_color: Color::TRANSPARENT,
                 border_width: 0.0,
                 border_color: Color::BLACK,
+                border_radius: 0.0,
                 children: Vec::new(),
             },
         }

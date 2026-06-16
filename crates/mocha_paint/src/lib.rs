@@ -26,6 +26,21 @@ pub enum DisplayCommand {
         /// Fill color.
         color: Color,
     },
+    /// Fill a rounded rectangle (background with `border-radius`).
+    DrawRoundedRect {
+        /// Left edge.
+        x: f32,
+        /// Top edge.
+        y: f32,
+        /// Width.
+        width: f32,
+        /// Height.
+        height: f32,
+        /// Corner radius.
+        radius: f32,
+        /// Fill color.
+        color: Color,
+    },
     /// Draw a box border of the given width and color.
     DrawBorder {
         /// Left edge of the border box.
@@ -38,6 +53,23 @@ pub enum DisplayCommand {
         height: f32,
         /// Border thickness.
         border_width: f32,
+        /// Border color.
+        color: Color,
+    },
+    /// Draw a rounded box border (border with `border-radius`).
+    DrawRoundedBorder {
+        /// Left edge of the border box.
+        x: f32,
+        /// Top edge of the border box.
+        y: f32,
+        /// Border-box width.
+        width: f32,
+        /// Border-box height.
+        height: f32,
+        /// Border thickness.
+        border_width: f32,
+        /// Corner radius.
+        radius: f32,
         /// Border color.
         color: Color,
     },
@@ -103,6 +135,27 @@ impl DisplayCommand {
                 height,
                 color,
             } => format!("DrawRect x={x} y={y} width={width} height={height} color={color}"),
+            DisplayCommand::DrawRoundedRect {
+                x,
+                y,
+                width,
+                height,
+                radius,
+                color,
+            } => format!(
+                "DrawRoundedRect x={x} y={y} width={width} height={height} radius={radius} color={color}"
+            ),
+            DisplayCommand::DrawRoundedBorder {
+                x,
+                y,
+                width,
+                height,
+                border_width,
+                radius,
+                color,
+            } => format!(
+                "DrawRoundedBorder x={x} y={y} width={width} height={height} border_width={border_width} radius={radius} color={color}"
+            ),
             DisplayCommand::DrawBorder {
                 x,
                 y,
@@ -168,6 +221,60 @@ pub fn build_display_list(layout_root: &LayoutBox) -> MochaResult<Vec<DisplayCom
     Ok(commands)
 }
 
+/// Emit a background fill, rounded when the box has a `border-radius`.
+fn emit_background(commands: &mut Vec<DisplayCommand>, b: &LayoutBox) {
+    if b.background_color.a == 0 {
+        return;
+    }
+    let r = b.rect;
+    if b.border_radius > 0.0 {
+        commands.push(DisplayCommand::DrawRoundedRect {
+            x: r.x,
+            y: r.y,
+            width: r.width,
+            height: r.height,
+            radius: b.border_radius,
+            color: b.background_color,
+        });
+    } else {
+        commands.push(DisplayCommand::DrawRect {
+            x: r.x,
+            y: r.y,
+            width: r.width,
+            height: r.height,
+            color: b.background_color,
+        });
+    }
+}
+
+/// Emit a border, rounded when the box has a `border-radius`.
+fn emit_border(commands: &mut Vec<DisplayCommand>, b: &LayoutBox) {
+    if b.border_width <= 0.0 {
+        return;
+    }
+    let r = b.rect;
+    if b.border_radius > 0.0 {
+        commands.push(DisplayCommand::DrawRoundedBorder {
+            x: r.x,
+            y: r.y,
+            width: r.width,
+            height: r.height,
+            border_width: b.border_width,
+            radius: b.border_radius,
+            color: b.border_color,
+        });
+    } else {
+        commands.push(DisplayCommand::DrawBorder {
+            x: r.x,
+            y: r.y,
+            width: r.width,
+            height: r.height,
+            border_width: b.border_width,
+            color: b.border_color,
+        });
+    }
+}
+
 fn paint_box(layout_box: &LayoutBox, commands: &mut Vec<DisplayCommand>) {
     let rect = layout_box.rect;
     match &layout_box.kind {
@@ -175,26 +282,8 @@ fn paint_box(layout_box: &LayoutBox, commands: &mut Vec<DisplayCommand>) {
         // children (so text draws on top). Anonymous blocks and line boxes carry
         // no styling, so they emit nothing themselves and just recurse.
         LayoutBoxKind::Block | LayoutBoxKind::Inline | LayoutBoxKind::AnonymousBlock => {
-            // Transparent backgrounds emit no rectangle.
-            if layout_box.background_color.a != 0 {
-                commands.push(DisplayCommand::DrawRect {
-                    x: rect.x,
-                    y: rect.y,
-                    width: rect.width,
-                    height: rect.height,
-                    color: layout_box.background_color,
-                });
-            }
-            if layout_box.border_width > 0.0 {
-                commands.push(DisplayCommand::DrawBorder {
-                    x: rect.x,
-                    y: rect.y,
-                    width: rect.width,
-                    height: rect.height,
-                    border_width: layout_box.border_width,
-                    color: layout_box.border_color,
-                });
-            }
+            emit_background(commands, layout_box);
+            emit_border(commands, layout_box);
         }
         // Line boxes are pure structure: they never paint directly.
         LayoutBoxKind::LineBox => {}
@@ -210,15 +299,8 @@ fn paint_box(layout_box: &LayoutBox, commands: &mut Vec<DisplayCommand>) {
         LayoutBoxKind::Image(image_id) => {
             // A replaced element draws its (optional) background/border, then the
             // image fills the box.
-            if layout_box.background_color.a != 0 {
-                commands.push(DisplayCommand::DrawRect {
-                    x: rect.x,
-                    y: rect.y,
-                    width: rect.width,
-                    height: rect.height,
-                    color: layout_box.background_color,
-                });
-            }
+            emit_background(commands, layout_box);
+            emit_border(commands, layout_box);
             commands.push(DisplayCommand::DrawImage {
                 image_id: *image_id,
                 x: rect.x,
@@ -230,15 +312,7 @@ fn paint_box(layout_box: &LayoutBox, commands: &mut Vec<DisplayCommand>) {
         LayoutBoxKind::Control(control) => {
             // A form control draws like a replaced element: optional
             // background/border, then the control fills the box.
-            if layout_box.background_color.a != 0 {
-                commands.push(DisplayCommand::DrawRect {
-                    x: rect.x,
-                    y: rect.y,
-                    width: rect.width,
-                    height: rect.height,
-                    color: layout_box.background_color,
-                });
-            }
+            emit_background(commands, layout_box);
             commands.push(DisplayCommand::DrawControl {
                 control_type: control.control_type.clone(),
                 x: rect.x,
@@ -290,6 +364,7 @@ mod tests {
             background_color: Color::TRANSPARENT,
             border_width: 0.0,
             border_color: Color::BLACK,
+            border_radius: 0.0,
             children: Vec::new(),
         }
     }
@@ -308,6 +383,7 @@ mod tests {
             background_color,
             border_width,
             border_color: Color::rgb(0x6b, 0x3f, 0x2a),
+            border_radius: 0.0,
             children,
         }
     }
@@ -322,6 +398,7 @@ mod tests {
             background_color: Color::TRANSPARENT,
             border_width: 0.0,
             border_color: Color::BLACK,
+            border_radius: 0.0,
             children,
         }
     }
@@ -432,6 +509,7 @@ mod tests {
             background_color: Color::TRANSPARENT,
             border_width: 0.0,
             border_color: Color::BLACK,
+            border_radius: 0.0,
             children: Vec::new(),
         }
     }

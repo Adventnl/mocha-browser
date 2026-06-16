@@ -147,6 +147,8 @@ pub enum CssProperty {
     Gap,
     /// `flex-grow`
     FlexGrow,
+    /// `border-radius`
+    BorderRadius,
 }
 
 /// A single `property: value` pair.

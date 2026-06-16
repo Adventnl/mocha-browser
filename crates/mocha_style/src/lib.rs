@@ -162,6 +162,8 @@ pub struct ComputedStyle {
     pub gap: f32,
     /// `flex-grow` factor for this element as a flex item.
     pub flex_grow: f32,
+    /// `border-radius` corner radius in pixels.
+    pub border_radius: f32,
 }
 
 impl ComputedStyle {
@@ -188,6 +190,7 @@ impl ComputedStyle {
             align_items: AlignItems::Stretch,
             gap: 0.0,
             flex_grow: 0.0,
+            border_radius: 0.0,
         }
     }
 
@@ -215,6 +218,7 @@ impl ComputedStyle {
             align_items: AlignItems::Stretch,
             gap: 0.0,
             flex_grow: 0.0,
+            border_radius: 0.0,
         }
     }
 
@@ -306,6 +310,7 @@ impl ComputedStyle {
                 Some(CssValue::Number(n)) => *n,
                 _ => 0.0,
             },
+            border_radius: len(CssProperty::BorderRadius).unwrap_or(0.0),
         }
     }
 }

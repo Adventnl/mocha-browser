@@ -384,6 +384,35 @@ pub fn rasterize_at(
             } => {
                 surface.fill_rect(px(*x), px(*y) - offset, px(*width), px(*height), *color);
             }
+            DisplayCommand::DrawRoundedRect {
+                x,
+                y,
+                width,
+                height,
+                radius,
+                color,
+            } => {
+                surface.draw_rounded_rect(*x, *y - offset as f32, *width, *height, *radius, *color);
+            }
+            DisplayCommand::DrawRoundedBorder {
+                x,
+                y,
+                width,
+                height,
+                border_width,
+                radius,
+                color,
+            } => {
+                surface.draw_rounded_rect_outline(
+                    *x,
+                    *y - offset as f32,
+                    *width,
+                    *height,
+                    *radius,
+                    border_width.max(1.0),
+                    *color,
+                );
+            }
             DisplayCommand::DrawBorder {
                 x,
                 y,

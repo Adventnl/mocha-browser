@@ -474,7 +474,9 @@ fn layout_kind(kind: &LayoutBoxKind) -> String {
 fn display_command_kind(command: &DisplayCommand) -> &'static str {
     match command {
         DisplayCommand::DrawRect { .. } => "DrawRect",
+        DisplayCommand::DrawRoundedRect { .. } => "DrawRoundedRect",
         DisplayCommand::DrawBorder { .. } => "DrawBorder",
+        DisplayCommand::DrawRoundedBorder { .. } => "DrawRoundedBorder",
         DisplayCommand::DrawText { .. } => "DrawText",
         DisplayCommand::DrawImage { .. } => "DrawImage",
         DisplayCommand::DrawControl { .. } => "DrawControl",

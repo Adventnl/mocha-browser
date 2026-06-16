@@ -52,6 +52,8 @@ pub struct LayoutBox {
     pub border_width: f32,
     /// Border color.
     pub border_color: Color,
+    /// Corner radius in pixels (0 means square corners).
+    pub border_radius: f32,
     /// Child boxes in document order.
     pub children: Vec<LayoutBox>,
 }
@@ -72,6 +74,7 @@ impl LayoutBox {
             background_color: Color::TRANSPARENT,
             border_width: 0.0,
             border_color: Color::BLACK,
+            border_radius: 0.0,
             children,
         }
     }
