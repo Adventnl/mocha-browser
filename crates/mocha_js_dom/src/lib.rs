@@ -1436,13 +1436,12 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_input_type_fails_form_state_init() {
+    fn unknown_input_type_degrades_to_text_form_state() {
+        // Unknown input types render as text fields (browser-like degradation),
+        // so form-state init succeeds instead of failing.
         let doc = doc_from(r#"<html><body><input type="date" name="d"></body></html>"#);
         let runtime = DomRuntime::new(doc);
-        assert!(matches!(
-            runtime.init_form_state().unwrap_err(),
-            MochaError::UnsupportedFeature(_)
-        ));
+        assert!(runtime.init_form_state().is_ok());
     }
 
     #[test]

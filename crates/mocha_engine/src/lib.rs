@@ -200,6 +200,18 @@ fn render_html_with_base(
             Vec::new()
         }
     };
+    // Per-declaration/selector/at-rule skips from forgiving CSS parsing are
+    // reported (deduplicated) so unsupported features are surfaced, not faked.
+    {
+        let mut seen = std::collections::HashSet::new();
+        for sheet in &stylesheets {
+            for note in &sheet.skipped {
+                if seen.insert(note.clone()) {
+                    diagnostics.push(note.clone());
+                }
+            }
+        }
+    }
 
     let (images, image_diagnostics) = load_images(&document, base);
     diagnostics.extend(image_diagnostics);

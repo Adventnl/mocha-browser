@@ -403,36 +403,36 @@ fn initial_control_state(document: &Document, node: NodeId) -> MochaResult<Optio
     }))
 }
 
-/// Normalize an `<input type>` attribute to a [`ControlKind`]. Unsupported
-/// types are a clear error, not a silent fallback to text.
+/// Normalize an `<input type>` attribute to a [`ControlKind`]. Unknown or
+/// not-yet-modelled types degrade to a text field — exactly how a browser
+/// renders an input type it does not specially support — so real pages keep
+/// working instead of failing on `email`/`search`/`date`/… inputs.
 fn input_kind(type_attribute: Option<&str>) -> MochaResult<ControlKind> {
     let normalized = type_attribute.unwrap_or("text").trim().to_ascii_lowercase();
-    match normalized.as_str() {
-        "" | "text" => Ok(ControlKind::Text),
-        "password" => Ok(ControlKind::Password),
-        "checkbox" => Ok(ControlKind::Checkbox),
-        "radio" => Ok(ControlKind::Radio),
-        "submit" => Ok(ControlKind::Submit),
-        "reset" => Ok(ControlKind::Reset),
-        "hidden" => Ok(ControlKind::Hidden),
-        other => Err(MochaError::UnsupportedFeature(format!(
-            "<input type=\"{other}\"> is not supported in Milestone 10"
-        ))),
-    }
+    Ok(match normalized.as_str() {
+        "password" => ControlKind::Password,
+        "checkbox" => ControlKind::Checkbox,
+        "radio" => ControlKind::Radio,
+        "submit" | "image" => ControlKind::Submit,
+        "reset" => ControlKind::Reset,
+        "button" => ControlKind::Button,
+        "hidden" => ControlKind::Hidden,
+        // text, email, search, url, tel, number, date, time, color, file, range,
+        // an empty type, or anything unknown: a text-like field.
+        _ => ControlKind::Text,
+    })
 }
 
-/// Normalize a `<button type>` attribute to a [`ControlKind`] (default: submit).
+/// Normalize a `<button type>` attribute to a [`ControlKind`] (default: submit;
+/// unknown types degrade to a plain button).
 fn button_kind(type_attribute: Option<&str>) -> MochaResult<ControlKind> {
     let normalized = type_attribute
         .unwrap_or("submit")
         .trim()
         .to_ascii_lowercase();
-    match normalized.as_str() {
-        "" | "submit" => Ok(ControlKind::Submit),
-        "button" => Ok(ControlKind::Button),
-        "reset" => Ok(ControlKind::Reset),
-        other => Err(MochaError::UnsupportedFeature(format!(
-            "<button type=\"{other}\"> is not supported in Milestone 10"
-        ))),
-    }
+    Ok(match normalized.as_str() {
+        "" | "submit" => ControlKind::Submit,
+        "reset" => ControlKind::Reset,
+        _ => ControlKind::Button,
+    })
 }

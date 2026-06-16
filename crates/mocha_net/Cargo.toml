@@ -15,9 +15,13 @@ mocha_error.workspace = true
 mocha_url.workspace = true
 mocha_gzip.workspace = true
 # TLS for https:// (Milestone 21). The HTTP protocol itself stays hand-written;
-# rustls only wraps the TcpStream. webpki-roots supplies the CA trust store.
+# rustls only wraps the TcpStream. webpki-roots supplies a baseline CA trust
+# store; rustls-native-certs adds the operating system's trust store (like a
+# mainstream browser) so Mocha also works behind corporate proxies / TLS-
+# inspecting antivirus that inject their own CA.
 rustls.workspace = true
 webpki-roots.workspace = true
+rustls-native-certs = "0.8"
 
 [dev-dependencies]
 # Used only by cookie-integration tests to supply a CookieProvider over a jar.

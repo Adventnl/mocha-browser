@@ -201,22 +201,21 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_input_type_errors_clearly() {
+    fn unknown_input_type_degrades_to_text() {
+        // A browser renders an input type it doesn't specially handle as text,
+        // so the page keeps working instead of failing.
         let document = parse(r#"<input type="date" name="when">"#);
-        let error = build_form_state(&document).unwrap_err();
-        match error {
-            MochaError::UnsupportedFeature(message) => assert!(message.contains("date")),
-            other => panic!("expected UnsupportedFeature, got {other:?}"),
-        }
+        let state = build_form_state(&document).unwrap();
+        let control = state.control(find_tag(&document, "input")).unwrap();
+        assert_eq!(control.kind, ControlKind::Text);
     }
 
     #[test]
-    fn unsupported_button_type_errors_clearly() {
+    fn unknown_button_type_degrades_to_button() {
         let document = parse(r#"<button type="menu">M</button>"#);
-        assert!(matches!(
-            build_form_state(&document).unwrap_err(),
-            MochaError::UnsupportedFeature(_)
-        ));
+        let state = build_form_state(&document).unwrap();
+        let control = state.control(find_tag(&document, "button")).unwrap();
+        assert_eq!(control.kind, ControlKind::Button);
     }
 
     #[test]

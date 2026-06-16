@@ -568,12 +568,11 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_input_type_fails_the_render_clearly() {
+    fn unknown_input_type_renders_as_text() {
+        // Unknown input types degrade to text fields, so the page renders
+        // instead of failing.
         let html = r#"<html><body><form><input type="date" name="d"></form></body></html>"#;
-        assert!(matches!(
-            run_html(html).unwrap_err(),
-            MochaError::UnsupportedFeature(_)
-        ));
+        assert!(run_html(html).is_ok());
     }
 
     #[test]

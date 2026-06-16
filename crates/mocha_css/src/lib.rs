@@ -214,6 +214,10 @@ pub struct StyleRule {
 pub struct Stylesheet {
     /// The rules in source order.
     pub rules: Vec<StyleRule>,
+    /// Human-readable notes about selectors, declarations, and at-rules that the
+    /// forgiving parser skipped (surfaced as render diagnostics so unsupported
+    /// features are reported, not silently faked).
+    pub skipped: Vec<String>,
 }
 
 /// Parse a single color token's textual form (`#rgb`, `#rrggbb`, or a named

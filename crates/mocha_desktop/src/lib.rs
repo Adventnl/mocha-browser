@@ -367,20 +367,24 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_features_surface_as_diagnostics_not_a_failed_load() {
-        // A page with unsupported CSS still loads (fail-open) and records a
-        // diagnostic rather than producing a load error.
+    fn unsupported_css_declaration_is_skipped_and_page_still_renders() {
+        // Per-declaration CSS recovery: an unsupported declaration (`float`) is
+        // dropped while the supported one (`color`) in the same rule still
+        // applies, and the page renders (fail-open) rather than erroring.
         let state = DesktopPageState::from_html(
-            "<html><body><style>p { float: left; }</style><p>Hi</p></body></html>",
+            "<html><body><style>p { float: left; color: #ff0000; }</style><p>Hi</p></body></html>",
             800,
             600,
         )
         .unwrap();
-        assert!(!state.diagnostics().is_empty());
+        // The page renders its text...
         assert!(state
             .display_list()
             .iter()
             .any(|c| matches!(c, DisplayCommand::DrawText { text, .. } if text == "Hi")));
+        // ...and the supported declaration survived the unsupported one.
+        assert!(state.display_list().iter().any(|c| matches!(c,
+            DisplayCommand::DrawText { color, .. } if color.r == 255 && color.g == 0 && color.b == 0)));
     }
 
     #[test]

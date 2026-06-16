@@ -1,8 +1,12 @@
 //! A small recursive CSS parser built on [`crate::tokenizer`].
 //!
 //! It parses the supported selector grammar and declaration grammar, expanding
-//! `margin`/`padding` shorthands into longhands. Unknown properties and
-//! unsupported values/syntax are reported as errors, never dropped.
+//! `margin`/`padding` shorthands into longhands. Parsing is **forgiving**
+//! (CSS's own error-recovery model): unknown properties, unsupported values,
+//! at-rules, and selectors are skipped — recorded in [`Stylesheet::skipped`] so
+//! they surface as render diagnostics — while the rest of the sheet still
+//! applies. The standalone [`parse_selector_list`] (the `querySelector` grammar)
+//! stays strict and still errors on unsupported selectors.
 
 use mocha_error::{MochaError, MochaResult};
 
@@ -13,6 +17,12 @@ use crate::{
 };
 
 /// Parse a complete stylesheet (`selector { decls } …`).
+///
+/// Parsing is **forgiving**, following CSS's own error-recovery rules: an
+/// unsupported selector, declaration, or at-rule (`@media`, `@font-face`, …) is
+/// skipped and the rest of the sheet still parses, so real-world stylesheets
+/// render with the subset Mocha understands instead of failing wholesale. The
+/// only `Err` is a catastrophic tokenizer failure.
 pub fn parse_stylesheet(input: &str) -> MochaResult<Stylesheet> {
     let mut parser = Parser::new(tokenize(input)?);
     let mut rules = Vec::new();
@@ -22,10 +32,25 @@ pub fn parse_stylesheet(input: &str) -> MochaResult<Stylesheet> {
         if parser.at_end() {
             break;
         }
-        rules.push(parser.parse_rule(source_order)?);
-        source_order += 1;
+        let before = parser.pos;
+        // At-rules (@media/@import/@font-face/@keyframes/@supports/…): skip the
+        // whole rule (statement or block) and continue.
+        if matches!(parser.peek(), Some(CssToken::Delim('@'))) {
+            parser.skip_at_rule();
+            parser.skipped.push("CSS at-rule skipped".to_string());
+        } else if let Some(rule) = parser.parse_rule_forgiving(source_order) {
+            if !rule.selectors.is_empty() && !rule.declarations.is_empty() {
+                rules.push(rule);
+                source_order += 1;
+            }
+        }
+        // Guarantee forward progress so a pathological input cannot loop forever.
+        if parser.pos == before {
+            parser.pos += 1;
+        }
     }
-    Ok(Stylesheet { rules })
+    let skipped = parser.skipped;
+    Ok(Stylesheet { rules, skipped })
 }
 
 /// Parse a standalone selector list such as `p.intro, div span` — the grammar
@@ -48,7 +73,8 @@ pub fn parse_selector_list(input: &str) -> MochaResult<Vec<Selector>> {
     Ok(selectors)
 }
 
-/// Parse the body of a `style="…"` attribute into declarations.
+/// Parse the body of a `style="…"` attribute into declarations. Forgiving:
+/// unsupported declarations are skipped, the rest are kept.
 pub fn parse_inline_style(input: &str) -> MochaResult<Vec<Declaration>> {
     let mut parser = Parser::new(tokenize(input)?);
     let mut declarations = Vec::new();
@@ -57,7 +83,18 @@ pub fn parse_inline_style(input: &str) -> MochaResult<Vec<Declaration>> {
         if parser.at_end() {
             break;
         }
-        declarations.extend(parser.parse_declaration()?);
+        if matches!(parser.peek(), Some(CssToken::Semicolon)) {
+            parser.pos += 1;
+            continue;
+        }
+        let before = parser.pos;
+        if let Ok(decls) = parser.parse_declaration() {
+            declarations.extend(decls);
+        }
+        parser.skip_to_declaration_end();
+        if parser.pos == before {
+            parser.pos += 1;
+        }
     }
     Ok(declarations)
 }
@@ -65,11 +102,17 @@ pub fn parse_inline_style(input: &str) -> MochaResult<Vec<Declaration>> {
 struct Parser {
     tokens: Vec<CssToken>,
     pos: usize,
+    /// Notes about skipped selectors/declarations/at-rules (forgiving parsing).
+    skipped: Vec<String>,
 }
 
 impl Parser {
     fn new(tokens: Vec<CssToken>) -> Parser {
-        Parser { tokens, pos: 0 }
+        Parser {
+            tokens,
+            pos: 0,
+            skipped: Vec::new(),
+        }
     }
 
     fn peek(&self) -> Option<&CssToken> {
@@ -86,22 +129,155 @@ impl Parser {
         }
     }
 
-    fn parse_rule(&mut self, source_order: usize) -> MochaResult<StyleRule> {
-        let selectors = self.parse_selector_list()?;
+    /// Parse one rule with recovery: unsupported selectors in the list are
+    /// dropped, a missing/garbled block is skipped. Returns `None` only when the
+    /// input did not contain a parseable rule here (the caller still advances).
+    fn parse_rule_forgiving(&mut self, source_order: usize) -> Option<StyleRule> {
+        let selectors = self.parse_selector_list_forgiving();
+        self.skip_whitespace();
         match self.peek() {
             Some(CssToken::LeftBrace) => self.pos += 1,
-            other => {
-                return Err(MochaError::Parse(format!(
-                    "expected '{{' after selector, found {other:?}"
-                )))
+            _ => {
+                // No block where one was expected: resynchronize past it.
+                self.recover_rule();
+                return None;
             }
         }
-        let declarations = self.parse_declaration_block()?;
-        Ok(StyleRule {
+        let declarations = self.parse_declaration_block_forgiving();
+        Some(StyleRule {
             selectors,
             declarations,
             source_order,
         })
+    }
+
+    /// Parse a comma-separated selector list, dropping any selector that uses
+    /// grammar Mocha does not support (so a rule like `a, a:hover { … }` keeps
+    /// the `a` selector). Stops at `{` or end.
+    fn parse_selector_list_forgiving(&mut self) -> Vec<Selector> {
+        let mut selectors = Vec::new();
+        loop {
+            self.skip_whitespace();
+            if matches!(self.peek(), None | Some(CssToken::LeftBrace)) {
+                break;
+            }
+            match self.parse_selector() {
+                Ok(selector) => selectors.push(selector),
+                Err(error) => {
+                    self.skipped.push(format!("CSS selector skipped: {error}"));
+                    self.recover_selector();
+                }
+            }
+            self.skip_whitespace();
+            if matches!(self.peek(), Some(CssToken::Comma)) {
+                self.pos += 1;
+            } else {
+                break;
+            }
+        }
+        selectors
+    }
+
+    /// Parse a `{ … }` body, skipping declarations that fail to parse.
+    fn parse_declaration_block_forgiving(&mut self) -> Vec<Declaration> {
+        let mut declarations = Vec::new();
+        loop {
+            self.skip_whitespace();
+            match self.peek() {
+                Some(CssToken::RightBrace) => {
+                    self.pos += 1;
+                    break;
+                }
+                None => break, // tolerate a missing closing brace at EOF
+                Some(CssToken::Semicolon) => self.pos += 1, // empty declaration
+                _ => {
+                    let before = self.pos;
+                    match self.parse_declaration() {
+                        Ok(decls) => declarations.extend(decls),
+                        Err(error) => self
+                            .skipped
+                            .push(format!("CSS declaration skipped: {error}")),
+                    }
+                    // Always resynchronize to the terminator, whether the
+                    // declaration parsed or not, so neither path overshoots.
+                    self.skip_to_declaration_end();
+                    if self.pos == before {
+                        self.pos += 1;
+                    }
+                }
+            }
+        }
+        declarations
+    }
+
+    /// Skip tokens of an unsupported selector up to the next `,` or `{`.
+    fn recover_selector(&mut self) {
+        while !matches!(
+            self.peek(),
+            None | Some(CssToken::Comma) | Some(CssToken::LeftBrace)
+        ) {
+            self.pos += 1;
+        }
+    }
+
+    /// Resynchronize after a malformed rule: skip a balanced `{ … }` block if one
+    /// is ahead, else skip to the next `;`.
+    fn recover_rule(&mut self) {
+        loop {
+            match self.peek() {
+                None => return,
+                Some(CssToken::LeftBrace) => {
+                    self.skip_balanced_block();
+                    return;
+                }
+                Some(CssToken::Semicolon) => {
+                    self.pos += 1;
+                    return;
+                }
+                _ => self.pos += 1,
+            }
+        }
+    }
+
+    /// Skip an at-rule: its prelude, then either a `;` (statement at-rule like
+    /// `@import`) or a balanced `{ … }` block (`@media`, `@font-face`, …).
+    fn skip_at_rule(&mut self) {
+        loop {
+            match self.peek() {
+                None => return,
+                Some(CssToken::Semicolon) => {
+                    self.pos += 1;
+                    return;
+                }
+                Some(CssToken::LeftBrace) => {
+                    self.skip_balanced_block();
+                    return;
+                }
+                _ => self.pos += 1,
+            }
+        }
+    }
+
+    /// Skip a balanced `{ … }` block (the cursor must be on the opening `{`).
+    fn skip_balanced_block(&mut self) {
+        let mut depth = 0usize;
+        loop {
+            match self.peek() {
+                None => return,
+                Some(CssToken::LeftBrace) => {
+                    depth += 1;
+                    self.pos += 1;
+                }
+                Some(CssToken::RightBrace) => {
+                    self.pos += 1;
+                    depth -= 1;
+                    if depth == 0 {
+                        return;
+                    }
+                }
+                _ => self.pos += 1,
+            }
+        }
     }
 
     fn parse_selector_list(&mut self) -> MochaResult<Vec<Selector>> {
@@ -194,26 +370,6 @@ impl Parser {
         Ok(CompoundSelector { simple_selectors })
     }
 
-    fn parse_declaration_block(&mut self) -> MochaResult<Vec<Declaration>> {
-        let mut declarations = Vec::new();
-        loop {
-            self.skip_whitespace();
-            match self.peek() {
-                Some(CssToken::RightBrace) => {
-                    self.pos += 1;
-                    break;
-                }
-                None => {
-                    return Err(MochaError::Parse(
-                        "unterminated declaration block: missing '}'".to_string(),
-                    ))
-                }
-                _ => declarations.extend(self.parse_declaration()?),
-            }
-        }
-        Ok(declarations)
-    }
-
     /// Parse one `property: value;` and return the (possibly multiple, for
     /// shorthands) declarations it expands to.
     fn parse_declaration(&mut self) -> MochaResult<Vec<Declaration>> {
@@ -241,14 +397,14 @@ impl Parser {
             }
         }
 
-        let value_tokens = self.collect_value_tokens();
-        if value_tokens
+        let mut value_tokens = self.collect_value_tokens();
+        // Drop a trailing `!important` (priority is not modelled) and keep the
+        // declaration rather than discarding it.
+        if let Some(bang) = value_tokens
             .iter()
-            .any(|token| matches!(token, CssToken::Delim('!')))
+            .position(|token| matches!(token, CssToken::Delim('!')))
         {
-            return Err(MochaError::UnsupportedFeature(
-                "!important is not supported in Milestone 2".to_string(),
-            ));
+            value_tokens.truncate(bang);
         }
         if value_tokens.is_empty() {
             return Err(MochaError::Parse(format!(
@@ -258,17 +414,14 @@ impl Parser {
         build_declarations(&property_name, &value_tokens)
     }
 
-    /// Collect the non-whitespace value tokens up to the terminating `;`, `}`,
-    /// or end of input. The `;` is consumed; the `}` is left for the block loop.
+    /// Collect the non-whitespace value tokens up to (but not consuming) the
+    /// terminating `;`, `}`, or end of input. The terminator is left for the
+    /// caller's loop so error recovery never overshoots the next declaration.
     fn collect_value_tokens(&mut self) -> Vec<CssToken> {
         let mut tokens = Vec::new();
         loop {
             match self.peek() {
-                Some(CssToken::Semicolon) => {
-                    self.pos += 1;
-                    break;
-                }
-                Some(CssToken::RightBrace) | None => break,
+                Some(CssToken::Semicolon) | Some(CssToken::RightBrace) | None => break,
                 Some(CssToken::Whitespace) => self.pos += 1,
                 Some(token) => {
                     tokens.push(token.clone());
@@ -277,6 +430,19 @@ impl Parser {
             }
         }
         tokens
+    }
+
+    /// Advance past the rest of a declaration: to the next `;` (consumed) or `}`.
+    fn skip_to_declaration_end(&mut self) {
+        while !matches!(
+            self.peek(),
+            None | Some(CssToken::Semicolon) | Some(CssToken::RightBrace)
+        ) {
+            self.pos += 1;
+        }
+        if matches!(self.peek(), Some(CssToken::Semicolon)) {
+            self.pos += 1;
+        }
     }
 }
 
@@ -617,70 +783,84 @@ mod tests {
     }
 
     #[test]
-    fn reject_unknown_property() {
-        let error = parse_stylesheet("p { float: left; }").unwrap_err();
-        assert!(matches!(error, MochaError::UnsupportedFeature(_)));
+    fn unknown_property_is_skipped_keeping_the_rest() {
+        // An unknown property is dropped; supported declarations in the same
+        // rule survive (forgiving parsing).
+        let rule = only_rule("p { float: left; color: red; }");
+        assert_eq!(rule.declarations.len(), 1);
+        assert_eq!(rule.declarations[0].property, CssProperty::Color);
     }
 
     #[test]
-    fn reject_unsupported_unit() {
-        let error = parse_stylesheet("p { font-size: 2em; }").unwrap_err();
-        match error {
-            MochaError::UnsupportedFeature(message) => assert!(message.contains("em")),
-            other => panic!("expected UnsupportedFeature, got {other:?}"),
-        }
+    fn unsupported_unit_is_skipped() {
+        let sheet = parse_stylesheet("p { font-size: 2em; color: blue; }").unwrap();
+        let rule = &sheet.rules[0];
+        assert_eq!(rule.declarations.len(), 1);
+        assert_eq!(rule.declarations[0].property, CssProperty::Color);
     }
 
     #[test]
-    fn reject_malformed_declaration() {
-        let error = parse_stylesheet("p { color }").unwrap_err();
-        assert!(matches!(error, MochaError::Parse(_)));
+    fn malformed_declaration_is_skipped() {
+        // `color` with no value is dropped; the next declaration still parses.
+        let rule = only_rule("p { color; font-size: 12px; }");
+        assert_eq!(rule.declarations.len(), 1);
+        assert_eq!(rule.declarations[0].property, CssProperty::FontSize);
     }
 
     #[test]
-    fn reject_important() {
-        let error = parse_stylesheet("p { color: red !important; }").unwrap_err();
-        assert!(matches!(error, MochaError::UnsupportedFeature(_)));
+    fn important_is_stripped_and_value_kept() {
+        let rule = only_rule("p { color: red !important; }");
+        assert_eq!(rule.declarations.len(), 1);
+        assert_eq!(
+            rule.declarations[0].value,
+            CssValue::Color(Color::rgb(255, 0, 0))
+        );
     }
 
     #[test]
-    fn reject_child_combinator() {
-        let error = parse_stylesheet("div > p { color: red; }").unwrap_err();
-        assert!(matches!(error, MochaError::UnsupportedFeature(_)));
+    fn unsupported_selector_drops_only_that_rule() {
+        // A child-combinator rule is dropped, but neighbouring rules survive.
+        let sheet = parse_stylesheet("div > p { color: red; } a { color: blue; }").unwrap();
+        assert_eq!(sheet.rules.len(), 1);
+        assert_eq!(
+            sheet.rules[0].selectors[0].parts[0].simple_selectors,
+            vec![SimpleSelector::Type("a".into())]
+        );
     }
 
     #[test]
-    fn unsupported_syntax_fails_clearly() {
-        // Each of these is a known CSS concept Mocha intentionally does not
-        // support yet; all must surface as UnsupportedFeature, never silently.
+    fn at_rules_and_unsupported_syntax_are_skipped_not_fatal() {
+        // None of these error; supported rules around them still parse.
         for input in [
             "@media screen { p { color: red; } }",
+            "@import url(x.css);",
+            "@font-face { font-family: x; }",
             "p:hover { color: red; }",
             "p::before { color: red; }",
             "p[class] { color: red; }",
             "div + p { color: red; }",
-            "div ~ p { color: red; }",
-            "p { color: rgb(255, 0, 0); }",
             "p { width: calc(10px + 2px); }",
             "p { width: 50%; }",
-            "p { font-size: 2em; }",
-            "p { color: red !important; }",
         ] {
-            let error = parse_stylesheet(input).unwrap_err();
-            assert!(
-                matches!(error, MochaError::UnsupportedFeature(_)),
-                "expected UnsupportedFeature for `{input}`, got {error:?}"
-            );
+            let sheet = parse_stylesheet(input);
+            assert!(sheet.is_ok(), "`{input}` must not error, got {sheet:?}");
         }
+        // A supported rule following a skipped at-rule still applies.
+        let sheet =
+            parse_stylesheet("@media screen { x { color: red; } } a { color: blue; }").unwrap();
+        assert_eq!(sheet.rules.len(), 1);
+        assert_eq!(sheet.rules[0].declarations.len(), 1);
     }
 
     #[test]
-    fn function_values_name_the_function() {
-        let error = parse_stylesheet("p { color: rgb(1,2,3); }").unwrap_err();
-        match error {
-            MochaError::UnsupportedFeature(message) => assert!(message.contains("rgb()")),
-            other => panic!("expected UnsupportedFeature, got {other:?}"),
-        }
+    fn mixed_partial_selector_list_keeps_supported_selectors() {
+        // `a, a:hover` keeps `a`, drops `a:hover`.
+        let rule = only_rule("a, a:hover { color: red; }");
+        assert_eq!(rule.selectors.len(), 1);
+        assert_eq!(
+            rule.selectors[0].parts[0].simple_selectors,
+            vec![SimpleSelector::Type("a".into())]
+        );
     }
 
     #[test]
