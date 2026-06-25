@@ -94,6 +94,9 @@ pub enum CssValue {
     Number(f32),
     /// A color value.
     Color(Color),
+    /// A `font-family` list, in declaration order (e.g. `["Arial", "sans-serif"]`).
+    /// Names are stored unquoted; generic families (`sans-serif`, …) appear as-is.
+    FontFamily(Vec<String>),
 }
 
 /// The set of CSS properties Mocha understands. Shorthands (`margin`, `padding`)
@@ -152,6 +155,8 @@ pub enum CssProperty {
     FlexGrow,
     /// `border-radius`
     BorderRadius,
+    /// `font-family` (inherited)
+    FontFamily,
 }
 
 /// A single `property: value` pair.
@@ -378,12 +383,68 @@ pub struct StyleRule {
 /// A parsed stylesheet: an ordered list of rules.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Stylesheet {
-    /// The rules in source order.
+    /// The unconditional rules in source order.
     pub rules: Vec<StyleRule>,
+    /// `@media` blocks whose inner rules apply only when their query matches the
+    /// viewport. Kept separate from `rules` so the unconditional rules an embedder
+    /// already consumes are unchanged; the cascade folds matching media rules in.
+    pub media_rules: Vec<MediaRule>,
     /// Human-readable notes about selectors, declarations, and at-rules that the
     /// forgiving parser skipped (surfaced as render diagnostics so unsupported
     /// features are reported, not silently faked).
     pub skipped: Vec<String>,
+}
+
+/// An `@media` block: a width-condition query plus the rules nested inside it.
+/// The inner rules participate in the cascade exactly like top-level rules, but
+/// only when [`MediaQuery::matches`] holds for the current viewport width.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MediaRule {
+    /// The query gating the inner rules.
+    pub query: MediaQuery,
+    /// The rules nested inside the `@media` block, in source order.
+    pub rules: Vec<StyleRule>,
+}
+
+/// A simplified `@media` query: a conjunction of width conditions. Mocha supports
+/// only `min-width`/`max-width`/`width` (in `px`/`em`). A query that names any
+/// other feature is not represented here — its whole block is skipped with a
+/// diagnostic, never faked.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MediaQuery {
+    /// The width conditions that must *all* hold for the query to match. An empty
+    /// list (e.g. `@media screen`) matches every viewport.
+    pub conditions: Vec<MediaCondition>,
+}
+
+impl MediaQuery {
+    /// Does this query match a viewport of `viewport_width` pixels?
+    pub fn matches(&self, viewport_width: f32) -> bool {
+        self.conditions.iter().all(|c| c.matches(viewport_width))
+    }
+}
+
+/// A single width condition within a [`MediaQuery`]. Lengths are pre-resolved to
+/// pixels at parse time (`em` against the 16px root font size).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum MediaCondition {
+    /// `(min-width: Npx)` — matches when the viewport is at least `N` px wide.
+    MinWidth(f32),
+    /// `(max-width: Npx)` — matches when the viewport is at most `N` px wide.
+    MaxWidth(f32),
+    /// `(width: Npx)` — matches when the viewport is exactly `N` px wide.
+    Width(f32),
+}
+
+impl MediaCondition {
+    /// Evaluate this condition against a viewport width in pixels.
+    pub fn matches(&self, viewport_width: f32) -> bool {
+        match *self {
+            MediaCondition::MinWidth(px) => viewport_width >= px,
+            MediaCondition::MaxWidth(px) => viewport_width <= px,
+            MediaCondition::Width(px) => viewport_width == px,
+        }
+    }
 }
 
 /// Parse a single color token's textual form (`#rgb`, `#rrggbb`, or a named

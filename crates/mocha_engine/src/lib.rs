@@ -440,7 +440,9 @@ fn build_layout(
     // Map node -> image_id by matching the `<img>` discovery order against the
     // decoded list (the same order `load_images` used).
     let by_node = image_node_map(document, images.len())?;
-    let mut styled = mocha_style::build_style_tree(document, stylesheets)?;
+    // Evaluate `@media` width queries against the actual viewport width.
+    let mut styled =
+        mocha_style::build_style_tree_with_viewport(document, stylesheets, options.viewport_width)?;
     attach_images(&mut styled, document, images, &by_node);
     attach_controls(&mut styled, document, form_state)?;
     let viewport = LayoutViewport {

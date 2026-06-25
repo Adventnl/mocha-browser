@@ -13,8 +13,8 @@ use mocha_error::{MochaError, MochaResult};
 use crate::tokenizer::{tokenize, CssToken};
 use crate::{
     named_color, parse_hex_color, AttributeMatch, AttributeSelector, Combinator, CompoundSelector,
-    CssProperty, CssValue, Declaration, Nth, PseudoClass, Selector, SimpleSelector, StyleRule,
-    Stylesheet,
+    CssProperty, CssValue, Declaration, MediaCondition, MediaQuery, MediaRule, Nth, PseudoClass,
+    Selector, SimpleSelector, StyleRule, Stylesheet,
 };
 
 /// Parse a complete stylesheet (`selector { decls } …`).
@@ -27,6 +27,7 @@ use crate::{
 pub fn parse_stylesheet(input: &str) -> MochaResult<Stylesheet> {
     let mut parser = Parser::new(tokenize(input)?);
     let mut rules = Vec::new();
+    let mut media_rules = Vec::new();
     let mut source_order = 0;
     loop {
         parser.skip_whitespace();
@@ -34,11 +35,23 @@ pub fn parse_stylesheet(input: &str) -> MochaResult<Stylesheet> {
             break;
         }
         let before = parser.pos;
-        // At-rules (@media/@import/@font-face/@keyframes/@supports/…): skip the
-        // whole rule (statement or block) and continue.
         if matches!(parser.peek(), Some(CssToken::Delim('@'))) {
-            parser.skip_at_rule();
-            parser.skipped.push("CSS at-rule skipped".to_string());
+            // A `@media` block whose query we understand is kept (its inner rules
+            // are tagged with the query and folded into the cascade only when the
+            // query matches). Any other at-rule — or a `@media` with a feature we
+            // don't model — is skipped wholesale and recorded as a diagnostic.
+            if let Some(media) = parser.parse_media_rule(&mut source_order) {
+                if media.rules.is_empty() {
+                    parser
+                        .skipped
+                        .push("empty or unsupported @media block skipped".to_string());
+                } else {
+                    media_rules.push(media);
+                }
+            } else {
+                parser.skip_at_rule();
+                parser.skipped.push("CSS at-rule skipped".to_string());
+            }
         } else if let Some(rule) = parser.parse_rule_forgiving(source_order) {
             if !rule.selectors.is_empty() && !rule.declarations.is_empty() {
                 rules.push(rule);
@@ -51,7 +64,11 @@ pub fn parse_stylesheet(input: &str) -> MochaResult<Stylesheet> {
         }
     }
     let skipped = parser.skipped;
-    Ok(Stylesheet { rules, skipped })
+    Ok(Stylesheet {
+        rules,
+        media_rules,
+        skipped,
+    })
 }
 
 /// Parse a standalone selector list such as `p.intro, div span` — the grammar
@@ -300,6 +317,69 @@ impl Parser {
                 _ => self.pos += 1,
             }
         }
+    }
+
+    /// Try to parse an `@media` block we understand (cursor on the `@`). Returns
+    /// `Some(rule)` and consumes the block when the rule is `@media` *and* its
+    /// query uses only the supported width features. Otherwise it consumes
+    /// nothing and returns `None`, so the caller can skip the whole at-rule and
+    /// record a diagnostic (any other at-rule, or a `@media` with an unsupported
+    /// feature, is skipped wholesale).
+    fn parse_media_rule(&mut self, source_order: &mut usize) -> Option<MediaRule> {
+        let start = self.pos;
+        self.pos += 1; // consume '@'
+        let is_media = matches!(self.peek(), Some(CssToken::Ident(name)) if name.eq_ignore_ascii_case("media"));
+        if !is_media {
+            self.pos = start;
+            return None;
+        }
+        self.pos += 1; // consume 'media'
+
+        // Collect the prelude tokens up to the block's `{` (dropping whitespace).
+        let mut prelude = Vec::new();
+        while !matches!(self.peek(), None | Some(CssToken::LeftBrace)) {
+            if !matches!(self.peek(), Some(CssToken::Whitespace)) {
+                prelude.push(self.peek().unwrap().clone());
+            }
+            self.pos += 1;
+        }
+        if !matches!(self.peek(), Some(CssToken::LeftBrace)) {
+            self.pos = start; // no block: let the caller skip it
+            return None;
+        }
+
+        let Some(query) = parse_media_query(&prelude) else {
+            self.pos = start; // unsupported feature: skip the whole block
+            return None;
+        };
+
+        self.pos += 1; // consume '{'
+                       // Inner rules continue the stylesheet's *global* source order, so a
+                       // `@media` rule and an unconditional rule cascade in their true document
+                       // order (a later unconditional rule of equal specificity still wins).
+        let mut rules = Vec::new();
+        loop {
+            self.skip_whitespace();
+            match self.peek() {
+                None | Some(CssToken::RightBrace) => break,
+                _ => {
+                    let before = self.pos;
+                    if let Some(rule) = self.parse_rule_forgiving(*source_order) {
+                        if !rule.selectors.is_empty() && !rule.declarations.is_empty() {
+                            rules.push(rule);
+                            *source_order += 1;
+                        }
+                    }
+                    if self.pos == before {
+                        self.pos += 1;
+                    }
+                }
+            }
+        }
+        if matches!(self.peek(), Some(CssToken::RightBrace)) {
+            self.pos += 1; // consume '}'
+        }
+        Some(MediaRule { query, rules })
     }
 
     /// Skip an at-rule: its prelude, then either a `;` (statement at-rule like
@@ -769,6 +849,69 @@ fn decl(property: CssProperty, value: CssValue) -> Declaration {
     }
 }
 
+/// Parse an `@media` prelude (whitespace already stripped) into a [`MediaQuery`].
+///
+/// Returns `None` — meaning "skip the whole block" — when the prelude names any
+/// feature beyond `min-width`/`max-width`/`width` or any media type other than
+/// `screen`/`all`, so unsupported queries are never silently treated as matching.
+/// Supported shape: an optional `screen`/`all` type, `and`/`only` connectors, and
+/// one or more `(feature: <length>)` width groups joined by `and`.
+fn parse_media_query(tokens: &[CssToken]) -> Option<MediaQuery> {
+    let mut conditions = Vec::new();
+    let mut i = 0;
+    while i < tokens.len() {
+        match &tokens[i] {
+            // Bare media type / connector keywords we tolerate.
+            CssToken::Ident(name)
+                if matches!(
+                    name.to_ascii_lowercase().as_str(),
+                    "screen" | "all" | "and" | "only"
+                ) =>
+            {
+                i += 1;
+            }
+            CssToken::Delim('(') => {
+                // `( feature : value )`
+                let feature = match tokens.get(i + 1) {
+                    Some(CssToken::Ident(name)) => name.to_ascii_lowercase(),
+                    _ => return None,
+                };
+                if !matches!(tokens.get(i + 2), Some(CssToken::Colon)) {
+                    return None;
+                }
+                let px = media_length_px(tokens.get(i + 3)?)?;
+                if !matches!(tokens.get(i + 4), Some(CssToken::Delim(')'))) {
+                    return None;
+                }
+                conditions.push(match feature.as_str() {
+                    "min-width" => MediaCondition::MinWidth(px),
+                    "max-width" => MediaCondition::MaxWidth(px),
+                    "width" => MediaCondition::Width(px),
+                    _ => return None,
+                });
+                i += 5;
+            }
+            // Any other token (a different media type, `not`, a comma list, …) is
+            // a feature we don't model: skip the block.
+            _ => return None,
+        }
+    }
+    Some(MediaQuery { conditions })
+}
+
+/// Resolve a media-query length token to pixels: `px` directly, `em` against the
+/// 16px root font size. Any other unit/token is unsupported (`None`).
+fn media_length_px(token: &CssToken) -> Option<f32> {
+    match token {
+        CssToken::Dimension(value, unit) => match unit.as_str() {
+            "px" => Some(*value),
+            "em" => Some(*value * 16.0),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 /// Map a property name plus its value tokens to one or more declarations.
 fn build_declarations(name: &str, tokens: &[CssToken]) -> MochaResult<Vec<Declaration>> {
     let single = |property: CssProperty, value: CssValue| vec![decl(property, value)];
@@ -840,6 +983,7 @@ fn build_declarations(name: &str, tokens: &[CssToken]) -> MochaResult<Vec<Declar
         // `flex: <grow> [shrink] [basis]` — take the leading grow number.
         "flex" => flex_shorthand(tokens),
         "font-size" => Ok(single(CssProperty::FontSize, length(tokens)?)),
+        "font-family" => Ok(single(CssProperty::FontFamily, font_family_value(tokens)?)),
         "width" => Ok(single(CssProperty::Width, length_or_auto(tokens)?)),
         "height" => Ok(single(CssProperty::Height, length_or_auto(tokens)?)),
         "margin-top" => Ok(single(CssProperty::MarginTop, length_or_auto(tokens)?)),
@@ -909,6 +1053,47 @@ fn ident_keyword(tokens: &[CssToken], allowed: &[&str]) -> MochaResult<CssValue>
         }
         _ => Err(MochaError::Parse("expected a single keyword".to_string())),
     }
+}
+
+/// `font-family`: a comma-separated list of family names. Each name is one or
+/// more identifiers (an unquoted multi-word family like `Times New Roman` is
+/// rejoined with single spaces) or a quoted string (the quote delimiters are
+/// dropped). The value model keeps the list verbatim; family matching/fallback is
+/// the consumer's job. Errors (so the declaration is skipped) when no name is found.
+fn font_family_value(tokens: &[CssToken]) -> MochaResult<CssValue> {
+    let mut families = Vec::new();
+    let mut current = String::new();
+    let push_current = |current: &mut String, families: &mut Vec<String>| {
+        let name = current.trim().to_string();
+        if !name.is_empty() {
+            families.push(name);
+        }
+        current.clear();
+    };
+    for token in tokens {
+        match token {
+            CssToken::Comma => push_current(&mut current, &mut families),
+            CssToken::Ident(name) => {
+                if !current.is_empty() {
+                    current.push(' ');
+                }
+                current.push_str(name);
+            }
+            // A quoted string (e.g. "Times New Roman") is a single family name.
+            CssToken::Str(name) => {
+                if !current.is_empty() {
+                    current.push(' ');
+                }
+                current.push_str(name);
+            }
+            _ => {}
+        }
+    }
+    push_current(&mut current, &mut families);
+    if families.is_empty() {
+        return Err(MochaError::Parse("expected a font-family name".to_string()));
+    }
+    Ok(CssValue::FontFamily(families))
 }
 
 /// A unitless number value.
@@ -1519,5 +1704,80 @@ mod tests {
         let sheet = parse_stylesheet("a { color: red; } b { color: blue; }").unwrap();
         assert_eq!(sheet.rules[0].source_order, 0);
         assert_eq!(sheet.rules[1].source_order, 1);
+    }
+
+    #[test]
+    fn media_block_with_width_condition_is_kept() {
+        // The inner rule lands in `media_rules`, not the unconditional `rules`.
+        let sheet = parse_stylesheet("@media (min-width: 600px) { p { color: red; } }").unwrap();
+        assert!(sheet.rules.is_empty());
+        assert_eq!(sheet.media_rules.len(), 1);
+        assert_eq!(
+            sheet.media_rules[0].query.conditions,
+            vec![MediaCondition::MinWidth(600.0)]
+        );
+        assert_eq!(sheet.media_rules[0].rules.len(), 1);
+        assert_eq!(
+            sheet.media_rules[0].rules[0].declarations[0].property,
+            CssProperty::Color
+        );
+    }
+
+    #[test]
+    fn media_block_parses_screen_and_em_and_multiple_conditions() {
+        let sheet = parse_stylesheet(
+            "@media screen and (min-width: 30em) and (max-width: 80em) { a { color: blue; } }",
+        )
+        .unwrap();
+        assert_eq!(sheet.media_rules.len(), 1);
+        // `em` resolves against the 16px root.
+        assert_eq!(
+            sheet.media_rules[0].query.conditions,
+            vec![
+                MediaCondition::MinWidth(480.0),
+                MediaCondition::MaxWidth(1280.0),
+            ]
+        );
+    }
+
+    #[test]
+    fn unsupported_media_feature_skips_the_whole_block() {
+        // `orientation` is not a width feature: the block is skipped, the trailing
+        // rule still parses, and a diagnostic is recorded.
+        let sheet = parse_stylesheet(
+            "@media (orientation: landscape) { p { color: red; } } a { color: blue; }",
+        )
+        .unwrap();
+        assert!(sheet.media_rules.is_empty());
+        assert_eq!(sheet.rules.len(), 1);
+        assert_eq!(
+            sheet.rules[0].selectors[0].parts[0].simple_selectors,
+            vec![SimpleSelector::Type("a".into())]
+        );
+        assert!(!sheet.skipped.is_empty());
+    }
+
+    #[test]
+    fn bare_media_type_query_has_no_conditions() {
+        // `@media screen` matches every viewport (empty condition list).
+        let sheet = parse_stylesheet("@media screen { p { color: red; } }").unwrap();
+        assert_eq!(sheet.media_rules.len(), 1);
+        assert!(sheet.media_rules[0].query.conditions.is_empty());
+        assert!(sheet.media_rules[0].query.matches(800.0));
+    }
+
+    #[test]
+    fn font_family_parses_into_a_list() {
+        let rule = only_rule("p { font-family: \"Times New Roman\", Georgia, serif; }");
+        assert_eq!(rule.declarations.len(), 1);
+        assert_eq!(rule.declarations[0].property, CssProperty::FontFamily);
+        assert_eq!(
+            rule.declarations[0].value,
+            CssValue::FontFamily(vec![
+                "Times New Roman".into(),
+                "Georgia".into(),
+                "serif".into(),
+            ])
+        );
     }
 }

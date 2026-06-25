@@ -5,11 +5,12 @@
 //! winner is applied last. Priority is, in order: `!important` (beats every
 //! normal declaration), origin (inline `style=""` beats author `<style>` rules,
 //! which beat user-agent defaults), selector specificity, then source order
-//! (later sheet / rule / declaration wins). The inherited properties are
-//! `color`, `font-size`, `font-weight`, `text-align`, and `line-height`;
-//! everything else uses its initial value when unset. This crate owns the
-//! default styles that `mocha_layout` used to hard-code. It does **no layout
-//! geometry**.
+//! (later sheet / rule / declaration wins). A matching `@media` block's rules
+//! join the cascade at their true document position (they share the stylesheet's
+//! global source order). The inherited properties are `color`, `font-size`,
+//! `font-weight`, `font-family`, `text-align`, and `line-height`; everything else
+//! uses its initial value when unset. This crate owns the default styles that
+//! `mocha_layout` used to hard-code. It does **no layout geometry**.
 
 mod matching;
 
@@ -135,6 +136,9 @@ pub struct ComputedStyle {
     pub font_size: f32,
     /// `font-weight` (inherited).
     pub font_weight: FontWeight,
+    /// `font-family` (inherited): the declared family list, in preference order.
+    /// Empty means "unset" — the consumer falls back to its default font.
+    pub font_family: Vec<String>,
     /// `width` in pixels, or `None` for auto.
     pub width: Option<f32>,
     /// `height` in pixels, or `None` for auto.
@@ -178,6 +182,7 @@ impl ComputedStyle {
             background_color: Color::TRANSPARENT,
             font_size: 16.0,
             font_weight: FontWeight::Normal,
+            font_family: Vec::new(),
             width: None,
             height: None,
             margin: EdgeSizes::default(),
@@ -206,6 +211,7 @@ impl ComputedStyle {
             background_color: Color::TRANSPARENT,
             font_size: parent.font_size,
             font_weight: parent.font_weight,
+            font_family: parent.font_family.clone(),
             width: None,
             height: None,
             margin: EdgeSizes::default(),
@@ -264,6 +270,10 @@ impl ComputedStyle {
                 .get(&CssProperty::FontWeight)
                 .and_then(as_font_weight)
                 .unwrap_or(parent.font_weight),
+            font_family: match values.get(&CssProperty::FontFamily) {
+                Some(CssValue::FontFamily(families)) => families.clone(),
+                _ => parent.font_family.clone(),
+            },
             width: len(CssProperty::Width),
             height: len(CssProperty::Height),
             margin: EdgeSizes {
@@ -445,14 +455,30 @@ fn any_selector_matches(
     Ok(false)
 }
 
-/// Build a styled tree for `document` using the given author `stylesheets`.
+/// The viewport width (px) used to evaluate `@media` width queries when an
+/// embedder calls [`build_style_tree`] without one. Matches the layout default.
+pub const DEFAULT_VIEWPORT_WIDTH: f32 = 800.0;
+
+/// Build a styled tree for `document` using the given author `stylesheets`,
+/// evaluating `@media` width queries against [`DEFAULT_VIEWPORT_WIDTH`].
 pub fn build_style_tree(
     document: &Document,
     stylesheets: &[Stylesheet],
 ) -> MochaResult<StyledNode> {
+    build_style_tree_with_viewport(document, stylesheets, DEFAULT_VIEWPORT_WIDTH)
+}
+
+/// Build a styled tree, evaluating `@media` width queries against `viewport_width`
+/// (in px). A `@media (min-width: …)` block's rules participate in the cascade
+/// only when the query matches this width.
+pub fn build_style_tree_with_viewport(
+    document: &Document,
+    stylesheets: &[Stylesheet],
+    viewport_width: f32,
+) -> MochaResult<StyledNode> {
     let root_id = document.root_id();
     let root_style = ComputedStyle::initial();
-    let children = build_children(document, root_id, stylesheets, &root_style)?;
+    let children = build_children(document, root_id, stylesheets, viewport_width, &root_style)?;
     Ok(StyledNode {
         node_id: root_id,
         text: None,
@@ -467,11 +493,13 @@ fn build_children(
     document: &Document,
     parent_id: NodeId,
     stylesheets: &[Stylesheet],
+    viewport_width: f32,
     parent_style: &ComputedStyle,
 ) -> MochaResult<Vec<StyledNode>> {
     let mut styled_children = Vec::new();
     for &child in document.children(parent_id)? {
-        if let Some(node) = build_node(document, child, stylesheets, parent_style)? {
+        if let Some(node) = build_node(document, child, stylesheets, viewport_width, parent_style)?
+        {
             styled_children.push(node);
         }
     }
@@ -482,14 +510,15 @@ fn build_node(
     document: &Document,
     id: NodeId,
     stylesheets: &[Stylesheet],
+    viewport_width: f32,
     parent_style: &ComputedStyle,
 ) -> MochaResult<Option<StyledNode>> {
     match &document.node(id)?.kind {
         NodeKind::Element(data) => {
-            let values = specified_values(document, id, data, stylesheets)?;
+            let values = specified_values(document, id, data, stylesheets, viewport_width)?;
             let style = ComputedStyle::from_values(&values, parent_style);
 
-            let mut children = build_children(document, id, stylesheets, &style)?;
+            let mut children = build_children(document, id, stylesheets, viewport_width, &style)?;
 
             // A list item gets its marker as leading inline text (Mocha has no
             // list-item box model). The marker reuses the `<li>`'s own node id.
@@ -538,6 +567,7 @@ fn specified_values(
     id: NodeId,
     data: &ElementData,
     stylesheets: &[Stylesheet],
+    viewport_width: f32,
 ) -> MochaResult<HashMap<CssProperty, CssValue>> {
     let mut values: HashMap<CssProperty, CssValue> = HashMap::new();
 
@@ -552,9 +582,18 @@ fn specified_values(
     //    declaration index): `!important` wins over all normal declarations, then
     //    inline beats author rules, then higher specificity, then later sheet /
     //    rule / declaration — matching the CSS cascade (no user/layer origins).
+    //    A matching `@media` block's rules join via their global source order, so
+    //    they cascade at their true document position.
     let mut entries: Vec<CascadeEntry> = Vec::new();
     for (sheet_index, sheet) in stylesheets.iter().enumerate() {
-        for rule in &sheet.rules {
+        // Unconditional rules plus the rules of every `@media` block whose query
+        // matches the viewport — both keyed by their global source order.
+        let media_rules = sheet
+            .media_rules
+            .iter()
+            .filter(|media| media.query.matches(viewport_width))
+            .flat_map(|media| media.rules.iter());
+        for rule in sheet.rules.iter().chain(media_rules) {
             let mut best: Option<Specificity> = None;
             for selector in &rule.selectors {
                 if selector_matches(document, id, selector)? {
@@ -1245,6 +1284,87 @@ mod tests {
         assert_eq!(query_selector(&document, "div > p").unwrap(), None);
         // A genuinely unknown pseudo-class still errors.
         assert!(query_selector(&document, "p:totally-unknown").is_err());
+    }
+
+    #[test]
+    fn matching_media_rule_applies_and_nonmatching_does_not() {
+        let mut document = Document::new();
+        let root = document.root_id();
+        let p = document.create_element("p", Vec::new());
+        document.append_child(root, p).unwrap();
+
+        let sheets = vec![parse_stylesheet(
+            "@media (min-width: 600px) { p { color: red; } } \
+             @media (max-width: 500px) { p { color: blue; } }",
+        )
+        .unwrap()];
+
+        // At 800px the min-width rule matches and the max-width rule does not.
+        let wide = build_style_tree_with_viewport(&document, &sheets, 800.0).unwrap();
+        assert_eq!(wide.children[0].style.color, Color::rgb(255, 0, 0));
+
+        // At 400px the opposite holds.
+        let narrow = build_style_tree_with_viewport(&document, &sheets, 400.0).unwrap();
+        assert_eq!(narrow.children[0].style.color, Color::rgb(0, 0, 255));
+    }
+
+    #[test]
+    fn matching_media_rule_overrides_earlier_unconditional_rule() {
+        let mut document = Document::new();
+        let root = document.root_id();
+        let p = document.create_element("p", Vec::new());
+        document.append_child(root, p).unwrap();
+
+        // The unconditional rule comes first; the equally-specific media rule
+        // (when its query matches) cascades after it and wins.
+        let sheets = vec![parse_stylesheet(
+            "p { color: red; } @media (min-width: 600px) { p { color: green; } }",
+        )
+        .unwrap()];
+        let tree = build_style_tree_with_viewport(&document, &sheets, 800.0).unwrap();
+        assert_eq!(tree.children[0].style.color, Color::rgb(0, 128, 0));
+
+        // When the query does not match, the unconditional rule stands.
+        let tree = build_style_tree_with_viewport(&document, &sheets, 400.0).unwrap();
+        assert_eq!(tree.children[0].style.color, Color::rgb(255, 0, 0));
+    }
+
+    #[test]
+    fn later_unconditional_rule_beats_earlier_media_rule() {
+        let mut document = Document::new();
+        let root = document.root_id();
+        let p = document.create_element("p", Vec::new());
+        document.append_child(root, p).unwrap();
+
+        // The `@media` block comes FIRST, the equally-specific unconditional rule
+        // after it. Even though the query matches, the later rule wins the
+        // source-order tie (media rules share the sheet's global source order).
+        let sheets = vec![parse_stylesheet(
+            "@media (min-width: 600px) { p { color: green; } } p { color: red; }",
+        )
+        .unwrap()];
+        let tree = build_style_tree_with_viewport(&document, &sheets, 800.0).unwrap();
+        assert_eq!(tree.children[0].style.color, Color::rgb(255, 0, 0));
+    }
+
+    #[test]
+    fn font_family_resolves_and_inherits() {
+        let mut document = Document::new();
+        let root = document.root_id();
+        let div = document.create_element("div", Vec::new());
+        let p = document.create_element("p", Vec::new());
+        document.append_child(root, div).unwrap();
+        document.append_child(div, p).unwrap();
+
+        let sheets = vec![parse_stylesheet("div { font-family: Georgia, serif; }").unwrap()];
+        let tree = build_style_tree(&document, &sheets).unwrap();
+        let div_node = &tree.children[0];
+        let p_node = &div_node.children[0];
+        assert_eq!(div_node.style.font_family, vec!["Georgia", "serif"]);
+        // Inherited by the child paragraph.
+        assert_eq!(p_node.style.font_family, vec!["Georgia", "serif"]);
+        // Unset elsewhere → empty (consumer falls back to its default).
+        assert!(tree.style.font_family.is_empty());
     }
 
     #[test]

@@ -165,6 +165,14 @@ path = "css/important-beats-specificity.html"
 category = "css"
 expect_contains = "color=#008000"
 
+# A matching `@media (min-width: …)` block applies: at the default 800px
+# viewport the `<p>` turns green (#008000) from inside the media block.
+[[test]]
+name = "css_media_query_applies"
+path = "css/media-query-applies.html"
+category = "css"
+expect_contains = "color=#008000"
+
 # Milestone 24 selectors that now apply styling: the targeted element turns
 # green (#008000), proving the selector matched.
 [[test]]
