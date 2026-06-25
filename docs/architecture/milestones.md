@@ -396,13 +396,41 @@ goal, what is explicitly not included, and how completion is verified.
   malformed selectors; `cargo fmt --all --check` and `cargo clippy --all-targets
   -D warnings` clean.
 
-## Beyond Milestone 24 (direction, not code)
+## Milestone 25: Multi-subsystem engine expansion — complete
 
-- **Broaden CSS values further:** `font-family` into the M22 font matcher, more
-  shorthands, and skipping `@media`/`@font-face`/`@keyframes` value blocks while
-  keeping the rest of the sheet (most of the per-declaration recovery and
-  `rgb()/hsl()`, `%`/`em`/`rem`, `line-height`, `text-align` value support is
-  already in place).
+Four independent from-scratch expansions, built in parallel (one isolated agent
+per subsystem), adversarially reviewed, and integrated behind the full gate.
+
+- **JavaScript (`mocha_js`):** `Array` methods (`push`, `pop`, `indexOf`, `join`,
+  `slice`, `map`, `filter`, `forEach`), `String` methods (`indexOf`, `slice`,
+  `split`, `toUpperCase`, `toLowerCase`, `includes`, `trim`), and `for…of` /
+  `for…in` loops. `of` is a *contextual* keyword (still a valid identifier);
+  `join(undefined)` defaults to `,`.
+- **HTML (`mocha_html`):** table-section grouping (`thead`/`tbody`/`tfoot`/
+  `colgroup`), `<textarea>`/`<select>`/`<option>` content, and ~20 more named
+  character references.
+- **CSS (`mocha_css`/`mocha_style`):** `@media` width queries
+  (`min-width`/`max-width`/`width`, px/em) are parsed and evaluated against the
+  real viewport — a matching block's rules cascade at their true document
+  position via a single global source order. `font-family` parses into an
+  inherited computed value (quoted names kept); it is not yet consumed by the
+  font matcher.
+- **Networking (`mocha_net`/`mocha_gzip`):** `Content-Encoding: deflate` — a
+  hand-written zlib (RFC 1950) decoder with from-scratch Adler-32, reusing the
+  existing RFC 1951 inflate, with a raw-deflate fallback; advertised in
+  `Accept-Encoding`.
+- **Verification:** new unit tests in every touched crate (including regression
+  tests for each review-caught bug), compat fixtures for `@media` and
+  `!important`; full buildable workspace green; `cargo fmt --all --check` and
+  `clippy -D warnings` clean.
+
+## Beyond Milestone 25 (direction, not code)
+
+- **Broaden CSS values further:** consume the parsed `font-family` in the M22
+  font matcher (it is computed/inherited but not yet used for selection), more
+  shorthands, and `@font-face`/`@keyframes` handling (`@media` width queries are
+  now evaluated, not skipped). Most per-declaration recovery and `rgb()/hsl()`,
+  `%`/`em`/`rem`, `line-height`, `text-align` value support is already in place.
 - **Grow the JavaScript engine** toward modern ECMAScript in honest increments
   (`try`/`catch`, classes, a real event loop + promises, `async`/`await`,
   modules), so more real pages' scripts run instead of being skipped.
