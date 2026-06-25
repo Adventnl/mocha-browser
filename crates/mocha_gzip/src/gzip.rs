@@ -3,6 +3,7 @@
 
 use mocha_error::{MochaError, MochaResult};
 
+use crate::adler32::adler32;
 use crate::crc32::crc32;
 use crate::inflate::inflate_with_consumed;
 
@@ -129,6 +130,69 @@ pub fn gzip_compress_stored(bytes: &[u8]) -> Vec<u8> {
     output
 }
 
+/// Decompress a zlib (RFC 1950) stream — the wire format for HTTP
+/// `Content-Encoding: deflate`. The 2-byte header (CMF + FLG) is validated and
+/// the trailing big-endian Adler-32 is verified after running the shared raw
+/// DEFLATE decoder.
+///
+/// Some servers mislabel a *raw* DEFLATE stream (no zlib wrapper) as `deflate`.
+/// If the leading bytes are not a valid zlib header, fall back to treating the
+/// whole body as raw DEFLATE rather than rejecting it.
+pub fn zlib_decompress(bytes: &[u8]) -> MochaResult<Vec<u8>> {
+    if is_zlib_header(bytes) {
+        let (output, deflate_length) = inflate_with_consumed(&bytes[2..])?;
+        let trailer_start = 2 + deflate_length;
+        let trailer: &[u8; 4] = bytes
+            .get(trailer_start..trailer_start + 4)
+            .and_then(|slice| slice.try_into().ok())
+            .ok_or_else(|| err("zlib stream is missing its 4-byte Adler-32 trailer"))?;
+        let expected = u32::from_be_bytes(*trailer);
+        let actual = adler32(&output);
+        if actual != expected {
+            return Err(err(format!(
+                "zlib Adler-32 mismatch (expected {expected:#010x}, got {actual:#010x})"
+            )));
+        }
+        Ok(output)
+    } else {
+        // Raw DEFLATE fallback for servers that omit the zlib wrapper.
+        crate::inflate::inflate(bytes)
+    }
+}
+
+/// Whether `bytes` begins with a valid RFC 1950 zlib header: compression
+/// method 8 (DEFLATE), no preset dictionary (FDICT clear), and the 16-bit
+/// header value a multiple of 31 (the FCHECK constraint).
+fn is_zlib_header(bytes: &[u8]) -> bool {
+    let [cmf, flg] = match bytes.first_chunk::<2>() {
+        Some(header) => *header,
+        None => return false,
+    };
+    const FDICT: u8 = 1 << 5;
+    cmf & 0x0F == 8 && flg & FDICT == 0 && (u16::from(cmf) << 8 | u16::from(flg)) % 31 == 0
+}
+
+/// Encode `bytes` as a valid zlib (RFC 1950) stream using only *stored* DEFLATE
+/// blocks (mirrors [`gzip_compress_stored`]; for tests and the test server).
+pub fn zlib_compress_stored(bytes: &[u8]) -> Vec<u8> {
+    // CMF = 0x78 (CM=8, CINFO=7), FLG chosen so the 16-bit header % 31 == 0.
+    let mut output = vec![0x78, 0x01];
+    let mut chunks = bytes.chunks(0xFFFF).peekable();
+    if chunks.peek().is_none() {
+        output.extend_from_slice(&[0x01, 0x00, 0x00, 0xFF, 0xFF]);
+    }
+    while let Some(chunk) = chunks.next() {
+        let final_block = chunks.peek().is_none();
+        output.push(final_block as u8); // BFINAL + BTYPE=00, byte-aligned
+        let length = chunk.len() as u16;
+        output.extend_from_slice(&length.to_le_bytes());
+        output.extend_from_slice(&(!length).to_le_bytes());
+        output.extend_from_slice(chunk);
+    }
+    output.extend_from_slice(&adler32(bytes).to_be_bytes());
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -222,5 +286,51 @@ mod tests {
         encoded[2] = 9;
         let error = gzip_decompress(&encoded).unwrap_err();
         assert!(error.to_string().contains("compression method"));
+    }
+
+    #[test]
+    fn zlib_stored_encoder_round_trips() {
+        for input in [
+            &b""[..],
+            b"a",
+            b"hello zlib world",
+            &[0_u8, 1, 2, 255, 254, 253],
+        ] {
+            let encoded = zlib_compress_stored(input);
+            assert_eq!(zlib_decompress(&encoded).unwrap(), input);
+        }
+    }
+
+    #[test]
+    fn zlib_stored_encoder_splits_large_input_into_blocks() {
+        let input: Vec<u8> = (0..200_000_usize).map(|index| index as u8).collect();
+        let encoded = zlib_compress_stored(&input);
+        assert_eq!(zlib_decompress(&encoded).unwrap(), input);
+    }
+
+    #[test]
+    fn raw_deflate_without_zlib_header_is_tolerated() {
+        // A bare DEFLATE stream (gzip body minus its 10-byte header and 8-byte
+        // trailer) whose first bytes are not a valid zlib header.
+        let gz = gzip_compress_stored(b"raw deflate fallback");
+        let raw = &gz[10..gz.len() - 8];
+        assert!(!is_zlib_header(raw));
+        assert_eq!(zlib_decompress(raw).unwrap(), b"raw deflate fallback");
+    }
+
+    #[test]
+    fn zlib_corrupted_adler32_errors() {
+        let mut encoded = zlib_compress_stored(b"hello zlib world");
+        let length = encoded.len();
+        encoded[length - 1] ^= 0xFF; // flip an Adler-32 byte
+        let error = zlib_decompress(&encoded).unwrap_err();
+        assert!(error.to_string().contains("Adler-32 mismatch"));
+    }
+
+    #[test]
+    fn zlib_truncated_trailer_errors() {
+        let encoded = zlib_compress_stored(b"hello zlib world");
+        let error = zlib_decompress(&encoded[..encoded.len() - 2]).unwrap_err();
+        assert!(matches!(error, MochaError::Decompression(_)));
     }
 }

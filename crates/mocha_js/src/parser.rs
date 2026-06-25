@@ -157,6 +157,44 @@ impl Parser {
         self.pos += 1; // `for`
         self.eat(&Token::LParen, "after 'for'")?;
 
+        // `for (kind name in/of iterable)`. Detect by looking past the
+        // declaration keyword and binding name for `in` (a reserved word) or the
+        // contextual `of` (lexed as the identifier "of").
+        let sep_is_in_or_of = |token: Option<&Token>| {
+            matches!(token, Some(Token::In))
+                || matches!(token, Some(Token::Ident(name)) if name == "of")
+        };
+        if matches!(self.peek(), Token::Let | Token::Const | Token::Var)
+            && sep_is_in_or_of(self.tokens.get(self.pos + 2))
+        {
+            let kind = match self.advance() {
+                Token::Let => DeclKind::Let,
+                Token::Const => DeclKind::Const,
+                Token::Var => DeclKind::Var,
+                _ => unreachable!(),
+            };
+            let name = self.identifier_name("in for-in/for-of binding")?;
+            let is_of = matches!(self.advance(), Token::Ident(name) if name == "of");
+            let iterable = self.expression()?;
+            self.eat(&Token::RParen, "after for-in/for-of iterable")?;
+            let body = Box::new(self.statement()?);
+            return Ok(if is_of {
+                Stmt::ForOf {
+                    kind,
+                    name,
+                    iterable,
+                    body,
+                }
+            } else {
+                Stmt::ForIn {
+                    kind,
+                    name,
+                    iterable,
+                    body,
+                }
+            });
+        }
+
         // Initializer.
         let init = if self.check(&Token::Semicolon) {
             self.pos += 1;
@@ -524,6 +562,18 @@ mod tests {
         assert!(parse("if (x) { y; } else { z; }").is_ok());
         assert!(parse("while (x) { y; }").is_ok());
         assert!(parse("for (let i = 0; i < 3; i = i + 1) { y; }").is_ok());
+    }
+
+    #[test]
+    fn parse_for_of_and_for_in() {
+        match &parse_ok("for (let x of [1, 2]) { y; }").body[0] {
+            Stmt::ForOf { name, .. } => assert_eq!(name, "x"),
+            other => panic!("expected for-of, got {other:?}"),
+        }
+        match &parse_ok("for (const k in obj) { y; }").body[0] {
+            Stmt::ForIn { name, .. } => assert_eq!(name, "k"),
+            other => panic!("expected for-in, got {other:?}"),
+        }
     }
 
     #[test]

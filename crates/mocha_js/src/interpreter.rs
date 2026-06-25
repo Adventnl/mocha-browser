@@ -216,7 +216,69 @@ impl Interpreter {
                 }
                 Ok(Flow::Normal(JsValue::Undefined))
             }
+            Stmt::ForIn {
+                kind,
+                name,
+                iterable,
+                body,
+            } => {
+                let target = self.eval(iterable, env)?;
+                let keys = match &target {
+                    JsValue::Object(map) => map.borrow().keys().cloned().collect::<Vec<_>>(),
+                    JsValue::Array(array) => {
+                        (0..array.borrow().len()).map(|i| i.to_string()).collect()
+                    }
+                    other => {
+                        return Err(MochaError::JavaScript(format!(
+                            "cannot use for-in over {}",
+                            other.type_name()
+                        )))
+                    }
+                };
+                self.run_for_each(*kind, name, keys.into_iter().map(JsValue::Str), body, env)
+            }
+            Stmt::ForOf {
+                kind,
+                name,
+                iterable,
+                body,
+            } => {
+                let target = self.eval(iterable, env)?;
+                let values = match &target {
+                    JsValue::Array(array) => array.borrow().clone(),
+                    JsValue::Str(s) => s.chars().map(|c| JsValue::Str(c.to_string())).collect(),
+                    other => {
+                        return Err(MochaError::JavaScript(format!(
+                            "{} is not iterable",
+                            other.type_name()
+                        )))
+                    }
+                };
+                self.run_for_each(*kind, name, values.into_iter(), body, env)
+            }
         }
+    }
+
+    /// Shared loop body for `for-in`/`for-of`: bind `name` to each item in a
+    /// fresh child scope and run `body`, propagating any `return`.
+    fn run_for_each(
+        &mut self,
+        kind: DeclKind,
+        name: &str,
+        items: impl Iterator<Item = JsValue>,
+        body: &Stmt,
+        env: &Rc<RefCell<Environment>>,
+    ) -> MochaResult<Flow> {
+        let mutable = kind != DeclKind::Const;
+        for item in items {
+            self.tick()?;
+            let child = Environment::child(env.clone());
+            child.borrow_mut().define(name.to_string(), item, mutable);
+            if let Flow::Return(value) = self.exec(body, &child)? {
+                return Ok(Flow::Return(value));
+            }
+        }
+        Ok(Flow::Normal(JsValue::Undefined))
     }
 
     fn eval(&mut self, expr: &Expr, env: &Rc<RefCell<Environment>>) -> MochaResult<JsValue> {
@@ -400,24 +462,115 @@ impl Interpreter {
             let host = host.clone();
             return host.call(self, property, args);
         }
-        // A few built-in array methods that need the receiving array.
-        if let JsValue::Array(array) = &object {
-            match property {
-                "push" => {
-                    let mut borrowed = array.borrow_mut();
-                    for arg in args {
-                        borrowed.push(arg);
-                    }
-                    return Ok(JsValue::Number(borrowed.len() as f64));
+        // Built-in array/string methods need the receiving value.
+        match &object {
+            JsValue::Array(array) => {
+                if let Some(result) = self.array_method(array.clone(), property, &args)? {
+                    return Ok(result);
                 }
-                "pop" => {
-                    return Ok(array.borrow_mut().pop().unwrap_or(JsValue::Undefined));
-                }
-                _ => {}
             }
+            JsValue::Str(s) => {
+                if let Some(result) = string_method(s, property, &args) {
+                    return Ok(result);
+                }
+            }
+            _ => {}
         }
         let function = self.get_member(&object, property)?;
         self.call_value(function, args)
+    }
+
+    /// Dispatch a built-in `Array.prototype` method. Returns `Ok(None)` when
+    /// `property` is not a recognised array method (so normal property access
+    /// applies).
+    fn array_method(
+        &mut self,
+        array: Rc<RefCell<Vec<JsValue>>>,
+        property: &str,
+        args: &[JsValue],
+    ) -> MochaResult<Option<JsValue>> {
+        let result = match property {
+            "push" => {
+                let mut borrowed = array.borrow_mut();
+                for arg in args {
+                    borrowed.push(arg.clone());
+                }
+                JsValue::Number(borrowed.len() as f64)
+            }
+            "pop" => array.borrow_mut().pop().unwrap_or(JsValue::Undefined),
+            "indexOf" => {
+                let needle = args.first().cloned().unwrap_or(JsValue::Undefined);
+                let position = array.borrow().iter().position(|v| v.strict_equals(&needle));
+                JsValue::Number(position.map(|i| i as f64).unwrap_or(-1.0))
+            }
+            "join" => {
+                let separator = match args.first() {
+                    Some(JsValue::Undefined) | None => ",".to_string(),
+                    Some(value) => value.stringify(),
+                };
+                let joined = array
+                    .borrow()
+                    .iter()
+                    .map(|v| match v {
+                        JsValue::Null | JsValue::Undefined => String::new(),
+                        other => other.stringify(),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(&separator);
+                JsValue::Str(joined)
+            }
+            "slice" => {
+                let len = array.borrow().len();
+                let start = slice_index(args.first(), len, 0);
+                let end = slice_index(args.get(1), len, len);
+                let borrowed = array.borrow();
+                let items = if start < end {
+                    borrowed[start..end].to_vec()
+                } else {
+                    Vec::new()
+                };
+                JsValue::array(items)
+            }
+            "map" => {
+                let callback = args.first().cloned().unwrap_or(JsValue::Undefined);
+                let items = array.borrow().clone();
+                let mut mapped = Vec::with_capacity(items.len());
+                for (index, item) in items.into_iter().enumerate() {
+                    mapped.push(
+                        self.call_value(
+                            callback.clone(),
+                            vec![item, JsValue::Number(index as f64)],
+                        )?,
+                    );
+                }
+                JsValue::array(mapped)
+            }
+            "filter" => {
+                let callback = args.first().cloned().unwrap_or(JsValue::Undefined);
+                let items = array.borrow().clone();
+                let mut kept = Vec::new();
+                for (index, item) in items.into_iter().enumerate() {
+                    let keep = self.call_value(
+                        callback.clone(),
+                        vec![item.clone(), JsValue::Number(index as f64)],
+                    )?;
+                    if keep.is_truthy() {
+                        kept.push(item);
+                    }
+                }
+                JsValue::array(kept)
+            }
+            "forEach" => {
+                let callback = args.first().cloned().unwrap_or(JsValue::Undefined);
+                let items = array.borrow().clone();
+                for (index, item) in items.into_iter().enumerate() {
+                    self.call_value(callback.clone(), vec![item, JsValue::Number(index as f64)])?;
+                }
+                JsValue::Undefined
+            }
+            _ => return Ok(None),
+        };
+        Ok(Some(result))
     }
 
     fn call_value(&mut self, callee: JsValue, args: Vec<JsValue>) -> MochaResult<JsValue> {
@@ -547,6 +700,84 @@ impl Interpreter {
             ))),
         }
     }
+}
+
+/// Resolve a `slice` bound argument to a clamped index in `0..=len`, treating a
+/// missing/`undefined` argument as `default` and negative values as offsets from
+/// the end (matching `Array.prototype.slice`/`String.prototype.slice`).
+fn slice_index(arg: Option<&JsValue>, len: usize, default: usize) -> usize {
+    let raw = match arg {
+        None | Some(JsValue::Undefined) => return default,
+        Some(value) => value.to_number(),
+    };
+    if raw.is_nan() {
+        return 0;
+    }
+    let n = raw.trunc();
+    if n < 0.0 {
+        (len as f64 + n).max(0.0) as usize
+    } else {
+        (n as usize).min(len)
+    }
+}
+
+/// Dispatch a built-in `String.prototype` method. Returns `None` when `property`
+/// is not a recognised string method (so normal property access applies). String
+/// indexing is by Unicode scalar (consistent with `.length`).
+fn string_method(s: &str, property: &str, args: &[JsValue]) -> Option<JsValue> {
+    let result = match property {
+        "indexOf" => {
+            let needle = args.first().map(JsValue::stringify).unwrap_or_default();
+            let chars: Vec<char> = s.chars().collect();
+            let needle_chars: Vec<char> = needle.chars().collect();
+            let position = if needle_chars.is_empty() {
+                Some(0)
+            } else {
+                (0..=chars.len().saturating_sub(needle_chars.len()))
+                    .find(|&i| chars[i..i + needle_chars.len()] == needle_chars[..])
+            };
+            JsValue::Number(position.map(|i| i as f64).unwrap_or(-1.0))
+        }
+        "slice" => {
+            let chars: Vec<char> = s.chars().collect();
+            let len = chars.len();
+            let start = slice_index(args.first(), len, 0);
+            let end = slice_index(args.get(1), len, len);
+            let slice: String = if start < end {
+                chars[start..end].iter().collect()
+            } else {
+                String::new()
+            };
+            JsValue::Str(slice)
+        }
+        "split" => {
+            let parts = match args.first() {
+                Some(JsValue::Str(sep)) if sep.is_empty() => {
+                    s.chars().map(|c| JsValue::Str(c.to_string())).collect()
+                }
+                Some(JsValue::Str(sep)) => s
+                    .split(sep.as_str())
+                    .map(|p| JsValue::Str(p.to_string()))
+                    .collect(),
+                // No separator: a single-element array containing the whole string.
+                None | Some(JsValue::Undefined) => vec![JsValue::Str(s.to_string())],
+                Some(other) => s
+                    .split(other.stringify().as_str())
+                    .map(|p| JsValue::Str(p.to_string()))
+                    .collect(),
+            };
+            JsValue::array(parts)
+        }
+        "toUpperCase" => JsValue::Str(s.to_uppercase()),
+        "toLowerCase" => JsValue::Str(s.to_lowercase()),
+        "includes" => {
+            let needle = args.first().map(JsValue::stringify).unwrap_or_default();
+            JsValue::Bool(s.contains(needle.as_str()))
+        }
+        "trim" => JsValue::Str(s.trim().to_string()),
+        _ => return None,
+    };
+    Some(result)
 }
 
 /// Compare two values for ordering: strings lexicographically, otherwise by

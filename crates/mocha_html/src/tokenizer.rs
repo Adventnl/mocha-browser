@@ -496,6 +496,8 @@ fn named_entity(name: &str) -> Option<char> {
         "deg" => '°',
         "middot" => '·',
         "bull" => '•',
+        "rarr" => '→',
+        "larr" => '←',
         "dagger" => '†',
         "sect" => '§',
         "para" => '¶',
@@ -741,6 +743,17 @@ mod tests {
     fn numeric_and_named_entities_decode_in_text() {
         let tokens = tokenize("A&amp;B &#169; &#x41; &nbsp;end").unwrap();
         assert_eq!(tokens, vec![HtmlToken::Text("A&B © A \u{a0}end".into())]);
+    }
+
+    #[test]
+    fn common_named_entities_decode() {
+        let tokens =
+            tokenize("a&mdash;b&ndash;c&hellip;&rarr;&larr;&times;&divide;&laquo;&raquo;").unwrap();
+        assert_eq!(tokens, vec![HtmlToken::Text("a—b–c…→←×÷«»".into())]);
+        let tokens = tokenize("&dagger;&bull;&deg;&para;&sect;&middot;&euro;&pound;&yen;").unwrap();
+        assert_eq!(tokens, vec![HtmlToken::Text("†•°¶§·€£¥".into())]);
+        let tokens = tokenize("&ldquo;&rdquo;&lsquo;&rsquo;").unwrap();
+        assert_eq!(tokens, vec![HtmlToken::Text("“”‘’".into())]);
     }
 
     #[test]

@@ -140,6 +140,10 @@ impl Lexer {
             "else" => Token::Else,
             "while" => Token::While,
             "for" => Token::For,
+            "in" => Token::In,
+            // `of` is only a *contextual* keyword (valid as an identifier
+            // elsewhere), so it is lexed as an identifier and recognised in the
+            // for-header by the parser.
             "true" => Token::True,
             "false" => Token::False,
             "null" => Token::Null,

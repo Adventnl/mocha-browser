@@ -72,6 +72,30 @@ pub enum Stmt {
         /// Loop body.
         body: Box<Stmt>,
     },
+    /// `for (kind name in iterable) body` — iterates an object's keys (or an
+    /// array's indices).
+    ForIn {
+        /// Declaration keyword for the loop variable.
+        kind: DeclKind,
+        /// Loop variable name.
+        name: String,
+        /// The object/array being iterated.
+        iterable: Expr,
+        /// Loop body.
+        body: Box<Stmt>,
+    },
+    /// `for (kind name of iterable) body` — iterates an array's (or string's)
+    /// values.
+    ForOf {
+        /// Declaration keyword for the loop variable.
+        kind: DeclKind,
+        /// Loop variable name.
+        name: String,
+        /// The array/string being iterated.
+        iterable: Expr,
+        /// Loop body.
+        body: Box<Stmt>,
+    },
 }
 
 /// A binary operator.

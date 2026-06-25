@@ -7,15 +7,21 @@
 //! CRC-32 and length verification), and a deliberately tiny *stored-block*
 //! gzip encoder used by tests and test servers (valid gzip, zero compression).
 //!
-//! Out of scope (clear errors, never silent): multi-member gzip files, zlib
-//! (`Content-Encoding: deflate`) streams, brotli, zstd, and any real
-//! compression. Decompressed output is capped at [`MAX_OUTPUT_BYTES`] so a
-//! malicious "zip bomb" response cannot exhaust memory.
+//! It also decodes zlib (RFC 1950) streams for `Content-Encoding: deflate`,
+//! verifying the Adler-32 trailer and tolerating servers that send raw DEFLATE
+//! without the zlib wrapper.
+//!
+//! Out of scope (clear errors, never silent): multi-member gzip files, brotli,
+//! zstd, and any real compression. Decompressed output is capped at
+//! [`MAX_OUTPUT_BYTES`] so a malicious "zip bomb" response cannot exhaust
+//! memory.
 
+mod adler32;
 mod crc32;
 mod gzip;
 mod inflate;
 
+pub use adler32::adler32;
 pub use crc32::crc32;
-pub use gzip::{gzip_compress_stored, gzip_decompress};
+pub use gzip::{gzip_compress_stored, gzip_decompress, zlib_compress_stored, zlib_decompress};
 pub use inflate::{inflate, MAX_OUTPUT_BYTES};

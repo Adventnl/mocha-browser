@@ -65,6 +65,9 @@ pub enum Reply {
     /// `200 text/html` with the body gzip-compressed (stored blocks via
     /// `mocha_gzip::gzip_compress_stored`) and `Content-Encoding: gzip`.
     GzipHtml(String),
+    /// `200 text/html` with the body zlib-compressed (stored blocks via
+    /// `mocha_gzip::zlib_compress_stored`) and `Content-Encoding: deflate`.
+    DeflateHtml(String),
 }
 
 /// A running test server. Drop it to leak the background thread (fine for tests;
@@ -272,6 +275,16 @@ fn render(reply: &Reply, authority: &str, cookie_header: Option<&str>) -> Vec<u8
                 "OK",
                 Some("text/html; charset=utf-8"),
                 &[("Content-Encoding", "gzip")],
+                &compressed,
+            )
+        }
+        Reply::DeflateHtml(body) => {
+            let compressed = mocha_gzip::zlib_compress_stored(body.as_bytes());
+            http_response(
+                200,
+                "OK",
+                Some("text/html; charset=utf-8"),
+                &[("Content-Encoding", "deflate")],
                 &compressed,
             )
         }

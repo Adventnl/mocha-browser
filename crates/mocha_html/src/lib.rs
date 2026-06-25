@@ -122,9 +122,15 @@ fn close_implied(open: &mut Vec<(NodeId, String)>, new_tag: &str) {
             "dt" | "dd" => top == "dt" || top == "dd",
             "option" => top == "option" || top == "optgroup",
             "optgroup" => top == "option" || top == "optgroup",
-            "tr" => top == "tr" || top == "td" || top == "th",
+            "tr" => top == "tr" || top == "td" || top == "th" || top == "colgroup",
             "td" | "th" => top == "td" || top == "th",
-            "thead" | "tbody" | "tfoot" => top == "tr" || top == "td" || top == "th",
+            // A new table section closes any open cell/row and any previous
+            // open section/colgroup, so `<thead>…</thead><tbody>…` and an
+            // unclosed `<colgroup>` before `<tbody>` nest as siblings.
+            "thead" | "tbody" | "tfoot" | "colgroup" => matches!(
+                top,
+                "tr" | "td" | "th" | "thead" | "tbody" | "tfoot" | "colgroup"
+            ),
             _ => false,
         } || (top == "p" && is_block_level(new_tag));
         if implied {
@@ -498,6 +504,58 @@ mod tests {
             Some("")
         );
         assert_eq!(document.text_content(options[0]).unwrap(), "Alpha");
+    }
+
+    #[test]
+    fn table_sections_nest_rows_and_cells() {
+        // thead/tbody nest their own rows; the new <tbody> closes the open
+        // <thead> (and its row) so the two sections are siblings of the table.
+        let document = parse_html(
+            "<table><thead><tr><th>H</th></tr><tbody><tr><td>a</td><td>b</td></tr></table>",
+        )
+        .unwrap();
+        let order = document.traverse_depth_first(document.root_id()).unwrap();
+        let table = order
+            .iter()
+            .find(|&&id| document.tag_name(id).unwrap() == Some("table"))
+            .copied()
+            .unwrap();
+        let sections = document.children(table).unwrap().to_vec();
+        assert_eq!(sections.len(), 2);
+        assert_eq!(document.tag_name(sections[0]).unwrap(), Some("thead"));
+        assert_eq!(document.tag_name(sections[1]).unwrap(), Some("tbody"));
+
+        // The header row's cell stayed inside thead, not the later tbody.
+        let head_row = document.children(sections[0]).unwrap()[0];
+        assert_eq!(document.text_content(head_row).unwrap(), "H");
+
+        // The tbody row has both <td> cells as direct children.
+        let body_row = document.children(sections[1]).unwrap()[0];
+        let cells = document.children(body_row).unwrap().to_vec();
+        assert_eq!(cells.len(), 2);
+        assert_eq!(document.text_content(cells[0]).unwrap(), "a");
+        assert_eq!(document.text_content(cells[1]).unwrap(), "b");
+    }
+
+    #[test]
+    fn colgroup_closes_before_table_body() {
+        // An unclosed <colgroup> (with void <col> children) is closed by the
+        // following <tbody>, so the body is a sibling of the colgroup.
+        let document =
+            parse_html("<table><colgroup><col><col><tbody><tr><td>x</td></tr></tbody></table>")
+                .unwrap();
+        let order = document.traverse_depth_first(document.root_id()).unwrap();
+        let table = order
+            .iter()
+            .find(|&&id| document.tag_name(id).unwrap() == Some("table"))
+            .copied()
+            .unwrap();
+        let children = document.children(table).unwrap().to_vec();
+        assert_eq!(children.len(), 2);
+        assert_eq!(document.tag_name(children[0]).unwrap(), Some("colgroup"));
+        assert_eq!(document.tag_name(children[1]).unwrap(), Some("tbody"));
+        // Both <col> elements are children of the colgroup (they are void).
+        assert_eq!(document.children(children[0]).unwrap().len(), 2);
     }
 
     #[test]

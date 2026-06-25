@@ -29,6 +29,8 @@ pub enum Token {
     While,
     /// `for`
     For,
+    /// `in`
+    In,
     /// `true`
     True,
     /// `false`

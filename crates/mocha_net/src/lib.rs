@@ -340,6 +340,38 @@ mod tests {
     }
 
     #[test]
+    fn deflate_response_is_decoded() {
+        let body = "<html><body><p>deflate content-encoding works</p></body></html>";
+        let server = TestServer::start(vec![(
+            "/d.html".to_string(),
+            Reply::DeflateHtml(body.to_string()),
+        )]);
+        let mut loader = DefaultLoader::new();
+        let response = load(&mut loader, &server.url("/d.html")).unwrap();
+        assert_eq!(response.status, Some(200));
+        assert_eq!(String::from_utf8_lossy(&response.body), body);
+    }
+
+    #[test]
+    fn corrupt_deflate_body_errors_clearly() {
+        let mut compressed = mocha_gzip::zlib_compress_stored(b"<html></html>");
+        let length = compressed.len();
+        compressed[length - 1] ^= 0xFF; // corrupt the Adler-32
+        let raw = [
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {length}\r\nContent-Encoding: deflate\r\nConnection: close\r\n\r\n"
+            )
+            .into_bytes(),
+            compressed,
+        ]
+        .concat();
+        let server = TestServer::start(vec![("/bad.html".to_string(), Reply::Raw(raw))]);
+        let mut loader = DefaultLoader::new();
+        let error = load(&mut loader, &server.url("/bad.html")).unwrap_err();
+        assert!(matches!(error, MochaError::Decompression(_)));
+    }
+
+    #[test]
     fn unsupported_content_encoding_errors_clearly() {
         let raw = b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 2\r\nContent-Encoding: br\r\nConnection: close\r\n\r\nxx".to_vec();
         let server = TestServer::start(vec![("/br.html".to_string(), Reply::Raw(raw))]);

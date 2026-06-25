@@ -180,6 +180,119 @@ mod tests {
     }
 
     #[test]
+    fn array_pop_indexof_join() {
+        assert_eq!(num("let a = [1, 2, 3]; a.pop(); a.length;"), 2.0);
+        assert_eq!(num("[10, 20, 30].indexOf(20);"), 1.0);
+        assert_eq!(num("[1, 2].indexOf(9);"), -1.0);
+        assert_eq!(eval("[1, 2, 3].join('-');").stringify(), "1-2-3");
+        assert_eq!(eval("[1, 2, 3].join();").stringify(), "1,2,3");
+        // An explicit `undefined` separator defaults to "," just like a missing one.
+        assert_eq!(eval("[1, 2, 3].join(undefined);").stringify(), "1,2,3");
+    }
+
+    #[test]
+    fn of_is_a_valid_identifier() {
+        // `of` is only a contextual keyword: it must still work as a variable
+        // name outside the for-of header.
+        assert_eq!(num("let of = 5; of + 1;"), 6.0);
+        assert_eq!(
+            eval("let of = 'x'; for (const c of [of]) { } of;").stringify(),
+            "x"
+        );
+    }
+
+    #[test]
+    fn array_slice() {
+        assert_eq!(
+            eval("[1, 2, 3, 4].slice(1, 3).join(',');").stringify(),
+            "2,3"
+        );
+        assert_eq!(eval("[1, 2, 3, 4].slice(2).join(',');").stringify(), "3,4");
+        assert_eq!(eval("[1, 2, 3, 4].slice(-2).join(',');").stringify(), "3,4");
+        assert_eq!(num("[1, 2, 3].slice(2, 1).length;"), 0.0);
+    }
+
+    #[test]
+    fn array_map_filter_foreach() {
+        assert_eq!(
+            eval("[1, 2, 3].map(function (x) { return x * 2; }).join(',');").stringify(),
+            "2,4,6"
+        );
+        assert_eq!(
+            eval("[1, 2, 3, 4].filter(function (x) { return x % 2 === 0; }).join(',');")
+                .stringify(),
+            "2,4"
+        );
+        assert_eq!(
+            num("let total = 0; [1, 2, 3].forEach(function (x) { total = total + x; }); total;"),
+            6.0
+        );
+        // The callback receives the element index as its second argument.
+        assert_eq!(
+            eval("[10, 20].map(function (x, i) { return i; }).join(',');").stringify(),
+            "0,1"
+        );
+    }
+
+    #[test]
+    fn string_indexof_slice_includes() {
+        assert_eq!(num("'hello'.indexOf('ll');"), 2.0);
+        assert_eq!(num("'hello'.indexOf('z');"), -1.0);
+        assert_eq!(eval("'hello'.slice(1, 3);").stringify(), "el");
+        assert_eq!(eval("'hello'.slice(-2);").stringify(), "lo");
+        assert!(matches!(
+            eval("'hello'.includes('ell');"),
+            JsValue::Bool(true)
+        ));
+        assert!(matches!(
+            eval("'hello'.includes('xyz');"),
+            JsValue::Bool(false)
+        ));
+    }
+
+    #[test]
+    fn string_split_case_trim() {
+        assert_eq!(num("'a,b,c'.split(',').length;"), 3.0);
+        assert_eq!(eval("'abc'.split('').join('-');").stringify(), "a-b-c");
+        assert_eq!(eval("'Hello'.toUpperCase();").stringify(), "HELLO");
+        assert_eq!(eval("'Hello'.toLowerCase();").stringify(), "hello");
+        assert_eq!(eval("'  hi  '.trim();").stringify(), "hi");
+    }
+
+    #[test]
+    fn for_of_iterates_array_and_string() {
+        assert_eq!(
+            num("let total = 0; for (let x of [1, 2, 3]) { total = total + x; } total;"),
+            6.0
+        );
+        assert_eq!(
+            eval("let out = ''; for (let c of 'abc') { out = out + c + '.'; } out;").stringify(),
+            "a.b.c."
+        );
+    }
+
+    #[test]
+    fn for_in_iterates_object_keys_and_array_indices() {
+        // for-of over an explicit key list reads object members.
+        assert_eq!(
+            num("let o = { a: 1, b: 2, c: 3 }; let total = 0; \
+                 for (let k of ['a', 'b', 'c']) { total = total + o[k]; } total;"),
+            6.0
+        );
+        // for-in over an object yields its keys.
+        assert_eq!(
+            num("let o = { a: 10, b: 20 }; let total = 0; \
+                 for (let k in o) { total = total + o[k]; } total;"),
+            30.0
+        );
+        // for-in over an array yields its indices (as strings).
+        assert_eq!(
+            eval("let out = ''; for (let i in [9, 8, 7]) { out = out + i; } out;").stringify(),
+            "012"
+        );
+    }
+
+    #[test]
     fn console_log_is_captured() {
         let mut runtime = JsRuntime::new();
         runtime.eval("console.log(\"hello\", 123);").unwrap();

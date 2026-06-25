@@ -110,7 +110,7 @@ fn fetch_once(url: &Url, cookie_header: Option<&str>, tls: &TlsClient) -> MochaR
          Host: {authority}\r\n\
          User-Agent: mocha-browser/0.1\r\n\
          Accept: */*\r\n\
-         Accept-Encoding: gzip\r\n\
+         Accept-Encoding: gzip, deflate\r\n\
          {cookie_line}\
          Connection: close\r\n\
          \r\n",
@@ -251,10 +251,11 @@ fn parse_response(bytes: &[u8]) -> MochaResult<RawResponse> {
         let encoding = encoding.trim().to_ascii_lowercase();
         match encoding.as_str() {
             "gzip" | "x-gzip" => body = mocha_gzip::gzip_decompress(&body)?,
+            "deflate" => body = mocha_gzip::zlib_decompress(&body)?,
             "identity" => {}
             other => {
                 return Err(MochaError::UnsupportedFeature(format!(
-                    "content-encoding '{other}' is not supported (only gzip/identity)"
+                    "content-encoding '{other}' is not supported (only gzip/deflate/identity)"
                 )))
             }
         }
