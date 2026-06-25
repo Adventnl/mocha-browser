@@ -1,12 +1,15 @@
 //! Minimal CSS tokenizer, parser, and value model for Mocha Browser.
 //!
-//! **This is not a CSS-spec-compliant implementation.** It supports a small,
-//! explicitly documented subset: type/class/id/universal/descendant selectors,
-//! a fixed property set, `px` lengths, named and hex colors, and a few keywords.
-//! Unknown properties, unsupported units, and unsupported syntax (`!important`,
-//! combinators, pseudo-classes, …) return a clear [`MochaError`] rather than
-//! being silently dropped. This crate has **no DOM access** and performs **no
-//! selector matching against a DOM** — that is `mocha_style`'s job.
+//! **This is not a CSS-spec-compliant implementation**, but it covers the
+//! selector grammar real pages rely on: type/class/id/universal selectors, the
+//! descendant/child/next-sibling/subsequent-sibling combinators, attribute
+//! selectors (`[a=v]`, `[a~=v]`, `[a^=v]`, …), and structural pseudo-classes
+//! (`:first-child`, `:nth-child(an+b)`, `:not()`, `:root`, …). Dynamic
+//! pseudo-classes (`:hover`) and pseudo-elements (`::before`) parse but never
+//! match in a static render. It also supports a fixed property set, common
+//! length units, and named/hex/`rgb()`/`hsl()` colors. This crate has **no DOM
+//! access** and performs **no selector matching against a DOM** — that is
+//! `mocha_style`'s job.
 //!
 //! [`MochaError`]: mocha_error::MochaError
 
@@ -171,6 +174,112 @@ pub enum SimpleSelector {
     Class(String),
     /// An id selector such as `#hero` (stored without the hash).
     Id(String),
+    /// An attribute selector such as `[type="text"]` or `[disabled]`.
+    Attribute(AttributeSelector),
+    /// A pseudo-class such as `:first-child` or `:nth-child(2n+1)`.
+    PseudoClass(PseudoClass),
+}
+
+/// An attribute selector: a name plus a matching rule against its value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AttributeSelector {
+    /// The attribute name (lowercased, e.g. `type`).
+    pub name: String,
+    /// How the attribute's value must match.
+    pub matcher: AttributeMatch,
+}
+
+/// The matching rule of an [`AttributeSelector`]. Mirrors the CSS attribute
+/// matchers; the contained string is the right-hand side (already unquoted).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AttributeMatch {
+    /// `[attr]` — the attribute is present, with any value.
+    Exists,
+    /// `[attr=value]` — exact match.
+    Equals(String),
+    /// `[attr~=value]` — `value` is one of the space-separated words.
+    Includes(String),
+    /// `[attr|=value]` — equal to `value` or starts with `value-`.
+    DashMatch(String),
+    /// `[attr^=value]` — the value starts with `value`.
+    Prefix(String),
+    /// `[attr$=value]` — the value ends with `value`.
+    Suffix(String),
+    /// `[attr*=value]` — the value contains `value`.
+    Substring(String),
+}
+
+/// A pseudo-class. Structural pseudo-classes match deterministically against the
+/// DOM tree; dynamic ones (`:hover`, `:focus`, …) and pseudo-elements
+/// (`::before`, …) parse to [`PseudoClass::Inert`] and never match — their rules
+/// are *retained* rather than dropped, but their state is never faked.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PseudoClass {
+    /// `:root` — the document element.
+    Root,
+    /// `:empty` — no element or (non-whitespace) text children.
+    Empty,
+    /// `:first-child`
+    FirstChild,
+    /// `:last-child`
+    LastChild,
+    /// `:only-child`
+    OnlyChild,
+    /// `:first-of-type`
+    FirstOfType,
+    /// `:last-of-type`
+    LastOfType,
+    /// `:only-of-type`
+    OnlyOfType,
+    /// `:nth-child(an+b)`
+    NthChild(Nth),
+    /// `:nth-last-child(an+b)`
+    NthLastChild(Nth),
+    /// `:nth-of-type(an+b)`
+    NthOfType(Nth),
+    /// `:nth-last-of-type(an+b)`
+    NthLastOfType(Nth),
+    /// `:not(<compound>)` — negation of a single compound selector.
+    Not(Vec<SimpleSelector>),
+    /// A dynamic pseudo-class or pseudo-element that is parsed but never matches
+    /// in a static render (e.g. `hover`, `focus`, `::before`). The string is the
+    /// pseudo's name, kept only for diagnostics.
+    Inert(String),
+}
+
+/// The `an+b` coefficients of an `:nth-*` pseudo-class. A 1-based child index
+/// `i` matches when there exists an integer `n >= 0` with `i == a*n + b`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Nth {
+    /// The step (`a` in `an+b`).
+    pub a: i32,
+    /// The offset (`b` in `an+b`).
+    pub b: i32,
+}
+
+impl Nth {
+    /// Does a 1-based index match this `an+b`?
+    pub fn matches(&self, index: i32) -> bool {
+        if self.a == 0 {
+            index == self.b
+        } else {
+            let diff = index - self.b;
+            diff % self.a == 0 && diff / self.a >= 0
+        }
+    }
+}
+
+/// A combinator joining two compound selectors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Combinator {
+    /// ` ` (whitespace) — the left compound matches some ancestor.
+    Descendant,
+    /// `>` — the left compound matches the immediate parent.
+    Child,
+    /// `+` — the left compound matches the immediately preceding element sibling.
+    NextSibling,
+    /// `~` — the left compound matches some preceding element sibling.
+    SubsequentSibling,
 }
 
 /// A compound selector: simple selectors with no combinator between them, e.g.
@@ -181,15 +290,24 @@ pub struct CompoundSelector {
     pub simple_selectors: Vec<SimpleSelector>,
 }
 
-/// A full selector. `parts` is ordered ancestor → descendant; multiple parts
-/// represent a descendant combinator (`div p span`).
+/// A full (complex) selector. `parts` is ordered ancestor → target; `combinators`
+/// has one entry per gap, so `combinators[i]` joins `parts[i]` (on the left) to
+/// `parts[i + 1]`. A lone compound has an empty `combinators`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Selector {
     /// Compound selectors from the outermost ancestor to the target element.
     pub parts: Vec<CompoundSelector>,
+    /// The combinators between consecutive parts (`parts.len() - 1` entries).
+    pub combinators: Vec<Combinator>,
 }
 
 impl Selector {
+    /// Build a descendant-combinator chain (the common case in tests/helpers).
+    pub fn descendant_chain(parts: Vec<CompoundSelector>) -> Selector {
+        let combinators = vec![Combinator::Descendant; parts.len().saturating_sub(1)];
+        Selector { parts, combinators }
+    }
+
     /// Compute this selector's specificity as (#id, #class, #type).
     pub fn specificity(&self) -> Specificity {
         let mut spec = Specificity {
@@ -199,15 +317,33 @@ impl Selector {
         };
         for part in &self.parts {
             for simple in &part.simple_selectors {
-                match simple {
-                    SimpleSelector::Id(_) => spec.ids += 1,
-                    SimpleSelector::Class(_) => spec.classes += 1,
-                    SimpleSelector::Type(_) => spec.elements += 1,
-                    SimpleSelector::Universal => {}
-                }
+                add_simple_specificity(simple, &mut spec);
             }
         }
         spec
+    }
+}
+
+/// Accumulate one simple selector's contribution to a specificity tuple.
+fn add_simple_specificity(simple: &SimpleSelector, spec: &mut Specificity) {
+    match simple {
+        SimpleSelector::Id(_) => spec.ids += 1,
+        // Class, attribute, and (structural) pseudo-class selectors all count in
+        // the "class" column.
+        SimpleSelector::Class(_) | SimpleSelector::Attribute(_) => spec.classes += 1,
+        SimpleSelector::PseudoClass(pseudo) => match pseudo {
+            // `:not()` takes the specificity of its argument; pseudo-elements
+            // (modelled as `Inert`) contribute nothing extra beyond a class-level
+            // weight, matching how authors reason about them here.
+            PseudoClass::Not(inner) => {
+                for simple in inner {
+                    add_simple_specificity(simple, spec);
+                }
+            }
+            _ => spec.classes += 1,
+        },
+        SimpleSelector::Type(_) => spec.elements += 1,
+        SimpleSelector::Universal => {}
     }
 }
 
@@ -289,21 +425,15 @@ mod tests {
 
     #[test]
     fn specificity_orders_id_over_class_over_type() {
-        let id = Selector {
-            parts: vec![CompoundSelector {
-                simple_selectors: vec![SimpleSelector::Id("a".into())],
-            }],
-        };
-        let class = Selector {
-            parts: vec![CompoundSelector {
-                simple_selectors: vec![SimpleSelector::Class("a".into())],
-            }],
-        };
-        let ty = Selector {
-            parts: vec![CompoundSelector {
-                simple_selectors: vec![SimpleSelector::Type("a".into())],
-            }],
-        };
+        let id = Selector::descendant_chain(vec![CompoundSelector {
+            simple_selectors: vec![SimpleSelector::Id("a".into())],
+        }]);
+        let class = Selector::descendant_chain(vec![CompoundSelector {
+            simple_selectors: vec![SimpleSelector::Class("a".into())],
+        }]);
+        let ty = Selector::descendant_chain(vec![CompoundSelector {
+            simple_selectors: vec![SimpleSelector::Type("a".into())],
+        }]);
         assert!(id.specificity() > class.specificity());
         assert!(class.specificity() > ty.specificity());
     }

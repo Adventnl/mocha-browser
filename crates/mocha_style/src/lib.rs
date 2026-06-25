@@ -15,7 +15,7 @@ pub use mocha_dom::NodeId;
 
 use std::collections::HashMap;
 
-use matching::{selector_matches, ElementDescriptor};
+use matching::selector_matches;
 use mocha_css::{
     parse_inline_style, parse_selector_list, parse_stylesheet, CssProperty, CssValue, Declaration,
     Selector, Specificity, Stylesheet,
@@ -407,38 +407,39 @@ pub fn query_selector_all(document: &Document, selector: &str) -> MochaResult<Ve
 
 fn matching_elements(document: &Document, selectors: &[Selector]) -> MochaResult<Vec<NodeId>> {
     let mut matches = Vec::new();
-    collect_matches(document, document.root_id(), &[], selectors, &mut matches)?;
+    collect_matches(document, document.root_id(), selectors, &mut matches)?;
     Ok(matches)
 }
 
 fn collect_matches(
     document: &Document,
     id: NodeId,
-    ancestors: &[ElementDescriptor],
     selectors: &[Selector],
     out: &mut Vec<NodeId>,
 ) -> MochaResult<()> {
-    if let NodeKind::Element(data) = &document.node(id)?.kind {
-        let descriptor = ElementDescriptor::from_element(data);
-        if selectors
-            .iter()
-            .any(|selector| selector_matches(selector, &descriptor, ancestors))
-        {
-            out.push(id);
-        }
-        let mut child_ancestors = ancestors.to_vec();
-        child_ancestors.push(descriptor);
-        for &child in document.children(id)? {
-            collect_matches(document, child, &child_ancestors, selectors, out)?;
-        }
-    } else {
-        // The document root and non-element nodes never match and do not extend
-        // the ancestor chain, but their element descendants are still visited.
-        for &child in document.children(id)? {
-            collect_matches(document, child, ancestors, selectors, out)?;
-        }
+    if matches!(document.node(id)?.kind, NodeKind::Element(_))
+        && any_selector_matches(document, id, selectors)?
+    {
+        out.push(id);
+    }
+    for &child in document.children(id)? {
+        collect_matches(document, child, selectors, out)?;
     }
     Ok(())
+}
+
+/// Does any selector in the list match the element at `id`?
+fn any_selector_matches(
+    document: &Document,
+    id: NodeId,
+    selectors: &[Selector],
+) -> MochaResult<bool> {
+    for selector in selectors {
+        if selector_matches(document, id, selector)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Build a styled tree for `document` using the given author `stylesheets`.
@@ -448,7 +449,7 @@ pub fn build_style_tree(
 ) -> MochaResult<StyledNode> {
     let root_id = document.root_id();
     let root_style = ComputedStyle::initial();
-    let children = build_children(document, root_id, stylesheets, &root_style, &[])?;
+    let children = build_children(document, root_id, stylesheets, &root_style)?;
     Ok(StyledNode {
         node_id: root_id,
         text: None,
@@ -464,11 +465,10 @@ fn build_children(
     parent_id: NodeId,
     stylesheets: &[Stylesheet],
     parent_style: &ComputedStyle,
-    ancestors: &[ElementDescriptor],
 ) -> MochaResult<Vec<StyledNode>> {
     let mut styled_children = Vec::new();
     for &child in document.children(parent_id)? {
-        if let Some(node) = build_node(document, child, stylesheets, parent_style, ancestors)? {
+        if let Some(node) = build_node(document, child, stylesheets, parent_style)? {
             styled_children.push(node);
         }
     }
@@ -480,17 +480,13 @@ fn build_node(
     id: NodeId,
     stylesheets: &[Stylesheet],
     parent_style: &ComputedStyle,
-    ancestors: &[ElementDescriptor],
 ) -> MochaResult<Option<StyledNode>> {
     match &document.node(id)?.kind {
         NodeKind::Element(data) => {
-            let descriptor = ElementDescriptor::from_element(data);
-            let values = specified_values(data, &descriptor, stylesheets, ancestors)?;
+            let values = specified_values(document, id, data, stylesheets)?;
             let style = ComputedStyle::from_values(&values, parent_style);
 
-            let mut child_ancestors = ancestors.to_vec();
-            child_ancestors.push(descriptor);
-            let mut children = build_children(document, id, stylesheets, &style, &child_ancestors)?;
+            let mut children = build_children(document, id, stylesheets, &style)?;
 
             // A list item gets its marker as leading inline text (Mocha has no
             // list-item box model). The marker reuses the `<li>`'s own node id.
@@ -535,10 +531,10 @@ fn build_node(
 
 /// Run the cascade for one element and return its specified property values.
 fn specified_values(
+    document: &Document,
+    id: NodeId,
     data: &ElementData,
-    descriptor: &ElementDescriptor,
     stylesheets: &[Stylesheet],
-    ancestors: &[ElementDescriptor],
 ) -> MochaResult<HashMap<CssProperty, CssValue>> {
     let mut values: HashMap<CssProperty, CssValue> = HashMap::new();
 
@@ -553,7 +549,7 @@ fn specified_values(
         for rule in &sheet.rules {
             let mut best: Option<Specificity> = None;
             for selector in &rule.selectors {
-                if selector_matches(selector, descriptor, ancestors) {
+                if selector_matches(document, id, selector)? {
                     let specificity = selector.specificity();
                     if best.is_none_or(|current| specificity > current) {
                         best = Some(specificity);
@@ -1153,10 +1149,14 @@ mod tests {
     }
 
     #[test]
-    fn query_selector_rejects_unsupported_selector() {
+    fn query_selector_handles_extended_and_unknown_selectors() {
         let document = Document::new();
-        assert!(query_selector(&document, "p:hover").is_err());
-        assert!(query_selector(&document, "div > p").is_err());
+        // `:hover` (inert) and the child combinator now parse; on an empty
+        // document they simply match nothing.
+        assert_eq!(query_selector(&document, "p:hover").unwrap(), None);
+        assert_eq!(query_selector(&document, "div > p").unwrap(), None);
+        // A genuinely unknown pseudo-class still errors.
+        assert!(query_selector(&document, "p:totally-unknown").is_err());
     }
 
     #[test]

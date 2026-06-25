@@ -869,6 +869,7 @@ dependencies = [
  "mocha_css",
  "mocha_dom",
  "mocha_error",
+ "mocha_html",
 ]
 
 [[package]]

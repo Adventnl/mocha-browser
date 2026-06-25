@@ -750,9 +750,11 @@ mod tests {
     #[test]
     fn unsupported_css_is_skipped_not_fatal() {
         // A stylesheet using unsupported CSS must not abort the page; the content
-        // still renders and the skip is recorded as a diagnostic.
+        // still renders and the skip is recorded as a diagnostic. `transform` is
+        // an unsupported property, so its declaration is skipped per-declaration
+        // while `color` still applies.
         let page = render_html(
-            r#"<html><body><style>p:hover { color: rgb(1, 2, 3); }</style><p>Hi</p></body></html>"#,
+            r#"<html><body><style>p { transform: rotate(1deg); color: rgb(1, 2, 3); }</style><p>Hi</p></body></html>"#,
             &RenderOptions::default(),
         )
         .unwrap();

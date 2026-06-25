@@ -149,17 +149,45 @@ path = "css/unsupported-media-query.html"
 category = "css"
 expect_contains = "DrawText \"x\""
 
+# A dynamic pseudo-class parses but is inert in a static render: the rule is
+# retained, never matched, so the text renders with UA defaults (no fake state).
 [[test]]
-name = "css_unsupported_pseudo_class_skipped"
+name = "css_dynamic_pseudo_class_inert"
 path = "css/unsupported-pseudo-class.html"
 category = "css"
 expect_contains = "DrawText \"x\""
 
+# Milestone 24 selectors that now apply styling: the targeted element turns
+# green (#008000), proving the selector matched.
 [[test]]
-name = "css_unsupported_attribute_selector_skipped"
-path = "css/unsupported-attribute-selector.html"
+name = "css_attribute_selector"
+path = "css/attribute-selector.html"
 category = "css"
-expect_contains = "DrawText \"x\""
+expect_contains = "color=#008000"
+
+[[test]]
+name = "css_child_combinator"
+path = "css/child-combinator.html"
+category = "css"
+expect_contains = "color=#008000"
+
+[[test]]
+name = "css_next_sibling_combinator"
+path = "css/next-sibling-combinator.html"
+category = "css"
+expect_contains = "color=#008000"
+
+[[test]]
+name = "css_nth_child_pseudo"
+path = "css/nth-child.html"
+category = "css"
+expect_contains = "color=#008000"
+
+[[test]]
+name = "css_not_pseudo"
+path = "css/not-pseudo.html"
+category = "css"
+expect_contains = "color=#008000"
 
 [[test]]
 name = "css_unsupported_rgb_function_skipped"

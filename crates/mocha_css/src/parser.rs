@@ -12,8 +12,9 @@ use mocha_error::{MochaError, MochaResult};
 
 use crate::tokenizer::{tokenize, CssToken};
 use crate::{
-    named_color, parse_hex_color, CompoundSelector, CssProperty, CssValue, Declaration, Selector,
-    SimpleSelector, StyleRule, Stylesheet,
+    named_color, parse_hex_color, AttributeMatch, AttributeSelector, Combinator, CompoundSelector,
+    CssProperty, CssValue, Declaration, Nth, PseudoClass, Selector, SimpleSelector, StyleRule,
+    Stylesheet,
 };
 
 /// Parse a complete stylesheet (`selector { decls } …`).
@@ -97,6 +98,68 @@ pub fn parse_inline_style(input: &str) -> MochaResult<Vec<Declaration>> {
         }
     }
     Ok(declarations)
+}
+
+/// Can `token` begin a compound selector? Used to tell a descendant combinator
+/// (whitespace then a compound) from trailing whitespace.
+fn starts_compound(token: &CssToken) -> bool {
+    matches!(
+        token,
+        CssToken::Ident(_)
+            | CssToken::Star
+            | CssToken::Hash(_)
+            | CssToken::Dot
+            | CssToken::Colon
+            | CssToken::Delim('[')
+    )
+}
+
+/// Interpret the whitespace-free token run of an `:nth-*` argument as `an+b`.
+fn nth_from_tokens(tokens: &[CssToken]) -> Option<Nth> {
+    let mut text = String::new();
+    for token in tokens {
+        match token {
+            CssToken::Ident(name) => text.push_str(&name.to_ascii_lowercase()),
+            CssToken::Number(n) => text.push_str(&(*n as i64).to_string()),
+            CssToken::Dimension(n, unit) => {
+                text.push_str(&(*n as i64).to_string());
+                text.push_str(&unit.to_ascii_lowercase());
+            }
+            CssToken::Delim(c) => text.push(*c),
+            _ => return None,
+        }
+    }
+    parse_anplusb(&text)
+}
+
+/// Parse the `an+b` micro-grammar from a compact string such as `2n+1`, `odd`,
+/// `-n+3`, or `5`.
+fn parse_anplusb(text: &str) -> Option<Nth> {
+    match text {
+        "odd" => return Some(Nth { a: 2, b: 1 }),
+        "even" => return Some(Nth { a: 2, b: 0 }),
+        _ => {}
+    }
+    match text.find('n') {
+        Some(n_index) => {
+            let a = match &text[..n_index] {
+                "" | "+" => 1,
+                "-" => -1,
+                other => other.parse::<i32>().ok()?,
+            };
+            let rest = &text[n_index + 1..];
+            let b = if rest.is_empty() {
+                0
+            } else {
+                rest.strip_prefix('+').unwrap_or(rest).parse::<i32>().ok()?
+            };
+            Some(Nth { a, b })
+        }
+        None => Some(Nth {
+            a: 0,
+            b: text.parse::<i32>().ok()?,
+        }),
+    }
 }
 
 struct Parser {
@@ -295,18 +358,42 @@ impl Parser {
     }
 
     fn parse_selector(&mut self) -> MochaResult<Selector> {
-        let mut parts = Vec::new();
-        loop {
+        self.skip_whitespace();
+        let mut parts = vec![self.parse_compound_selector()?];
+        let mut combinators = Vec::new();
+        while let Some(combinator) = self.parse_combinator()? {
             self.skip_whitespace();
-            match self.peek() {
-                None | Some(CssToken::Comma) | Some(CssToken::LeftBrace) => break,
-                _ => parts.push(self.parse_compound_selector()?),
+            parts.push(self.parse_compound_selector()?);
+            combinators.push(combinator);
+        }
+        Ok(Selector { parts, combinators })
+    }
+
+    /// After a compound selector, read the combinator (if any) that leads to the
+    /// next compound. Returns `None` at the end of this selector (`,`, `{`, EOF).
+    /// An explicit `>`/`+`/`~` (with optional surrounding whitespace) wins over a
+    /// plain descendant; bare whitespace before another compound is descendant.
+    fn parse_combinator(&mut self) -> MochaResult<Option<Combinator>> {
+        let had_whitespace = matches!(self.peek(), Some(CssToken::Whitespace));
+        self.skip_whitespace();
+        match self.peek() {
+            Some(CssToken::Delim('>')) => {
+                self.pos += 1;
+                Ok(Some(Combinator::Child))
             }
+            Some(CssToken::Delim('+')) => {
+                self.pos += 1;
+                Ok(Some(Combinator::NextSibling))
+            }
+            Some(CssToken::Delim('~')) => {
+                self.pos += 1;
+                Ok(Some(Combinator::SubsequentSibling))
+            }
+            Some(token) if had_whitespace && starts_compound(token) => {
+                Ok(Some(Combinator::Descendant))
+            }
+            _ => Ok(None),
         }
-        if parts.is_empty() {
-            return Err(MochaError::Parse("expected a selector".to_string()));
-        }
-        Ok(Selector { parts })
     }
 
     fn parse_compound_selector(&mut self) -> MochaResult<CompoundSelector> {
@@ -340,27 +427,19 @@ impl Parser {
                     }
                 }
                 Some(CssToken::Colon) => {
-                    return Err(MochaError::UnsupportedFeature(
-                        "pseudo-classes and pseudo-elements are not supported in Milestone 2"
-                            .to_string(),
-                    ))
-                }
-                Some(CssToken::Delim(c @ ('>' | '+' | '~'))) => {
-                    return Err(MochaError::UnsupportedFeature(format!(
-                        "selector combinator '{c}' is not supported in Milestone 2 (only descendant)"
-                    )))
+                    simple_selectors.push(self.parse_pseudo()?);
                 }
                 Some(CssToken::Delim('[')) => {
-                    return Err(MochaError::UnsupportedFeature(
-                        "attribute selectors are not supported in Milestone 2".to_string(),
-                    ))
+                    simple_selectors.push(self.parse_attribute_selector()?);
                 }
                 Some(CssToken::Delim('@')) => {
                     return Err(MochaError::UnsupportedFeature(
-                        "at-rules (such as @media and @import) are not supported in Milestone 2"
+                        "at-rules (such as @media and @import) are not valid in a selector"
                             .to_string(),
                     ))
                 }
+                // `>`, `+`, `~`, whitespace, `,`, `{`, and EOF all end a compound;
+                // combinators are handled by `parse_combinator`.
                 _ => break,
             }
         }
@@ -368,6 +447,231 @@ impl Parser {
             return Err(MochaError::Parse("expected a simple selector".to_string()));
         }
         Ok(CompoundSelector { simple_selectors })
+    }
+
+    /// Parse an attribute selector starting at `[`: `[name]`, `[name=value]`,
+    /// `[name~=value]`, `[name|=value]`, `[name^=value]`, `[name$=value]`, or
+    /// `[name*=value]`. The value may be an identifier or a quoted string.
+    fn parse_attribute_selector(&mut self) -> MochaResult<SimpleSelector> {
+        self.pos += 1; // consume '['
+        self.skip_whitespace();
+        let name = match self.peek() {
+            Some(CssToken::Ident(name)) => {
+                let name = name.to_ascii_lowercase();
+                self.pos += 1;
+                name
+            }
+            other => {
+                return Err(MochaError::Parse(format!(
+                    "expected an attribute name after '[', found {other:?}"
+                )))
+            }
+        };
+        self.skip_whitespace();
+
+        // An optional prefix character before the `=` selects the match kind.
+        // `*` arrives as its own `Star` token, the rest as `Delim`s.
+        let prefix = match self.peek() {
+            Some(CssToken::Star) => {
+                self.pos += 1;
+                Some('*')
+            }
+            Some(CssToken::Delim(c @ ('~' | '|' | '^' | '$'))) => {
+                let c = *c;
+                self.pos += 1;
+                Some(c)
+            }
+            _ => None,
+        };
+
+        let matcher = if prefix.is_none() && matches!(self.peek(), Some(CssToken::Delim(']'))) {
+            AttributeMatch::Exists
+        } else {
+            match self.peek() {
+                Some(CssToken::Delim('=')) => self.pos += 1,
+                other => {
+                    return Err(MochaError::Parse(format!(
+                        "expected '=' in attribute selector, found {other:?}"
+                    )))
+                }
+            }
+            self.skip_whitespace();
+            let value = match self.peek() {
+                Some(CssToken::Ident(value)) => {
+                    let value = value.clone();
+                    self.pos += 1;
+                    value
+                }
+                Some(CssToken::Str(value)) => {
+                    let value = value.clone();
+                    self.pos += 1;
+                    value
+                }
+                other => {
+                    return Err(MochaError::Parse(format!(
+                        "expected an attribute value, found {other:?}"
+                    )))
+                }
+            };
+            match prefix {
+                None => AttributeMatch::Equals(value),
+                Some('~') => AttributeMatch::Includes(value),
+                Some('|') => AttributeMatch::DashMatch(value),
+                Some('^') => AttributeMatch::Prefix(value),
+                Some('$') => AttributeMatch::Suffix(value),
+                Some('*') => AttributeMatch::Substring(value),
+                Some(other) => {
+                    return Err(MochaError::Parse(format!(
+                        "unsupported attribute matcher '{other}='"
+                    )))
+                }
+            }
+        };
+
+        self.skip_whitespace();
+        match self.peek() {
+            Some(CssToken::Delim(']')) => self.pos += 1,
+            other => {
+                return Err(MochaError::Parse(format!(
+                    "expected ']' to close attribute selector, found {other:?}"
+                )))
+            }
+        }
+        Ok(SimpleSelector::Attribute(AttributeSelector {
+            name,
+            matcher,
+        }))
+    }
+
+    /// Parse a pseudo-class or pseudo-element starting at `:`. A leading `::`
+    /// marks a pseudo-element, which is parsed but inert. Functional pseudos
+    /// (`:nth-child(…)`, `:not(…)`) consume a parenthesised argument.
+    fn parse_pseudo(&mut self) -> MochaResult<SimpleSelector> {
+        self.pos += 1; // consume ':'
+        let is_element = if matches!(self.peek(), Some(CssToken::Colon)) {
+            self.pos += 1; // consume the second ':'
+            true
+        } else {
+            false
+        };
+        let name = match self.peek() {
+            Some(CssToken::Ident(name)) => {
+                let name = name.to_ascii_lowercase();
+                self.pos += 1;
+                name
+            }
+            other => {
+                return Err(MochaError::Parse(format!(
+                    "expected a pseudo-class name after ':', found {other:?}"
+                )))
+            }
+        };
+
+        // Pseudo-elements are parsed but never match in a static render.
+        if is_element {
+            return Ok(SimpleSelector::PseudoClass(PseudoClass::Inert(name)));
+        }
+
+        let pseudo = match name.as_str() {
+            "root" => PseudoClass::Root,
+            "empty" => PseudoClass::Empty,
+            "first-child" => PseudoClass::FirstChild,
+            "last-child" => PseudoClass::LastChild,
+            "only-child" => PseudoClass::OnlyChild,
+            "first-of-type" => PseudoClass::FirstOfType,
+            "last-of-type" => PseudoClass::LastOfType,
+            "only-of-type" => PseudoClass::OnlyOfType,
+            "nth-child" => PseudoClass::NthChild(self.parse_nth_argument()?),
+            "nth-last-child" => PseudoClass::NthLastChild(self.parse_nth_argument()?),
+            "nth-of-type" => PseudoClass::NthOfType(self.parse_nth_argument()?),
+            "nth-last-of-type" => PseudoClass::NthLastOfType(self.parse_nth_argument()?),
+            "not" => PseudoClass::Not(self.parse_not_argument()?),
+            // Dynamic pseudo-classes (and any unknown one): parsed, inert. State
+            // is never faked, so the rule is retained but never matches.
+            "hover" | "focus" | "focus-within" | "focus-visible" | "active" | "visited"
+            | "link" | "any-link" | "target" | "checked" | "enabled" | "disabled" | "required"
+            | "optional" | "valid" | "invalid" | "default" => PseudoClass::Inert(name),
+            other => {
+                return Err(MochaError::UnsupportedFeature(format!(
+                    "unsupported pseudo-class ':{other}'"
+                )))
+            }
+        };
+        Ok(SimpleSelector::PseudoClass(pseudo))
+    }
+
+    /// Parse a parenthesised `an+b` argument of an `:nth-*` pseudo-class.
+    fn parse_nth_argument(&mut self) -> MochaResult<Nth> {
+        let tokens = self.collect_parenthesised()?;
+        nth_from_tokens(&tokens)
+            .ok_or_else(|| MochaError::Parse("invalid :nth-* argument".to_string()))
+    }
+
+    /// Parse a parenthesised `:not(<compound>)` argument into its simple
+    /// selectors. Only a single compound (no combinators, no nested `:not`) is
+    /// supported.
+    fn parse_not_argument(&mut self) -> MochaResult<Vec<SimpleSelector>> {
+        match self.peek() {
+            Some(CssToken::Delim('(')) => self.pos += 1,
+            other => {
+                return Err(MochaError::Parse(format!(
+                    "expected '(' after ':not', found {other:?}"
+                )))
+            }
+        }
+        self.skip_whitespace();
+        let compound = self.parse_compound_selector()?;
+        if compound
+            .simple_selectors
+            .iter()
+            .any(|s| matches!(s, SimpleSelector::PseudoClass(PseudoClass::Not(_))))
+        {
+            return Err(MochaError::UnsupportedFeature(
+                "nested ':not()' is not supported".to_string(),
+            ));
+        }
+        self.skip_whitespace();
+        match self.peek() {
+            Some(CssToken::Delim(')')) => self.pos += 1,
+            other => {
+                return Err(MochaError::Parse(format!(
+                    "expected ')' to close ':not(', found {other:?}"
+                )))
+            }
+        }
+        Ok(compound.simple_selectors)
+    }
+
+    /// Collect the raw tokens inside a `( … )` group (the cursor must be just
+    /// before the `(`), dropping whitespace. Used for `:nth-*` arguments.
+    fn collect_parenthesised(&mut self) -> MochaResult<Vec<CssToken>> {
+        match self.peek() {
+            Some(CssToken::Delim('(')) => self.pos += 1,
+            other => {
+                return Err(MochaError::Parse(format!(
+                    "expected '(' after a functional pseudo-class, found {other:?}"
+                )))
+            }
+        }
+        let mut tokens = Vec::new();
+        loop {
+            match self.peek() {
+                None => {
+                    return Err(MochaError::Parse(
+                        "unterminated '(' in selector".to_string(),
+                    ))
+                }
+                Some(CssToken::Delim(')')) => {
+                    self.pos += 1;
+                    return Ok(tokens);
+                }
+                Some(CssToken::Whitespace) => self.pos += 1,
+                Some(token) => {
+                    tokens.push(token.clone());
+                    self.pos += 1;
+                }
+            }
+        }
     }
 
     /// Parse one `property: value;` and return the (possibly multiple, for
@@ -995,8 +1299,10 @@ mod tests {
         assert_eq!(selectors[1].parts.len(), 2); // descendant: div span
                                                  // A declaration block is not a selector list.
         assert!(super::parse_selector_list("p { color: red; }").is_err());
-        // Unsupported selector grammar still surfaces clearly.
-        assert!(super::parse_selector_list("p:hover").is_err());
+        // A dynamic pseudo-class now parses (it is inert, not an error).
+        assert!(super::parse_selector_list("p:hover").is_ok());
+        // A genuinely unknown pseudo-class still surfaces clearly.
+        assert!(super::parse_selector_list("p:totally-unknown").is_err());
         assert!(super::parse_selector_list("").is_err());
     }
 
@@ -1144,8 +1450,9 @@ mod tests {
 
     #[test]
     fn unsupported_selector_drops_only_that_rule() {
-        // A child-combinator rule is dropped, but neighbouring rules survive.
-        let sheet = parse_stylesheet("div > p { color: red; } a { color: blue; }").unwrap();
+        // An unknown pseudo-class is dropped, but neighbouring rules survive.
+        let sheet =
+            parse_stylesheet("p:totally-unknown { color: red; } a { color: blue; }").unwrap();
         assert_eq!(sheet.rules.len(), 1);
         assert_eq!(
             sheet.rules[0].selectors[0].parts[0].simple_selectors,
@@ -1179,8 +1486,8 @@ mod tests {
 
     #[test]
     fn mixed_partial_selector_list_keeps_supported_selectors() {
-        // `a, a:hover` keeps `a`, drops `a:hover`.
-        let rule = only_rule("a, a:hover { color: red; }");
+        // `a, a:totally-unknown` keeps `a`, drops the unknown-pseudo selector.
+        let rule = only_rule("a, a:totally-unknown { color: red; }");
         assert_eq!(rule.selectors.len(), 1);
         assert_eq!(
             rule.selectors[0].parts[0].simple_selectors,

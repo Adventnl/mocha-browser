@@ -1,6 +1,6 @@
 # Milestone Roadmap
 
-Mocha Browser is built one milestone at a time. **Milestones 1–23 are implemented
+Mocha Browser is built one milestone at a time. **Milestones 1–24 are implemented
 today**; everything after them is direction, not code. Each milestone lists its
 goal, what is explicitly not included, and how completion is verified.
 
@@ -361,12 +361,43 @@ goal, what is explicitly not included, and how completion is verified.
   `cargo run -p mocha_shell -- https://example.com/` renders the page text
   (which previously aborted on `<head>`).
 
-## Beyond Milestone 23 (direction, not code)
+## Milestone 24: Real-web CSS selector engine — complete
 
-- **Broaden CSS** (Milestone 24 direction): per-declaration error recovery (skip
-  the unsupported declaration, keep the rest of the sheet) plus the highest-impact
-  real-web features — `rgb()/rgba()/hsl()`, `%`/`em`/`rem`, `line-height`,
-  `text-align`, `font-family`, and common shorthands.
+- **Goal:** grow the selector engine from the original
+  type/class/id/universal/descendant subset to the grammar real pages are built
+  on, so author CSS that previously matched nothing now applies. Adds the child
+  (`>`), next-sibling (`+`), and subsequent-sibling (`~`) **combinators**;
+  **attribute selectors** (`[a]`, `[a=v]`, `[a~=v]`, `[a|=v]`, `[a^=v]`, `[a$=v]`,
+  `[a*=v]`, quoted values); and **structural pseudo-classes** (`:root`, `:empty`,
+  `:first/last/only-child`, `:first/last/only-of-type`, `:nth-child(an+b)` incl.
+  `odd`/`even`, `:nth-last-child`, `:nth-of-type`, `:nth-last-of-type`,
+  `:not(<compound>)`), with correct specificity. The matcher is **redesigned** to
+  navigate the DOM by `NodeId` (resolving combinators and sibling/structural
+  state) instead of a precomputed ancestor slice.
+- **Honest inertness:** dynamic pseudo-classes (`:hover`, `:focus`, `:active`,
+  `:visited`, `:link`, …) and pseudo-elements (`::before`, …) **parse but never
+  match** in a static render — the rule is retained, not dropped, and the dynamic
+  state is never faked.
+- **Not included:** generating boxes for `::before`/`::after`; live tracking of
+  `:hover`/`:focus` against pointer/focus state; `:is()`/`:where()`/`:has()`;
+  case-insensitive attribute matching (`[a=v i]`); namespaces; per-declaration CSS
+  value features beyond those already landed.
+- **Verification:** new `mocha_css` parser tests (combinators, attribute
+  matchers, `an+b`, `:not`, pseudo-element inertness, unknown-pseudo recovery);
+  new `mocha_style` matcher tests (one per selector family, matched against a real
+  parsed document); updated engine fail-open test; new `mocha_compat` fixtures
+  asserting attribute/child/sibling/`nth-child`/`:not` selectors actually apply
+  styling end-to-end; the `css_corpus_never_panics` crash test over malformed
+  selectors; `cargo fmt --all --check` and `cargo clippy --all-targets -D
+  warnings` clean.
+
+## Beyond Milestone 24 (direction, not code)
+
+- **Broaden CSS values further:** `font-family` into the M22 font matcher, more
+  shorthands, and skipping `@media`/`@font-face`/`@keyframes` value blocks while
+  keeping the rest of the sheet (most of the per-declaration recovery and
+  `rgb()/hsl()`, `%`/`em`/`rem`, `line-height`, `text-align` value support is
+  already in place).
 - **Grow the JavaScript engine** toward modern ECMAScript in honest increments
   (`try`/`catch`, classes, a real event loop + promises, `async`/`await`,
   modules), so more real pages' scripts run instead of being skipped.

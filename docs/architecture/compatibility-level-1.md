@@ -43,19 +43,29 @@ beyond the list above are out of scope and error clearly.
 
 ## Supported CSS subset
 
-- Selectors: type, class, id, universal, descendant, compound, selector lists.
+- Selectors: type, class, id, universal, compound, selector lists; the
+  descendant, child (`>`), next-sibling (`+`), and subsequent-sibling (`~`)
+  combinators; attribute selectors (`[a]`, `[a=v]`, `[a~=v]`, `[a|=v]`, `[a^=v]`,
+  `[a$=v]`, `[a*=v]`); and structural pseudo-classes (`:root`, `:empty`,
+  `:first-child`, `:last-child`, `:only-child`, `:first-of-type`,
+  `:last-of-type`, `:only-of-type`, `:nth-child(an+b)`, `:nth-last-child`,
+  `:nth-of-type`, `:nth-last-of-type`, `:not(<compound>)`). Dynamic
+  pseudo-classes (`:hover`, `:focus`, …) and pseudo-elements (`::before`, …)
+  parse but are **inert** — their rules are retained, never matched, so state is
+  never faked (Milestone 24).
 - Specificity, the cascade, inheritance, inline `style=""`, `<style>` blocks,
   external stylesheets (in document order).
-- Properties: `display` (`block`/`inline`/`none`), `color`, `background-color`,
-  `font-size`, `font-weight`, `width`, `height`, `margin`, `padding`,
-  `border-width`, `border-color`.
+- Properties: `display` (`block`/`inline`/`flex`/`none`), `color`,
+  `background-color`, `font-size`, `font-weight`, `width`, `height`, `margin`,
+  `padding`, `border-width`, `border-color`, `text-align`, `line-height`,
+  `border-radius`, and the flex properties.
 
-**Unsupported:** flexbox, grid, `position`, `float`, `z-index`, media queries,
-pseudo-classes, pseudo-elements, attribute selectors, combinators other than
-descendant, `calc()`, `var()`/custom properties, `rgb()`/`hsl()` colour
-functions, `@font-face`/web fonts, `url(...)`, animations, transitions,
-transforms. Unsupported properties fail the render with a clear
-`UnsupportedFeature` error.
+**Unsupported:** grid, `position`, `float`, `z-index`, media queries,
+`calc()`, `var()`/custom properties, `@font-face`/web fonts, `url(...)`,
+animations, transitions, transforms. Parsing is **forgiving** (CSS's own
+error-recovery model): an unsupported declaration, selector, or at-rule is
+skipped per-item and recorded as a render diagnostic, while the rest of the
+sheet still applies.
 
 ## Supported layout subset
 

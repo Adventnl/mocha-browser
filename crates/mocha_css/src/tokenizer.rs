@@ -13,6 +13,8 @@ use mocha_error::{MochaError, MochaResult};
 pub enum CssToken {
     /// An identifier such as `color` or `block`.
     Ident(String),
+    /// A quoted string such as `"text"` or `'text'`, stored without the quotes.
+    Str(String),
     /// A `#`-prefixed run (id selector or hex color), stored without the `#`.
     Hash(String),
     /// A unitless number.
@@ -68,6 +70,11 @@ pub fn tokenize(input: &str) -> MochaResult<Vec<CssToken>> {
             continue;
         }
 
+        if c == '"' || c == '\'' {
+            tokens.push(read_string(&chars, &mut pos)?);
+            continue;
+        }
+
         match c {
             ':' => push_single(&mut tokens, &mut pos, CssToken::Colon),
             ';' => push_single(&mut tokens, &mut pos, CssToken::Semicolon),
@@ -110,6 +117,35 @@ fn is_name_start(c: char) -> bool {
 
 fn is_name_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '-' || c == '_'
+}
+
+/// Read a quoted string (the cursor must be on the opening `"` or `'`). The
+/// returned token holds the contents without the surrounding quotes. A `\`
+/// escapes the next character. An unterminated string is a parse error.
+fn read_string(chars: &[char], pos: &mut usize) -> MochaResult<CssToken> {
+    let quote = chars[*pos];
+    *pos += 1;
+    let mut value = String::new();
+    while let Some(&c) = chars.get(*pos) {
+        if c == '\\' {
+            if let Some(&escaped) = chars.get(*pos + 1) {
+                value.push(escaped);
+                *pos += 2;
+                continue;
+            }
+            *pos += 1;
+            continue;
+        }
+        if c == quote {
+            *pos += 1;
+            return Ok(CssToken::Str(value));
+        }
+        value.push(c);
+        *pos += 1;
+    }
+    Err(MochaError::Parse(format!(
+        "unterminated CSS string: missing closing {quote}"
+    )))
 }
 
 /// Read an identifier-like name (used for idents, hash bodies, and units).
