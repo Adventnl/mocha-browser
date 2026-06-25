@@ -157,6 +157,14 @@ path = "css/unsupported-pseudo-class.html"
 category = "css"
 expect_contains = "DrawText \"x\""
 
+# `!important` wins over a more specific normal rule: the `<p>` is green
+# (#008000) even though `#x` (red) has higher selector specificity.
+[[test]]
+name = "css_important_beats_specificity"
+path = "css/important-beats-specificity.html"
+category = "css"
+expect_contains = "color=#008000"
+
 # Milestone 24 selectors that now apply styling: the targeted element turns
 # green (#008000), proving the selector matched.
 [[test]]

@@ -53,8 +53,9 @@ beyond the list above are out of scope and error clearly.
   pseudo-classes (`:hover`, `:focus`, …) and pseudo-elements (`::before`, …)
   parse but are **inert** — their rules are retained, never matched, so state is
   never faked (Milestone 24).
-- Specificity, the cascade, inheritance, inline `style=""`, `<style>` blocks,
-  external stylesheets (in document order).
+- Specificity, the cascade (per declaration: `!important` → origin → specificity
+  → source order), `!important`, inheritance, inline `style=""`, `<style>`
+  blocks, external stylesheets (in document order).
 - Properties: `display` (`block`/`inline`/`flex`/`none`), `color`,
   `background-color`, `font-size`, `font-weight`, `width`, `height`, `margin`,
   `padding`, `border-width`, `border-color`, `text-align`, `line-height`,

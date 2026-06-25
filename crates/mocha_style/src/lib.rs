@@ -1,12 +1,15 @@
 //! Computed style for Mocha Browser: extract `<style>` CSS, match selectors,
 //! run a small cascade with inheritance, and produce a styled tree.
 //!
-//! The cascade order is: user-agent defaults → author rules from `<style>` →
-//! inline `style` attributes. Within author rules, higher specificity wins and
-//! ties are broken by source order (later wins). The inherited properties are
-//! `color`, `font-size`, and `font-weight`; everything else uses its initial
-//! value when unset. This crate owns the default styles that `mocha_layout` used
-//! to hard-code. It does **no layout geometry**.
+//! The cascade runs per declaration, applying the lowest-priority first so the
+//! winner is applied last. Priority is, in order: `!important` (beats every
+//! normal declaration), origin (inline `style=""` beats author `<style>` rules,
+//! which beat user-agent defaults), selector specificity, then source order
+//! (later sheet / rule / declaration wins). The inherited properties are
+//! `color`, `font-size`, `font-weight`, `text-align`, and `line-height`;
+//! everything else uses its initial value when unset. This crate owns the
+//! default styles that `mocha_layout` used to hard-code. It does **no layout
+//! geometry**.
 
 mod matching;
 
@@ -17,8 +20,8 @@ use std::collections::HashMap;
 
 use matching::selector_matches;
 use mocha_css::{
-    parse_inline_style, parse_selector_list, parse_stylesheet, CssProperty, CssValue, Declaration,
-    Selector, Specificity, Stylesheet,
+    parse_inline_style, parse_selector_list, parse_stylesheet, CssProperty, CssValue, Selector,
+    Specificity, Stylesheet,
 };
 use mocha_dom::{Document, ElementData, NodeKind};
 use mocha_error::MochaResult;
@@ -543,8 +546,13 @@ fn specified_values(
         values.insert(property, value);
     }
 
-    // 2. Author rules, applied in ascending cascade order so later-applied wins.
-    let mut matched: Vec<(Specificity, usize, usize, &[Declaration])> = Vec::new();
+    // 2. Author and inline declarations, gathered as per-declaration cascade
+    //    entries, then applied in ascending priority so the winner is applied
+    //    last. The sort key is (important, origin, specificity, sheet, source,
+    //    declaration index): `!important` wins over all normal declarations, then
+    //    inline beats author rules, then higher specificity, then later sheet /
+    //    rule / declaration — matching the CSS cascade (no user/layer origins).
+    let mut entries: Vec<CascadeEntry> = Vec::new();
     for (sheet_index, sheet) in stylesheets.iter().enumerate() {
         for rule in &sheet.rules {
             let mut best: Option<Specificity> = None;
@@ -557,30 +565,67 @@ fn specified_values(
                 }
             }
             if let Some(specificity) = best {
-                matched.push((
-                    specificity,
-                    sheet_index,
-                    rule.source_order,
-                    &rule.declarations,
-                ));
+                for (decl_index, declaration) in rule.declarations.iter().enumerate() {
+                    entries.push(CascadeEntry {
+                        important: declaration.important,
+                        origin: ORIGIN_AUTHOR,
+                        specificity,
+                        sheet_index,
+                        source_order: rule.source_order,
+                        decl_index,
+                        property: declaration.property,
+                        value: declaration.value.clone(),
+                    });
+                }
             }
         }
     }
-    matched.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
-    for (_, _, _, declarations) in matched {
-        for declaration in declarations {
-            values.insert(declaration.property, declaration.value.clone());
+    if let Some(inline) = data.attribute("style") {
+        for (decl_index, declaration) in parse_inline_style(inline)?.into_iter().enumerate() {
+            entries.push(CascadeEntry {
+                important: declaration.important,
+                origin: ORIGIN_INLINE,
+                specificity: Specificity::default(),
+                sheet_index: 0,
+                source_order: 0,
+                decl_index,
+                property: declaration.property,
+                value: declaration.value,
+            });
         }
     }
-
-    // 3. Inline style attribute (highest priority).
-    if let Some(inline) = data.attribute("style") {
-        for declaration in parse_inline_style(inline)? {
-            values.insert(declaration.property, declaration.value);
-        }
+    entries.sort_by_key(|e| {
+        (
+            e.important,
+            e.origin,
+            e.specificity,
+            e.sheet_index,
+            e.source_order,
+            e.decl_index,
+        )
+    });
+    for entry in entries {
+        values.insert(entry.property, entry.value);
     }
 
     Ok(values)
+}
+
+/// Cascade origin ranks (lower applies first). Inline `style=""` beats author
+/// rules at the same importance.
+const ORIGIN_AUTHOR: u8 = 0;
+const ORIGIN_INLINE: u8 = 1;
+
+/// One declaration competing in the cascade for a single element.
+struct CascadeEntry {
+    important: bool,
+    origin: u8,
+    specificity: Specificity,
+    sheet_index: usize,
+    source_order: usize,
+    decl_index: usize,
+    property: CssProperty,
+    value: CssValue,
 }
 
 /// The user-agent default declarations for a tag.
@@ -844,6 +889,49 @@ mod tests {
         document.append_child(root, p).unwrap();
 
         let sheets = vec![parse_stylesheet("p { color: red; } p { color: green; }").unwrap()];
+        let tree = build_style_tree(&document, &sheets).unwrap();
+        assert_eq!(tree.children[0].style.color, Color::rgb(0, 128, 0));
+    }
+
+    #[test]
+    fn important_beats_higher_specificity() {
+        let mut document = Document::new();
+        let root = document.root_id();
+        let p = document.create_element("p", vec![attr("id", "intro")]);
+        document.append_child(root, p).unwrap();
+
+        // The id selector is more specific, but the type rule is `!important`.
+        let sheets =
+            vec![
+                parse_stylesheet("#intro { color: red; } p { color: green !important; }").unwrap(),
+            ];
+        let tree = build_style_tree(&document, &sheets).unwrap();
+        let styled = find_by_id(&tree, &document, "intro").unwrap();
+        assert_eq!(styled.style.color, Color::rgb(0, 128, 0));
+    }
+
+    #[test]
+    fn important_author_beats_normal_inline() {
+        let mut document = Document::new();
+        let root = document.root_id();
+        let p = document.create_element("p", vec![attr("style", "color: red")]);
+        document.append_child(root, p).unwrap();
+
+        // Inline normally beats author rules, but an `!important` author rule
+        // beats a normal inline declaration.
+        let sheets = vec![parse_stylesheet("p { color: green !important; }").unwrap()];
+        let tree = build_style_tree(&document, &sheets).unwrap();
+        assert_eq!(tree.children[0].style.color, Color::rgb(0, 128, 0));
+    }
+
+    #[test]
+    fn important_inline_beats_important_author() {
+        let mut document = Document::new();
+        let root = document.root_id();
+        let p = document.create_element("p", vec![attr("style", "color: green !important")]);
+        document.append_child(root, p).unwrap();
+
+        let sheets = vec![parse_stylesheet("p { color: red !important; }").unwrap()];
         let tree = build_style_tree(&document, &sheets).unwrap();
         assert_eq!(tree.children[0].style.color, Color::rgb(0, 128, 0));
     }

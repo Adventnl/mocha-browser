@@ -702,20 +702,29 @@ impl Parser {
         }
 
         let mut value_tokens = self.collect_value_tokens();
-        // Drop a trailing `!important` (priority is not modelled) and keep the
-        // declaration rather than discarding it.
-        if let Some(bang) = value_tokens
+        // A trailing `!important` raises the declaration's cascade priority. Split
+        // it off the value tokens and remember it; the cascade applies it.
+        let important = if let Some(bang) = value_tokens
             .iter()
             .position(|token| matches!(token, CssToken::Delim('!')))
         {
             value_tokens.truncate(bang);
-        }
+            true
+        } else {
+            false
+        };
         if value_tokens.is_empty() {
             return Err(MochaError::Parse(format!(
                 "property '{property_name}' has no value"
             )));
         }
-        build_declarations(&property_name, &value_tokens)
+        let mut declarations = build_declarations(&property_name, &value_tokens)?;
+        if important {
+            for declaration in &mut declarations {
+                declaration.important = true;
+            }
+        }
+        Ok(declarations)
     }
 
     /// Collect the non-whitespace value tokens up to (but not consuming) the
@@ -750,9 +759,19 @@ impl Parser {
     }
 }
 
+/// Construct a normal-priority declaration. `parse_declaration` flips
+/// `important` afterwards when the source carried `!important`.
+fn decl(property: CssProperty, value: CssValue) -> Declaration {
+    Declaration {
+        property,
+        value,
+        important: false,
+    }
+}
+
 /// Map a property name plus its value tokens to one or more declarations.
 fn build_declarations(name: &str, tokens: &[CssToken]) -> MochaResult<Vec<Declaration>> {
-    let single = |property: CssProperty, value: CssValue| vec![Declaration { property, value }];
+    let single = |property: CssProperty, value: CssValue| vec![decl(property, value)];
 
     match name {
         "display" => Ok(single(CssProperty::Display, display_value(tokens)?)),
@@ -914,10 +933,7 @@ fn flex_shorthand(tokens: &[CssToken]) -> MochaResult<Vec<Declaration>> {
             })
             .unwrap_or(1.0),
     };
-    Ok(vec![Declaration {
-        property: CssProperty::FlexGrow,
-        value: CssValue::Number(grow),
-    }])
+    Ok(vec![decl(CssProperty::FlexGrow, CssValue::Number(grow))])
 }
 
 /// `font-weight`: `bold`/`bolder` (and numeric ≥ 600) are bold, else normal.
@@ -971,18 +987,12 @@ fn line_height_value(tokens: &[CssToken]) -> MochaResult<CssValue> {
 fn background_shorthand(tokens: &[CssToken]) -> MochaResult<Vec<Declaration>> {
     for token in tokens {
         if let Ok(CssValue::Color(c)) = color(std::slice::from_ref(token)) {
-            return Ok(vec![Declaration {
-                property: CssProperty::BackgroundColor,
-                value: CssValue::Color(c),
-            }]);
+            return Ok(vec![decl(CssProperty::BackgroundColor, CssValue::Color(c))]);
         }
     }
     // rgb()/hsl() span several tokens; try the whole list too.
     if let Ok(value @ CssValue::Color(_)) = color(tokens) {
-        return Ok(vec![Declaration {
-            property: CssProperty::BackgroundColor,
-            value,
-        }]);
+        return Ok(vec![decl(CssProperty::BackgroundColor, value)]);
     }
     Err(MochaError::UnsupportedFeature(
         "background shorthand without a usable color".to_string(),
@@ -995,15 +1005,9 @@ fn border_shorthand(tokens: &[CssToken]) -> MochaResult<Vec<Declaration>> {
     let mut decls = Vec::new();
     for token in tokens {
         if let Ok(value) = length(std::slice::from_ref(token)) {
-            decls.push(Declaration {
-                property: CssProperty::BorderWidth,
-                value,
-            });
+            decls.push(decl(CssProperty::BorderWidth, value));
         } else if let Ok(value @ CssValue::Color(_)) = color(std::slice::from_ref(token)) {
-            decls.push(Declaration {
-                property: CssProperty::BorderColor,
-                value,
-            });
+            decls.push(decl(CssProperty::BorderColor, value));
         }
     }
     if decls.is_empty() {
@@ -1045,22 +1049,10 @@ fn expand_box_shorthand(
         }
     };
     Ok(vec![
-        Declaration {
-            property: top,
-            value: t.clone(),
-        },
-        Declaration {
-            property: right,
-            value: r.clone(),
-        },
-        Declaration {
-            property: bottom,
-            value: b.clone(),
-        },
-        Declaration {
-            property: left,
-            value: l.clone(),
-        },
+        decl(top, t.clone()),
+        decl(right, r.clone()),
+        decl(bottom, b.clone()),
+        decl(left, l.clone()),
     ])
 }
 
@@ -1439,13 +1431,25 @@ mod tests {
     }
 
     #[test]
-    fn important_is_stripped_and_value_kept() {
+    fn important_is_recorded_and_value_kept() {
         let rule = only_rule("p { color: red !important; }");
         assert_eq!(rule.declarations.len(), 1);
         assert_eq!(
             rule.declarations[0].value,
             CssValue::Color(Color::rgb(255, 0, 0))
         );
+        assert!(rule.declarations[0].important);
+    }
+
+    #[test]
+    fn important_marks_every_expanded_longhand() {
+        // A shorthand with `!important` marks all of its longhands important.
+        let rule = only_rule("p { margin: 4px !important; }");
+        assert_eq!(rule.declarations.len(), 4);
+        assert!(rule.declarations.iter().all(|d| d.important));
+        // A normal declaration is not important.
+        let rule = only_rule("p { color: red; }");
+        assert!(!rule.declarations[0].important);
     }
 
     #[test]

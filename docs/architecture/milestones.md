@@ -373,7 +373,10 @@ goal, what is explicitly not included, and how completion is verified.
   `odd`/`even`, `:nth-last-child`, `:nth-of-type`, `:nth-last-of-type`,
   `:not(<compound>)`), with correct specificity. The matcher is **redesigned** to
   navigate the DOM by `NodeId` (resolving combinators and sibling/structural
-  state) instead of a precomputed ancestor slice.
+  state) instead of a precomputed ancestor slice. The cascade also gains real
+  **`!important`** support: it runs per declaration with priority `!important` →
+  origin (inline > author > UA) → specificity → source order, so `!important`
+  (previously parsed and stripped) correctly beats more specific normal rules.
 - **Honest inertness:** dynamic pseudo-classes (`:hover`, `:focus`, `:active`,
   `:visited`, `:link`, …) and pseudo-elements (`::before`, …) **parse but never
   match** in a static render — the rule is retained, not dropped, and the dynamic
@@ -386,10 +389,12 @@ goal, what is explicitly not included, and how completion is verified.
   matchers, `an+b`, `:not`, pseudo-element inertness, unknown-pseudo recovery);
   new `mocha_style` matcher tests (one per selector family, matched against a real
   parsed document); updated engine fail-open test; new `mocha_compat` fixtures
-  asserting attribute/child/sibling/`nth-child`/`:not` selectors actually apply
-  styling end-to-end; the `css_corpus_never_panics` crash test over malformed
-  selectors; `cargo fmt --all --check` and `cargo clippy --all-targets -D
-  warnings` clean.
+  asserting attribute/child/sibling/`nth-child`/`:not` selectors and `!important`
+  actually apply styling end-to-end; new `mocha_style` cascade tests
+  (`!important` beats specificity, important author beats normal inline, important
+  inline beats important author); the `css_corpus_never_panics` crash test over
+  malformed selectors; `cargo fmt --all --check` and `cargo clippy --all-targets
+  -D warnings` clean.
 
 ## Beyond Milestone 24 (direction, not code)
 

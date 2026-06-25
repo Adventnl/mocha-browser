@@ -161,6 +161,10 @@ pub struct Declaration {
     pub property: CssProperty,
     /// The parsed value.
     pub value: CssValue,
+    /// Whether the source declaration carried `!important`. Important
+    /// declarations win over all normal ones in the cascade, regardless of
+    /// selector specificity.
+    pub important: bool,
 }
 
 /// A simple selector: the smallest matching unit.
@@ -349,7 +353,7 @@ fn add_simple_specificity(simple: &SimpleSelector, spec: &mut Specificity) {
 
 /// Selector specificity. Ordering compares ids, then classes, then elements,
 /// which matches the CSS cascade's specificity precedence.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Specificity {
     /// Number of id selectors.
     pub ids: u32,
