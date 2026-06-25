@@ -1,0 +1,4 @@
+# The CEF binary distribution (~1 GB) and build output are downloaded/generated
+# by setup.sh / build.sh — never committed.
+cef/
+*.tar.bz2
